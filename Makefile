@@ -1,9 +1,8 @@
 .PHONY: builddate.i
 
-ifeq ($(OS),Windows_NT)
-	DATEOPS:= /t 
-else 
-	DATEOPS:= +"%Y-%m-%d"
+DATEOPS= /t 
+ifneq ($(OS),Windows_NT)
+DATEOPS= +"%Y-%m-%d"
 endif
 
 AS := vasmm68k_mot 
