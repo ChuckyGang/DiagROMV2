@@ -89,3 +89,15 @@ _begin:
 						; We will print the result on the serialport later.
 						
 		move.l	#0,d0			; Make sure D0 is cleared.
+
+
+POSTBusError:				; Hardcoded pointers
+POSTAddressError:			; if something is wrong rom starts at $0
+POSTIllegalError:			; so this will actually be pointers to
+POSTDivByZero:				; traps.
+POSTChkInst:
+POSTTrapV:
+POSTPrivViol:
+POSTTrace:
+POSTUnimplInst:
+		rts
