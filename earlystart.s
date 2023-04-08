@@ -96,7 +96,10 @@ _begin:
 
 		KPRINTC	AnsiNull
 
-		
+		jsr	_test_function(pc)
+
+		rts
+
 DumpSerial:
 		jmp	(a5)
 
@@ -110,3 +113,5 @@ POSTPrivViol:
 POSTTrace:
 POSTUnimplInst:
 		rts
+
+		cnop 0,16
