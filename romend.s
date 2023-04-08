@@ -1,3 +1,4 @@
+	section ".autovec"
 	XREF 	_romend
 	XREF 	_end
 _romend:

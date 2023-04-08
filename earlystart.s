@@ -1,7 +1,5 @@
 		include "earlymacros.i"
 
-		section "startup",code_p
-
 		XDEF	AnsiNull
 
 _start:

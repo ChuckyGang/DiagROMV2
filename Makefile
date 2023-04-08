@@ -11,7 +11,7 @@ LN := vlink
 OBJS := earlystart.o constants.o romend.o
 
 diagrom.rom: builddate.i $(OBJS)
-	$(LN) -t -x -Bstatic -Cvbcc -s -b amigahunk -mrel $(OBJS) -Rshort -o $@
+	$(LN) -t -x -Bstatic -Cvbcc -s -b rawbin1 -T link.txt $(OBJS) -M -o $@
 %.o: %.s 
 	$(AS) $(ASOPTS) $< -o $@
 builddate.i: 

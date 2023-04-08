@@ -1,0 +1,15 @@
+SECTIONS
+{
+  . = 0x00f80000;
+  .text :
+  {
+    *(.text)
+    *(CODE)
+  }
+
+  . = 0x00fffff0;
+  .autovec :
+  {
+    *(.autovec)
+  }
+}
