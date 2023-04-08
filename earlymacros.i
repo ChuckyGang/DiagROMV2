@@ -37,3 +37,23 @@ VBLT:		MACRO
 .vblt\@		btst	#14,$dff002
 		bne.s	.vblt\@
 		ENDM
+
+
+KPRINTSTR:	MACRO
+		; print a string passed as a paramter
+		lea	.txt\@,a0		
+		lea	.return\@,a5
+		bra	DumpSerial		
+.txt\@: 
+		dc.b \1, 
+		EVEN
+.return\@:
+		ENDM 
+
+KPRINTC: MACRO 
+		; print a contstant from a pointer
+		lea	\1,a0		
+		lea	.return\@,a5
+		bra	DumpSerial		
+.return\@:
+		ENDM 

@@ -2,6 +2,8 @@
 
 		section "startup",code_p
 
+		XDEF	AnsiNull
+
 _start:
 		dc.w $1114		; this just have to be here for ROM. code starts at $2
 
@@ -92,6 +94,13 @@ _begin:
 						
 		move.l	#0,d0			; Make sure D0 is cleared.
 
+
+
+		KPRINTC	AnsiNull
+
+		
+DumpSerial:
+		jmp	(a5)
 
 POSTBusError:				; Hardcoded pointers
 POSTAddressError:			; if something is wrong rom starts at $0
