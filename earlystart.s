@@ -1,5 +1,7 @@
 		include "earlymacros.i"
 
+		section "startup",code_p
+
 _start:
 		dc.w $1114		; this just have to be here for ROM. code starts at $2
 
