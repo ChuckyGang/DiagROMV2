@@ -1,9 +1,9 @@
 
 VER:	MACRO
-	dc.b "1"			; Versionnumber
+	dc.b "2"			; Versionnumber
 	ENDM
 REV:	MACRO
-	dc.b "2.1"			; Revisionmumber
+	dc.b "0 BETA"			; Revisionmumber
 	ENDM
 
 VERSION:	MACRO
@@ -12,11 +12,7 @@ VERSION:	MACRO
 	dc.b	"."
 	REV
 	ENDM
-
-EDITION:	MACRO
-;	dc.b	" - Revision Edition"
-	ENDM
-
+	
 PUSH:	MACRO
 	movem.l a0-a6/d0-d7,-(a7)	;Store all registers in the stack
 	ENDM
@@ -38,17 +34,26 @@ VBLT:		MACRO
 		bne.s	.vblt\@
 		ENDM
 
-
-KPRINTSTR:	MACRO
-		; print a string passed as a paramter
-		lea	.txt\@,a0		
-		lea	.return\@,a5
-		bra	DumpSerial		
-.txt\@: 
-		dc.b \1, 
-		EVEN
+DBINHEX: MACRO
+		; A0 points to string of content of D0 (byte)
+		lea .return\@,a5
+		bra DumpBinHex
 .return\@:
-		ENDM 
+		ENDM
+
+DBINDEC: MACRO
+		; A0 points to string of content of D0 (byte)
+		lea .return\@,a5
+		bra DumpBinDec
+.return\@:
+		ENDM
+
+KPRINT:	MACRO
+		; Dump to serialport what A0 points to
+		lea	.return\@,a5
+		bra	DumpSerial
+.return\@:
+		ENDM
 
 KPRINTC: MACRO 
 		; print a contstant from a pointer
