@@ -183,6 +183,9 @@ String:
 String2:
 		dc.b	"another string!!",$a,$d,0
 
+		dc.b	"Checksums:"
+		CNOP	0,4			; Start at even LONGWORD
+			
 Decnumbers:
 	dc.b "0",0,0,0
 	dc.b "1",0,0,0
