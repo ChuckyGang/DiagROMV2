@@ -62,3 +62,35 @@ KPRINTC: MACRO
 		bra	DumpSerial		
 .return\@:
 		ENDM 
+
+KPRINTLONG:	MACRO
+		; print out the longword of D0
+		move.l	d0,d5
+		asr.l	#8,d0
+		asr.l	#8,d0
+		asr.l	#8,d0
+		lea	.return1\@,a5
+		bra	DumpBinHex
+.return1\@:
+		KPRINT
+		move.l	d5,d0
+		asr.l	#8,d0
+		asr.l	#8,d0
+		lea	.return2\@,a5
+		bra	DumpBinHex
+.return2\@:
+		KPRINT
+		move.l	d5,d0
+		asr.l	#8,d0
+		lea	.return3\@,a5
+		bra	DumpBinHex
+.return3\@:
+		KPRINT
+		move.l	d5,d0
+		lea	.return4\@,a5
+		bra	DumpBinHex
+.return4\@:
+		KPRINT
+		ENDM
+
+

@@ -1,8 +1,10 @@
 .PHONY: builddate.i
 
 DATEOPS= /t 
+CP := copy
 ifneq ($(OS),Windows_NT)
 DATEOPS= +"%Y-%m-%d"
+CP := cp
 endif
 
 AS := vasmm68k_mot 
@@ -15,7 +17,7 @@ OBJS := earlystart.o constants.o test_c.o checksums.o autovec.o
 diagrom.rom: diagrom_nosum.bin
 	@echo
 	gcc checksum.c -o checksum
-	cp $< $@
+	$(CP) $< $@
 	./checksum $@
 diagrom_nosum.bin: $(OBJS)
 	$(LN) -t -x -Bstatic -Cvbcc -s -b rawbin1 -T link.txt $(OBJS) -M -o $@
