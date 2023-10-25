@@ -10,10 +10,8 @@
 
 
 _start:
-		dc.w $1114		; this just have to be here for ROM. code starts at $2
-
-		jmp	_begin
-	
+		dc.b	"DIAG"
+		dc.l	_begin	
 		dc.l	POSTBusError				; Hardcoded pointers
 		dc.l	POSTAddressError			; if something is wrong rom starts at $0
 		dc.l	POSTIllegalError			; so this will actually be pointers to
@@ -40,73 +38,65 @@ _strstop:
 
 		;cnop 0,16
 
-
 ; ******************************************************************************************************************
 ;
 ; Init of Diagrom, lets get started
 ;
 ; ******************************************************************************************************************
-
 	
 _begin:	
-
-		clr.l	d0
-		clr.l	d1
-		clr.l	d2
-		clr.l	d3
-		clr.l	d4
-		clr.l	d5
-		clr.l	d6
-		clr.l	d7
-		lea	$0,a0
-		lea	$0,a1
-		lea	$0,a2
-		lea	$0,a3
-		lea	$0,a4
-		lea	$0,a5
-		lea	$0,a6
-
-		lea	$0,SP			; Set the stack. BUT!!! do not use it yet. we need to check chipmem first! so meanwhile we use it as a dirty register
-
-		move.b	#$ff,$bfe200
-		move.b	#$ff,$bfe300
-
-		move.b	#0,$bfe001		; Clear register.
-		move.b	#$ff,$bfe301
-		move.b	#$0,$bfe101
-		move.b	#3,$bfe201	
-		move.b	#0,$bfe001		; Powerled will go ON! so user can see that CPU works.  you know.  ACTIVITY!  
-		move.b	#$40,$bfed01
-		move.w	#$f0f,$dff180		; Set color to magenta (you should not be able to see this)
-		move.w	#$ff00,$dff034
-		move.w	#$0ff,$dff180		; Set color to cyan
-		move.b	#$ff,$bfd300
-		or.b	#$f8,$bfd100
-		nop
-		and.b	#$87,$bfd100
-		nop
-		or.b	#$78,$bfd100
-
-		move.l	#POSTBusError,$8
-		move.l	#POSTAddressError,$c
-		move.l	#POSTIllegalError,$10
-		move.l	#POSTDivByZero,$14
-		move.l	#POSTChkInst,$18
-		move.l	#POSTTrapV,$1c
-		move.l	#POSTPrivViol,$20
-		move.l	#POSTTrace,$24
-		move.l	#POSTUnimplInst,$28
-		move.l	#POSTUnimplInst,$2c
-
-		move.b	#$88,$bfed01
-		or.b	#$40,$bfee01		; For keyboard
-						; We will print the result on the serialport later.
+	clr.l	d0
+	clr.l	d1
+	clr.l	d2
+	clr.l	d3
+	clr.l	d4
+	clr.l	d5
+	clr.l	d6
+	clr.l	d7
+	lea	$0,a0
+	lea	$0,a1
+	lea	$0,a2
+	lea	$0,a3
+	lea	$0,a4
+	lea	$0,a5
+	lea	$0,a6
+	lea	$0,SP			; Set the stack. BUT!!! do not use it yet. we need to check chipmem first! so meanwhile we use it as a dirty register
+	move.b	#$ff,$bfe200
+	move.b	#$ff,$bfe300
+	move.b	#0,$bfe001		; Clear register.
+	move.b	#$ff,$bfe301
+	move.b	#$0,$bfe101
+	move.b	#3,$bfe201	
+	move.b	#0,$bfe001		; Powerled will go ON! so user can see that CPU works.  you know.  ACTIVITY!  
+	move.b	#$40,$bfed01
+	move.w	#$f0f,$dff180		; Set color to magenta (you should not be able to see this)
+	move.w	#$ff00,$dff034
+	move.w	#$0ff,$dff180		; Set color to cyan
+	move.b	#$ff,$bfd300
+	or.b	#$f8,$bfd100
+	nop
+	and.b	#$87,$bfd100
+	nop
+	or.b	#$78,$bfd100
+	move.l	#POSTBusError,$8
+	move.l	#POSTAddressError,$c
+	move.l	#POSTIllegalError,$10
+	move.l	#POSTDivByZero,$14
+	move.l	#POSTChkInst,$18
+	move.l	#POSTTrapV,$1c
+	move.l	#POSTPrivViol,$20
+	move.l	#POSTTrace,$24
+	move.l	#POSTUnimplInst,$28
+	move.l	#POSTUnimplInst,$2c
+	move.b	#$88,$bfed01
+	or.b	#$40,$bfee01		; For keyboard
+					; We will print the result on the serialport later.
 						
 ;	Do an addresscheck on the ROM data.
 	
 	KPRINTC _diagRomTxt
 
-	; some writes to check some logicanalyzer shit at start.  just ignore :)  so addresslines and datalines steps up one bit at a time at startup
+; some writes to check some logicanalyzer shit at start.  just ignore :)  so addresslines and datalines steps up one bit at a time at startup
 	move.l	#%00000000000000000000000000000001,%00000000000000000000000000000000
 	move.b	#1,$1	; bytewrite as it is at an odd address
 	move.l	#%00000000000000000000000000000010,%00000000000000000000000000000010
@@ -152,8 +142,8 @@ _begin:
 	clr.l	d0					; Clear d0 that is a temporary statusregister
 			
 
-					; We will print the result on the serialport later.
-					
+; We will print the result on the serialport later.
+
 	btst	#6,$bfe001		; Check LMB port 1
 	bne	.NOP1LMB		; NOT pressed.. Skip to next
 	bset	#29,d0
@@ -186,7 +176,7 @@ _begin:
 
 	KPRINTC _Initmousetxt
 
-	;	Print out status of pressed buttons at poweron
+;	Print out status of pressed buttons at poweron
 	btst	#29,d0
 	beq	.pnop1lmb
 	KPRINTC _InitP1LMBtxt
@@ -216,17 +206,12 @@ _begin:
 	KPRINTC	_releasemousetxt
 .nopressed:
 
+
 ; ******************************************************************************************************************
 ;
 ; Check ROM Addressdata to see if romspace can be addressed correctly
 ;
 ; ******************************************************************************************************************
-
-
-
-
-
-
 	KPRINTC _diagRomCheckadrtxt
 _adrcheck:
 	lea	_endofcode,a2			; Load address of last used address in rom of the code. located in checksums.s that is in the end of the rom-code
@@ -245,7 +230,7 @@ _adrcheck:
 
 .cont:
 	sub.l	#1,d1				; Subtract 1 to d1
-	cmp.l	#0,d1				; chdck if it is 0
+	cmp.l	#0,d1				; check if it is 0
 	bne	.noprint			; if not, skip printing
 
 	move.l	d2,d1				; restore the number of bytes between "point" to be printed
@@ -269,433 +254,414 @@ _adrcheck:
 	add.l	#4,a2				; Add so we check next longword
 	cmp.l	a2,a1				; are we done?
 	bhi	.adrloop			; no.  lets do it one more time
-	bra	.done				; yeah DONE.  lets stop...
+	bra	done				; yeah DONE.  lets stop...
 .adrfail:
 	add.l	#1,d3				; Add 1 to D3, more or less just to tell we had an error
 	bra	.cont
-.done:
+
+done:
+
+; ******************************************************************************************************************
+;
+; Detect chipmem
+;
+; ******************************************************************************************************************
+
 
 	KPRINTC	_startMemDetectTxt
 
-	lea	$ffffffff,a1
-	lea	$0,a2
+	lea	$0,a6			; Start to detect ram at $400, as below that is cpu controlstuff only anyways.
+	lea	$0,a3
+.chiploop:
+	lea	.memcheckdone,a4
+	jmp	.memcheck
 
-; ******************************************************************************************************************
-;
-; 	Lets do some memorydetection. So lets scan memory from $400 and up to max 2MB. (we do not care about emulators doing more then 2MB chip)
-;	We scan 64k blocks, even if I think 256 is the least configuration available on any Amiga.
-;
-; ******************************************************************************************************************
+.memcheckdone:
+	; a2 == -1 if no mem was found
+	cmp.l	#-1,a2
+	bne		.noerr
+.a:	bra	.a
+	.noerr:
+	move.l	#-1,d1
+	move.l	#-1,d2
+	move.l	#-1,d3
+	move.l	#-1,d4
+	move.l	#-1,d5
+	move.l	#-1,d6
+	move.l	#-1,d7
+	lea	-1,a0
+	lea	-1,a1
+	lea	-1,a3
+	lea	-1,a5
+
+	lea	.adrcheckdone,a4		; Set address to jump to after check
+	jmp	.adrcheck			; Do a check of addresserrors of this block
+.adrcheckdone:
+	add.l	#4,a2				; ok this block is done, to be sure add 4 to get to next longword of next block if needed
+	move.l	a2,d2				; Copy address of end of block scanned to d2
+.noadrerr:
+	cmp.l	#$40000,d1
+	bge	.enoughmem
+	cmp.l	#$200000,d2
+	bge	.nochip
+	KPRINTC _notenoughtxt
+	asr.l	#8,d2
+	asr.l	#7,d2				; Divide next block by 64k
+	add.l	#1,d2				; add one!
+	asl.l	#8,d2
+	asl.l	#7,d2				; Multiply number with 64k to get next block
+	move.l	d2,a6
+	lea	$0,a3
+	clr.l	d4
+	bra	.chiploop
+.nochip:
+	bra	.nochip
+.enoughmem:
+	KPRINTC	_blockok
+	move.l	#-1,d0
+	move.l	#-1,d1
+	move.l	#-1,d2
+	move.l	#-1,d3
+	move.l	#-1,d4
+	move.l	#-1,d5
+	move.l	#-1,d6
+	move.l	#-1,d7
+	lea	-1,a0
+	lea	-1,a1
+	lea	-1,a2
+	lea	-1,a4
+	lea	-1,a5
+
+						; CHIPMEM TEST DONE!   A3 = end of block, A6 = Beginning of block
 
 
-
-	lea	$0,a6				; set A6 to $0 this is the first block we check. (even if TECHNICALLY everything below $400 will be ignored later)
-	clr.l	d4				; Clear the OK bit register
-.detectloop:
-
-	lea	memTestPattern,a4		; Get the testpattern
-	clr.l	d0				; Clear register for tempdata
-	clr.l	d1				; Clear register for readdata
-	clr.l	d2				; Clear register for "failurebits"
-.memcheckloop:
-	move.w	#$0f0,$dff180			; Set Screencolor to GREEN
-	move.l	(a4)+,d0			; get next value to test
-	move.l	d0,(a6)			; write it into ram.
-	nop					; Just wait some cycles.  
-	nop
-	move.l	#0,$3e0			; Write uninteresting data to an address we do NOT test all just to be sure we
-						; do not use data from a buffer or whatever.
-	nop					; just add some nop to wait some cycles
-	nop
-	move.l	(a6),d1			; read the real value
-	cmp.l	#$100000,a6
-	blt	.erro
-	cmp.l	#$120000,a6
-	bgt	.erro
-	bclr	#3,d1		; create an error
-	bset	#4,d1		; create another error
-.erro:
-	eor.l	d0,d1				; IF the read was the same as the write, d1 should be 0
-	or.l	d1,d2				; we OR in the data to d2, when all is done d2 will contain a list of all failed bits.
-	cmp.l	#0,d0				; was d0 zero, then we have tested all bitpatterns.
-	bne.s	.memcheckloop
-	cmp.l	#0,d2				; was it ok?
-	beq	.wehadnoerr
-	cmp.l	#$0,a2				; Check if A2 is 0
-	bne	.wehadnoerr			; no it wasn't so we do not print a newline
-	KPRINTC _newlinetxt			; Write a newline
-.wehadnoerr:
-	KPRINTC	_CheckAdrTxt		; Print out string about addr to be checked
-	move.l	a6,d0
-	KPRINTLONG				; Print out memaddress
-
-	cmp.l	#0,d2				; if d2 is 0 we had no errors and this memaddress should be fine!
-	beq	.okram
-						; d2 was bad.  we HAD errors.. lets print it out.
-	move.w	#$f00,$dff180			; Set sceencolor to RED.
-	bra	.badram			; Go to badram
-.okram:
-	cmp.l	#$ffffffff,a1				; Check if A1 is ffffffff?
-	bne	.nonewram			; no it wasn't so we already have a memstart
-	move.l	a6,a1				; ok we didn't have any new working ram. so make a note of where this block started.
-	move.l	#"MEM!",(a1)			; Write the string MEM! to first longword as a small test.
-	move.l	a7,d7
-	bset	#23,d7				; Ser bit 29 to tell we have found mem in block 1
-	move.l	d7,a7
-.nonewram:
-	cmp.l	#0,a2
-	beq	.firstblock
-	cmp.l	#"MEM2",(a3)			; did we have this stored already?
-	beq	.firstblock			; yes so skip
-	move.l	a6,a3				; so we already HAD a block  lets save data about this extrablock we found.
-	move.l	a7,d7
-	bset	#22,d7				; Ser bit 28 to tell we have found mem in block 2
-	move.l	d7,a7
-	move.l	#"MEM2",(a3)			; store a string to be able to test.
-
-.firstblock:
-	move.w	#$000,$dff180			; Set Screencolor to BLACK
-	add.l	#1,d4				; Add one to OK counter
-	lea	_OKtxt,a0			; Print we had ok memory
-	KPRINT	
-	move.l	d4,d0
-	DBINDEC				; Print number of OK blocks
-	KPRINT
-	KPRINTC _gobacktxt
-.nextram:
-
-	add.l	#64*1024,a6			; Add 64k for next block
-	cmp.l	#$200000,a6			; did we exceed 2MB of chipmem?
-	blt	.detectloop			; No, test more
-
-.badram:
-	cmp.l	#0,a3				; Check if A3 is 0, if not we had a 2:nd block of ram
-	bne	.wehad2nd
-	cmp.l	#$ffffffff,a1				; Check if A1 is 0, we had no good ram.
-	beq	.nogoodram
-	cmp.l	#0,a2				; had we already a end of a good block?
-	bne	.nogoodram			; Wrong label, but we had so skip ths..
-	move.l	a6,a2
-	move.l	a6,4(a1)			; Write the end of the block to 1nd longword at found block
-	bra	.nogoodram
-.wehad2nd:
-	move.l	a6,4(a3)
-.nogoodram:
-	cmp.l	#$1ff000,a6			; check again..  was we out of loop then we end
-	bgt	.wearedone
-	KPRINTC	_FAILEDtxt		; Write we had failed ram
-.ok:
-	move.l	#31,d1				; Make a loop to go through all bits
-.bitloop:
-	btst	d1,d2				; check if bit at D1 was ok or not
-	beq	.okbit				; it was, go to okbit
-	KPRINTC	_bitbadtxt		; it wasn't, write we had a bad bit
-.bitdone:
-	dbf	d1,.bitloop			; loop through all bits
-	KPRINTC	_newlinetxt
-	bra	.nextram			; Do next block
-.okbit:
-	KPRINTC	_bitoktxt		; Write good bit
-	bra	.bitdone			; loop
-
-.wearedone:
-
-	cmp.l	#$ffffffff,a1			; check if A1 had a real address
-	beq	.nochipfound
-	KPRINTC _newlinetxt
-	KPRINTC _blockfound
-	move.l	a1,d0
-	KPRINTLONG				; Print out memaddress
-	KPRINTC _andtxt
-	move.l	a2,d0
-	sub.l	#1,d0
-	KPRINTLONG				; Print out memaddress
-
-	cmp.l	#"MEM2",a3			; check if A3 had a real address
-	beq	.no2nd
-	KPRINTC _2ndblockfound
-	move.l	a3,d0
-	KPRINTLONG
-	KPRINTC _andtxt
-	move.l	4(a3),d0
-	sub.l	#1,d0
-	KPRINTLONG
-.no2nd:
-	.nochipfound:
-	; no chipmem found. fix this!
-; ******************************************************************************************************************
-;
-; Memoryblocks found, lets see if it can be correctly addressed
-;
-; ******************************************************************************************************************
-	lea	.after,a5
-	bra	CheckAdrErr
-.after:
-	swap	d3
-.after2:
-	cmp.w	#0,d3
-	bne.s	.after2
-.craploop:
+.aa:
 	move.b	$dff006,$dff181
-	bra	.craploop
-	;KPRINTC	String2
-
-;move.l	#255,d0
-;	DBINDEC
-;	KPRINT
-;	move.l	#255,d0
-;	DBINHEX
-;	KPRINT
+	bra	.aa
 
 
-	lea	_checksums,a0
-		
-		loop:
-			;move.b	$dff006,$dff181
-			bra	loop
-	
-
-		KPRINTC	AnsiNull
 
 
-;		End of earlystartup.  ok we have register in use lets document them here:
-;		A6 = pointer to first accessable memory to use as workspace, this pointer is static.  A6 is NOT to be touched as register
-; 		from this point. (with the ONLY exception of moduleplaying)
-;		A7 is a statusregister.. from this point.. this is explanation of all set bits:
-;
-;		Bit
-;		31	=	We had too many serial timeouts disable serial out
-;		30	=	We had an addresserror in romscan.
-;		23	=	We found chipmem at block 1
-;		22	=	We found chipmem at block 2
-
-POSTBusError:				; Hardcoded pointers
-POSTAddressError:			; if something is wrong rom starts at $0
-POSTIllegalError:			; so this will actually be pointers to
-POSTDivByZero:				; traps.
-POSTChkInst:
-POSTTrapV:
-POSTPrivViol:
-POSTTrace:
-POSTUnimplInst:
-		rts
 
 
-		DumpSerial:
-			move.l	a7,d7
-			btst	#31,d7				; Check if timeoutbit is set.. if so skip this
-			bne	.nomore
-			move.w	#$4000,$dff09a
-			move.w	#32,$dff032			; Set the speed of the serialport (115200BPS)
-			move.b	#$4f,$bfd000			; Set DTR high
-			move.w	#$0801,$dff09a
-			move.w	#$0801,$dff09c
-		
-			clr.l	d7				; Clear d7
-		.loop:
-			move.b	(a0)+,d7
-			cmp.b	#0,d7				; end of string?
-			beq	.nomore			; yes
-			clr.l	d6
-			move.l	#7000,d6			; Load d6 with a timeoutvariable. only test this number of times.
-								; if paula cannot tell if serial is output we will not end up in a wait-forever-loop.
-								; and as we cannot use timers. we have to do this dirty style of coding...
+.memcheck:					; IN:
+						;	A6 = Memadress to start scan from
+						;	A4 = jumpback address.
+						; OUT:
+						;	A2 = Start of found mem. if -1, none found
+						;	D3 = Number of 64K blocks found
+						;	D0 = Last memadress of mem found. (as a bonus due to printout)
+	move.l	a6,d6
+	and.l	#$ffff0000,d6			; mask out so we are at the beginning of a 64k block
+	move.l	d6,a6
+	clr.l	d6				; Make sure d6 is clean
+	clr.l	d3				; Clear blocks found
+	lea	-1,a2				; Set a2 to -1 so we know if we had a working block or not (-1 == no working block yet)
+.more:
+	clr.l	d2				; clear d2 that contains biterrordata
+	lea	_mempattern,a1		; load a1 with start of mempattern to test.
+.testmore:
+	cmpa.l	#$200000,a6			; Have we reached the end of chipmem?
+	bge	.comparedone			; YUPP!
+	move.l	(a1)+,d0		; load first value into d0
+	move.l	d0,(a6)			; write that value into where a1 points to.
+	nop
+	nop						; just do some nops.. to take some time.
+	move.l	(a6),d1			; load value where a1 points to d1
 
-			swap	d6				; Swap d6 so we use other 16 bits for other data (to not use too many registers)
-		.timeoutloop:	
-			move.b	$bfe001,d6			; just read crapdata, we do not care but reading from CIA is slow... for timeout stuff only
-			swap	d6				; Swap it back now again
-			sub.w	#1,d6				; count down timeout value
-			cmp.w	#0,d6				; if 0, timeout.
-			beq	.endloop
-			swap	d6
-			move.w	$dff018,d6
-			btst	#13,d6				; Check TBE bit
-			beq.s	.timeoutloop
-			bra	.notimeout
-		.endloop:
-			bchg	#1,$bfe001
-			swap	d6
-			move.w	d6,$dff180
-			swap	d7				; Swap d7, so we use the top 16 bits for a timeout-counter
-			add.w	#1,d7				; Add 1 to d7 that we had a (yet anoter?) timeout
-			cmp.w	#22,d7
-			beq	.onetoomany
-			swap	d7
-		.notimeout:
-			move.w	#$0100,d6
-			move.b	d7,d6
-			move.w	d6,$dff030			; send it to serial
-			move.w	#$0001,$dff09c		; turn off the TBE bit
-			bra.s	.loop
-		.nomore:
-			jmp	(a5)
-		.onetoomany:
-			; OK we had one too many timeouts
-			move.l	a7,d7
-			bset	#31,d7				; Ser bit 31 to tell we had too many serial timeouts
-			move.l	d7,a7
-			bra	.nomore			
+	cmpa.l	#128*1024,a6	; check to create an error
+	ble	.nott				; lines to be removed
+	cmpa.l	#1024*1024,a6
+	bge	.nott
+	;bset	#3,d1
+.nott:
 
-CheckAdrErr:	
-	move.l	a5,d2
-	move.l	a2,a4			; copy end of first block to a4.
+	;bclr	#1,d1			; create an error
+
+	eor.l	d0,d1				; eor value what was written to what was read, d1 now will contain what bits was different
+	or.l	d1,d2				; or that value into d2, so d2 will contain a list of all bad bits.
+	cmp.l	#0,d0				; Was d0 = 0 then we was at end of list, so this is fully tested.
+	bne	.testmore			; if not, do the loop some more
+
+	cmp.l	#0,d2				; if d2 was 0, then we had no errors.
+	beq	.noerror
+	move.w	#$f00,$dff180			; Set Red screencolor
+	cmpa.l	#-1,a2				; Check if we had found ram, if so this is the end of this block.
+	bne	.endblock
+	KPRINTC _newlinetxt			; We had an error, so print that
+	KPRINTC _addrtxt
+	move.l	a6,d0
+	KPRINTLONG
+	KPRINTC _Errortxt
+	move.w	#1,d6				; Set that we had an error
+	swap	d6					; Swap d6 so we can use other 16 bits for the loop
+	move.w	#31,d6				; Set counter to 31 for bits to print.   To be able to print out the biterrorpattern
+.loop:
+	btst	d6,d2				; Check if it was error on this bit or not
+	beq	.correct
+	KPRINTC	_errtxt		; it was, print an red X
+.goon:
+	dbf	d6,.loop			; Loop until all bits are done
+	swap d6						; Swap back d6 to use other 16 bits as a errordetectionvariable
+	bra	.donext			; ok we have handled the printing of the biterrorpattern so jump to donext
+.correct:
+	KPRINTC	_dashtxt		; no biterror, print a green -
+	bra	.goon				; goto loop
+
+
+.noerror:
+	cmp.w	#0,d6				; check d6 if lower d6 is 0, if it is we had no error
+	beq	.noformererror
+	KPRINTC _newlinetxt
+	clr.w	d6
+.noformererror
+	cmpa.l	#-1,a2				; If A2 is -1, we have not found any ram yet.
+	bne	.nonew
+	move.l	a6,a2				; Store the current address to a2 to mark as beginning of memblock.
+.nonew:
+	KPRINTC	_addrtxt
+	move.l	a6,d0
+	KPRINTLONG
+	KPRINTC	_memoktxt
+	add.l	#1,d3				; Add 1 to found blocks
+	move.l	d3,d0
+	DBINDEC
+	KPRINT
+	KPRINTC	_beginrowtxt
+.donext:
+
+	cmpa.l	#$200000,a6			; Have we reached the end of chipmem?
+	bge	.comparedone			; YUPP!
+	add.l	#64*1024,a6			; Add 64k to next block to look for
+	bra	.more				; And loop again
+
+.comparedone:
+	cmp.l	#-1,a2				; did we find any ram?
+	beq	.foundnomem
+	KPRINTC _hometxt			; we found mem.  make it look so last scanned mem is last address just for the look of it
+	KPRINTC _addrtxt
+	move.l	a6,d0
+	KPRINTLONG
+.foundnomem:
+	KPRINTC _newlinetxt
+	lea	-1,a6
+	jmp	(a4)				; Jump back after test
+.endblock:
+	KPRINTC _blockfoundtxt
 	move.l	a2,d0
-	move.l	a1,d1
-	sub.l	d1,d0			; D0 now contains how many bytes of memory found..
+	KPRINTLONG
+	KPRINTC _blockfound2txt
+	move.l	d3,d0
+	asl.l	#8,d0
+	asl.l	#8,d0
+	add.l	a2,d0
+	sub.l	#1,d0
+	KPRINTLONG
+	lea	-1,a6
+	jmp	(a4)				; Jump back after test
 
-	KPRINTC	_block1adrtxt
-	KPRINTC	_adrfilltxt
-	;IN:
-	;	A4 = End of block
-	;	D0 = Number of bytes of block
-	;	D1 = Start of block
-	;	sub.l	d0,a6
-	move.l	a4,a6
-	sub.l	d0,a6			; a6 now (temporary) contains a pointer to the beginning of the block
-	move.l	d0,d3			; make a copy of size to d3
-	asr.l	#2,d3			; get number of longwords to be written
-	asr.l	#5,d3
-	move.l	d3,d4
-	move.l	a6,d1
-	; usable registers:
-	;	d1,d2 (d0,d6,d7 until serial out)
-	; d3 is a countdown and d4 is a stored value of longwords between "."
-	.adrloop:
-		sub.l	#4,a4
+.adrcheck:					; Check for addresserrors
+; IN:
+						;	A2 = Startaddress
+						;	D0 = Endaddress
+						; OUT:
+						;	A2 = Startaddress of ok block -1 if none
+						;	A3 = endaddress of ok block
+						;	D1 = Bytes of ok mem
+						;	A2 = End of block originally scanned.
+	cmp.l	#-1,a2
+	beq	.nomemfound
+	KPRINTC	_adrtest
+	move.l	a2,d3
+	and.l	#$fffffffc,d3			; Make sure is is even to a longword
+	move.l	d3,a2
+	and.l	#$fffffffc,d0			; Make sure is is even to a longword
+	cmp.l	#$400,a2			; Check if begining is less then $400
+	bge	.nozero			; nope.. skip next
+	lea	$400,a2			; as we was at $0, set it to $400 not to screw up stuff
+.nozero:
+	move.l	d0,a1
+	sub.l	#4,a1				; a1 now contains a pointer to the last writeable longword in the block
+	move.l	a1,a3				; Store start in a3 as a backup for the readtest
+	move.l	d0,d2
+	sub.l	a2,d2
+	move.l	d2,d6				; number of bytes to fill
+	asr.l	#2,d6				; make it to longwords
+	asr.l	#6,d6				; calculate how many longwords to do before printing a "."
+	clr.l	d5				; Clear d5 used as a counter
+.adrcheckloop:
+	cmp.l	d5,d6				; Have we reached to end of longwords before printing a dot?
+	bne	.nodot
+	move.w	4(a1),$dff180
+	bchg	#1,$bfe001
+	KPRINTC _dottxt			; print dot
+	clr.l	d5				; clear counter
+.nodot:
+	move.l	a1,(a1)
+	sub.l	#4,a1
+	add.l	#1,d5				; Add counter
+	cmp.l	a2,a1
+	blt	.blockdone
+	bra	.adrcheckloop
+.blockdone:
+	add.l	#4,a1				; Make sure a1 now points to first longword again
+	KPRINTC _adrtest2
+	move.l	#-1,d1
+	move.l	#-1,d2
+	move.l	#-1,d3
+	move.l	#-1,d4
+	move.l	#-1,d5
+	move.l	#-1,d7
+	lea	-1,a0
+	lea	-1,a2
+	lea	-1,a3
+	lea	-1,a5
+	lea	-1,a6
+	clr.l	d4				; Clear d4 containing checkresultmask
+	clr.l	d5				; Clear counter
+	move.l	d0,a2				; copy end of block to a2
+.adrcheckloop2:
+	move.l	a1,d1				; d1 now contains address of a1
+	move.l	(a1),d0			; read what a1 points to do d0
+	;	bclr	#18,d0					;	CREATE AN ERROR!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	;move.l	#4424344,d0
+	eor.l	d0,d1				; if d1 is 0 we had a perfect match if not, it contains errorbits
+	cmp.l	#0,d1
+	beq	.noadrerror
+	or.l	d1,d4				; add in bad bits to d4
+	cmp.l	#-1,a3				; Check if we had an endblock of mem stored.
+	bne	.nonewend			; no new end, jump to nonewend
+	move.l	a1,a3				; store current address and end
+	bra	.nogood
+.nonewend:
+.noadrerror:
+	cmp.l	#-1,a6				; Check if we had a startaddress? if not. set it
+	bne	.nonewblock
+	cmp.l	#-1,a3				; Check if we had an end of block already, if so we have no beginning
+	bne	.nogood
+	move.l	a1,a6				; Store current address as start of this block
+.nogood:
 
-		move.l	a4,d7
-		bclr	#2,d7
-		move.l	d7,a0		;create error..  use a0 as temp instead of a4
 
-		move.l	a0,(a4)		; Write the address to the address,  so $400 contains $400 etc.
-		cmp.l	$400,a4
-		ble	.endloop		; If we are lower then $400 end this
-		cmp.l	a6,a4
-		beq	.endloop		; if we are at end of block, end this
-		sub.l	#1,d3			; count down 1 do d3
-		cmp.l	#0,d3			; check if it is 0.  (time to print a .)
-		bne.s	.adrloop		; no. so
-		move.l	d4,d3			; Reset the counter
-		KPRINTC _dottxt		; print a "."
-		bchg	#1,$bfe001		; Flash the LEd
-		btst	#1,$bfe001
-		beq	.yellow		; Set color on screen depending on status of LED
-		move.w	#$00f,$dff180
-		bra	.adrloop
-	.yellow:
-		move.w	#$ff0,$dff180
-		bra	.adrloop
-						; We have filled the block with addressdata
-	.endloop:
-		cmp.l	$400,a6		; check if the beginning is lower then 400
-		blt	.low400		; if it was lower then 400 set it to 400 so we ignore first 1kb of data used for registers etc
-	.endloop2:
-		; ok we now have filled the block of ram with its memaddress, lets test if it stay the same
-		KPRINTC _adrtesttxt
+.nonewblock:
+	add.l	#4,a1				; Increase a1 to point to next longword
+	cmp.l	d5,d6
+	bne	.nodot2
+	move.w	-4(a1),$dff180		; Do colorstuff
+	bchg	#1,$bfe001			; do ledstuff
+	cmp.l	#0,d1				; Check if we had an error
+	beq	.noaerr
+	KPRINTC _Etxt				; We had, print a red E
+	bra	.noaerr2
+.noaerr:
+	KPRINTC _dottxt			; we did not, print a white .
+.noaerr2:
+	clr.l	d5
+.nodot2:
+	add.l	#1,d5
+	cmp.l	a1,a2
+	ble	.blockdone2
+	bra	.adrcheckloop2
+.blockdone2:
+	cmp.l	#-1,a3				; Check if a3 is -1
+	bne	.aerr				; if it wasn't then we had an error so we have an endaddress
+	move.l	a1,a3				; copy end of this block to a3
+.aerr:
+	cmp.l	#0,d4				; d4 contains the errormask, if 0 we had no errors
+	beq	.blockfine
+	KPRINTC	_blockerr
+	move.l	#31,d6				; Set counter to 31 for bits to print.
+.loop2:
+	btst	d6,d4
+	beq	.correct2
+	
+	KPRINTC	_errtxt
+.goon2:
+	dbf	d6,.loop2
 
-		move.l	a6,a4
-		move.l	d1,a6			; restore Startaddress to a6
-		add.l	d0,a6
-		sub.l	#4,a4			; Subtract first address with 4.  just to be lazy at next step
-		move.l	d4,d3			; Restore the "." counter
-	.adrloop2:
-		add.l	#4,a4
-		cmp.l	a6,a4
-		bge	.end
+	KPRINTC	_disclaimer
+	bra	.nomemfound
+.correct2:
+	KPRINTC	_dashtxt
+	bra	.goon2
 
-		cmp.l	$400,a4
-		ble	.adrloop2
+.blockfine:
+	cmp.l	#-1,a6				; had we a working startblock
+	beq	.jumpout			; if not jump to noadrerror
+	cmp.l	#-1,d3
+	bne	.jumpout
+	move.l	a1,d3
+.jumpout:
+	cmp.l	#-1,a6				; had we a working startblock
+	beq	.nomemfoundatall		; if not jump to noadrerror
+	KPRINTC _adrmemoktxt
+	move.l	a6,d0
+	KPRINTLONG
+	KPRINTC	_blockfound2txt
+	move.l a3,d0
+	KPRINTLONG
 
-		move.l	a4,d7
-		bclr	#2,d7
-		move.l	d7,a0		;create error..  use a0 as temp instead of a4
+	move.l	a3,d1
+	move.l	a6,d6
+	sub.l	d6,d1
 		
-		move.l	a0,d0
-		cmp.l	(a4),d0		;check if content in address is correct
-		bne	.error
-	.errdone:
-		sub.w	#1,d3
-		cmp.w	#0,d3
-		bne	.adrloop2
-		move.w	d4,d3
-		KPRINTC	_dottxt
-		bchg	#1,$bfe001
-		btst	#1,$bfe001
-		beq	.yellow2
-		move.w	#$00f,$dff180
-		bra	.adrloop2
-	.yellow2:
-		move.w	#$ff0,$dff180
-		bra	.adrloop2
-	.end:
-		move.l	d2,a5
-		jmp	(a5)
-	.error:
-		swap	d3
-		add.w	#1,d3
-		cmp.w	#10,d3
-		beq	.toomany
-		swap	d3
-		move.w	#$f00,$dff180
-		KPRINTC	_adrerr
-		move.l	a4,d0
-		KPRINTLONG
-		KPRINTC	_adrerr2
-		move.l	a4,d7
-		bclr	#2,d7
-		move.l	d7,a0			;error
-		move.l	(a0),d0
-							KPRINTLONG
-							KPRINTC	_adrerr3
-			move.l	a4,d7
-			bclr	#2,d7
-			move.l	d7,a0			; error
-			move.l	(a0),d0
-			move.l	a4,d1
-			eor.l	d1,d0
-			move.w	#31,d1
-		.bitloop:
-			btst	d1,d0
-			beq	.okbit				; it was, go to okbit
-			KPRINTC	_bitbadtxt		; it wasn't, write we had a bad bit
-		.bitdone:
-				dbf	d1,.bitloop			; loop through all bits
-			KPRINTC	_newlinetxt
-			bra	.done			; Do next block
-		.okbit:
-		KPRINTC	_bitoktxt		; Write good bit
-		bra	.bitdone			; loop
-		.done:	
-			bra	.errdone
-	.low400:
-		lea	$400,a6
-		bra	.endloop2
+	jmp	(a4)
+.nomemfoundatall:
+	KPRINTC _noblockfoundtxt
+	clr.l	d1			; make sure 0 bytes is reported
+	jmp	(a4)
+.nomemfound:
+	cmp.l	#-1,a6
+	bne	.nounusable
+	KPRINTC	_unusabletxt
+.nounusable:
+	bra	.jumpout
 
-	.toomany:
-		KPRINTC	_adrerr4
-		bra	.end
-		
-		; ************************************************ Lets check it is stored correct
-		
-			KPRINTC	_adrtesttxt
-		
-					
-				
-		
-				
-		
+DumpSerial:
+	move.l	a7,d7
+	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
+	bne	.nomore
+	move.w	#$4000,$dff09a
+	move.w	#32,$dff032			; Set the speed of the serialport (115200BPS)
+	move.b	#$4f,$bfd000			; Set DTR high
+	move.w	#$0801,$dff09a
+	move.w	#$0801,$dff09c
+	clr.l	d7				; Clear d7
+.loop:
+	cmp.b	#0,(a0)			; end of string?
+	beq	.nomore			; yes
+.wait:
+	cmp.w	#3000,d7			; have we timed out?
+	beq	.timeout
+	add.w	#1,d7				; Add 1 to timeout conter
+	btst	#5,$dff018			; check if byte is transmitted
+	beq.s	.wait				; if not, wait some more.
+.timedout:
+	move.w	#$0100,d7			; Set data for serial out
+	move.b	(a0)+,d7
+	move.w	d7,$dff030
+	move.w	#$0001,$dff09c		; turn off the TBE bit
+	clr.w	d7				; Clear timeout
+	bra.s	.loop
+.nomore:
+	jmp	(a5)
+.timeout:
+	add.w	#1,d7
+	swap	d7				; Swap high/low word
+	add.w	#1,d7				; add 1 to counter
+	cmp.w	#40,d7				; did we have too much errors?
+	beq	.onetoomany			; yes.  stop serial output, we have issues with serial.
+	swap	d7
+	bra	.timedout
+.onetoomany:					; OK we had one too many timeouts
+	move.l	a7,d7
+	bset	#31,d7				; Ser bit 31 to tell we had too many serial timeouts
+	move.l	d7,a7
+	bra	.nomore			
 
 
-			;			KPRINTC _dottxt			; print a "."
-;			KPRINTC	_adrerr
-;			KPRINTLONG				; Print out memaddress
-;			KPRINTC	_adrerr2
-;			move.l	d3,d0;
-;			KPRINTLONG				; Print out content
-;			KPRINTC	_adrerr3
-			move.l	d5,a5
-			jmp	(a5)				; exit this
+	;Call C crap
+;	jsr	_test_function
 
 
 DumpBinHex:
@@ -711,14 +677,21 @@ DumpBinDec:
 	asl.l	#2,d0
 	add.l	d0,a0
 	jmp	(a5)
-				
-		;Call C crap
-				jsr	_test_function
-
-memTestPattern:
-		dc.l	$ffffffff,$f0f0f0f0,$0f0f0f0f,$f0f00f0f,$0f0ff0f0,$ffff0000,$0000ffff,$aaaaaaaa,$55555555,$aaaa5555,$5555aaaa,0
 
 
+_mempattern:
+	dc.l	$AAAAAAAA,$55555555,$5555aaaa,$aaaa5555,$ffffffff,0
+
+POSTBusError:				; Hardcoded pointers
+POSTAddressError:			; if something is wrong rom starts at $0
+POSTIllegalError:			; so this will actually be pointers to
+POSTDivByZero:				; traps.
+POSTChkInst:
+POSTTrapV:
+POSTPrivViol:
+POSTTrace:
+POSTUnimplInst:
+		rts
 
 _diagRomTxt:
 	dc.b	12,27,"[0m",27,"[40m",27,"[37m"
@@ -728,25 +701,49 @@ _diagRomTxt:
 	incbin	"builddate.i"
 	dc.b $a,$d,0
 
+_diagRomCheckadrtxt:
+		dc.b $a,$d,$a,$d,"Checking addressdata of ROM-Space",$a,$d,0
+_dottxt:
+	dc.b	".",0
+_hometxt:
+	dc.b	$d,27,"[0m",0
+_Etxt:
+		dc.b	27,"[31mE",27,"[0m",0
+_Errortxt:
+	dc.b	" ",27,"[31mERROR ",27,"[32m (D31->D0): ",0
+_blockfoundtxt:
+	dc.b	$a,$d,27,"[0mMemblock found between: $",0
+_blockfound2txt:
+	dc.b	" and $",0
+_dashtxt:
+	dc.b	27,"[32m-",0
+_newlinetxt:
+	dc.b	$a,$d,27,"[0m",0
+_errtxt:
+	dc.b	27,"[31mX",0
+_adrtest:
+	dc.b	$a,$d,"Doing addresstesting of area.",$a,$d,"Filling space with addressdata",$a,$d,0
+_adrtest2:
+	dc.b	$a,$d,"Comparing addresses to stored addressdata",$a,$d,0
+_adrmemoktxt:
+	dc.b	$a,$d,$a,$d,27,"[0mOK memoryblock between: $",0
+_blockok:
+	dc.b	$a,$d,27,"[32mBlock seems OK!",$a,$d,27,"[0m",0
+_blockerr:
+	dc.b	$a,$d,27,"[31mERROR!! ",27,"[0m Block had addresserrors, errormask: (A31->A0)",$a,$d,0
+_disclaimer:
+	dc.b	$a,$d,27,"[0mErrormask is an ESTIMATE and is not an extact pointer!",0
+_unusabletxt:
+	dc.b	$a,$d,27,"[0mMarking block UNUSABLE!",$a,$d,$a,$d,0
 _Initmousetxt:
-		dc.b	$a,$d,"    Checking status of mousebuttons at power-on: ",$a,$d
-		dc.b	"            ",0
+	dc.b	$a,$d,"    Checking status of mousebuttons at power-on: ",$a,$d
+	dc.b	"            ",0
 _releasemousetxt:
-		dc.b	$a,$d,"Release mousebuttons now or they will be tagged as STUCK and ignored!",0
-_block1adrtxt:
-	dc.b	$a,$d,$a,$d,"Checking block 1 for addresserrors",0
-_adrfilltxt:
-	dc.b	$a,$d,"Filling area with addressdata",$a,$d,0
-_adrtesttxt:
-	dc.b	$a,$d,"Comparing if addressdata is correct",$a,$d,0
-_adrerr:
-	dc.b	$a,$d,27,"[31mAdrerr:",27,"[0m $",0
-_adrerr2:
-	dc.b	" read: $",0
-_adrerr3:
-	dc.b	" Diff is: ",0
-_adrerr4:
-	dc.b	$a,$d,"Too many addresserrors, this block is unusable!",0
+	dc.b	$a,$d,"Release mousebuttons now or they will be tagged as STUCK and ignored!",0
+_notenoughtxt:
+	dc.b	$a,$d,27,"[31mNOT ENOUGH MEM IN BLOCK",27,"[0m Checking for more",$a,$d,$a,$d,0
+_noblockfoundtxt:
+	dc.b	$a,$d,27,"[31mNO Block found",27,"[0m",$a,$d,0
 _InitP1LMBtxt:
 	dc.b	"P1LMB ",0
 _InitP2LMBtxt:
@@ -760,40 +757,15 @@ _InitP1MMBtxt:
 _InitP2MMBtxt:
 	dc.b	"P2MMB ",0
 
-_diagRomCheckadrtxt:
-	dc.b $a,$d,$a,$d,"Checking addressdata of ROM-Space",$a,$d,0
 _startMemDetectTxt:
-	dc.b	$a,$d,$a,$d,"Scan for usable Chipmem (!!NOTE THIS IS NOT A MEMORYTEST IT *IS* A SCAN)",$a,$d,0
+	dc.b	$a,$d,$a,$d,"Scan for usable Chipmem (!!NOTE THIS IS NOT A MEMORYTEST IT *IS* A SCAN)",$a,$d,$a,$d,0
 
-
-_dottxt:
-	dc.b	".",0
-
-_Etxt:
-	dc.b	"E",0
-_bitoktxt:
-	dc.b	27,"[32m-",0
-_bitbadtxt:
-	dc.b	27,"[31mX",0
-_CheckAdrTxt:
-	dc.b	"Check address: $",0
-_gobacktxt:
+_addrtxt:
+	dc.b	"Addr $",0
+_memoktxt:
+	dc.b	27,"[32m OK",27,"[m, Number of working 64K blocks found: ",0
+_beginrowtxt:
 	dc.b	$d,0
-_OKtxt:
-	dc.b " - ",27,"[32mOK",27,"[0m  Number of 64K blocks found: ",0
-
-_FAILEDtxt:
-	dc.b	" - ",27,"[31mUNUSABLE:",27,"[0m D31-D0 ",0
-_newlinetxt:
-	dc.b	27,"[0m",$a,$d,0
-_nulltxt:
-	dc.b	27,"[0m",$d,0
-_blockfound:
-	dc.b	$a,$d,27,"[0mChipmem found beween: ",0
-_2ndblockfound:
-	dc.b	$a,$d,27,"[0mALSO a 2nd Chipmem block found between: ",0
-_andtxt:
-	dc.B	" and ",0
 Decnumbers:
 	dc.b "0",0,0,0
 	dc.b "1",0,0,0
@@ -845,213 +817,7 @@ Decnumbers:
 	dc.b "47",0,0
 	dc.b "48",0,0
 	dc.b "49",0,0
-	dc.b "50",0,0
-	dc.b "51",0,0
-	dc.b "52",0,0
-	dc.b "53",0,0
-	dc.b "54",0,0
-	dc.b "55",0,0
-	dc.b "56",0,0
-	dc.b "57",0,0
-	dc.b "58",0,0
-	dc.b "59",0,0
-	dc.b "60",0,0
-	dc.b "61",0,0
-	dc.b "62",0,0
-	dc.b "63",0,0
-	dc.b "64",0,0
-	dc.b "65",0,0
-	dc.b "66",0,0
-	dc.b "67",0,0
-	dc.b "68",0,0
-	dc.b "69",0,0
-	dc.b "70",0,0
-	dc.b "71",0,0
-	dc.b "72",0,0
-	dc.b "73",0,0
-	dc.b "74",0,0
-	dc.b "75",0,0
-	dc.b "76",0,0
-	dc.b "77",0,0
-	dc.b "78",0,0
-	dc.b "79",0,0
-	dc.b "80",0,0
-	dc.b "81",0,0
-	dc.b "82",0,0
-	dc.b "83",0,0
-	dc.b "84",0,0
-	dc.b "85",0,0
-	dc.b "86",0,0
-	dc.b "87",0,0
-	dc.b "88",0,0
-	dc.b "89",0,0
-	dc.b "90",0,0
-	dc.b "91",0,0
-	dc.b "92",0,0
-	dc.b "93",0,0
-	dc.b "94",0,0
-	dc.b "95",0,0
-	dc.b "96",0,0
-	dc.b "97",0,0
-	dc.b "98",0,0
-	dc.b "99",0,0
-	dc.b "100",0
-	dc.b "101",0
-	dc.b "102",0
-	dc.b "103",0
-	dc.b "104",0
-	dc.b "105",0
-	dc.b "106",0
-	dc.b "107",0
-	dc.b "108",0
-	dc.b "109",0
-	dc.b "110",0
-	dc.b "111",0
-	dc.b "112",0
-	dc.b "113",0
-	dc.b "114",0
-	dc.b "115",0
-	dc.b "116",0
-	dc.b "117",0
-	dc.b "118",0
-	dc.b "119",0
-	dc.b "120",0
-	dc.b "121",0
-	dc.b "122",0
-	dc.b "123",0
-	dc.b "124",0
-	dc.b "125",0
-	dc.b "126",0
-	dc.b "127",0
-	dc.b "128",0
-	dc.b "129",0
-	dc.b "130",0
-	dc.b "131",0
-	dc.b "132",0
-	dc.b "133",0
-	dc.b "134",0
-	dc.b "135",0
-	dc.b "136",0
-	dc.b "137",0
-	dc.b "138",0
-	dc.b "139",0
-	dc.b "140",0
-	dc.b "141",0
-	dc.b "142",0
-	dc.b "143",0
-	dc.b "144",0
-	dc.b "145",0
-	dc.b "146",0
-	dc.b "147",0
-	dc.b "148",0
-	dc.b "149",0
-	dc.b "150",0
-	dc.b "151",0
-	dc.b "152",0
-	dc.b "153",0
-	dc.b "154",0
-	dc.b "155",0
-	dc.b "156",0
-	dc.b "157",0
-	dc.b "158",0
-	dc.b "159",0
-	dc.b "160",0
-	dc.b "161",0
-	dc.b "162",0
-	dc.b "163",0
-	dc.b "164",0
-	dc.b "165",0
-	dc.b "166",0
-	dc.b "167",0
-	dc.b "168",0
-	dc.b "169",0
-	dc.b "170",0
-	dc.b "171",0
-	dc.b "172",0
-	dc.b "173",0
-	dc.b "174",0
-	dc.b "175",0
-	dc.b "176",0
-	dc.b "177",0
-	dc.b "178",0
-	dc.b "179",0
-	dc.b "180",0
-	dc.b "181",0
-	dc.b "182",0
-	dc.b "183",0
-	dc.b "184",0
-	dc.b "185",0
-	dc.b "186",0
-	dc.b "187",0
-	dc.b "188",0
-	dc.b "189",0
-	dc.b "190",0
-	dc.b "191",0
-	dc.b "192",0
-	dc.b "193",0
-	dc.b "194",0
-	dc.b "195",0
-	dc.b "196",0
-	dc.b "197",0
-	dc.b "198",0
-	dc.b "199",0
-	dc.b "200",0
-	dc.b "201",0
-	dc.b "202",0
-	dc.b "203",0
-	dc.b "204",0
-	dc.b "205",0
-	dc.b "206",0
-	dc.b "207",0
-	dc.b "208",0
-	dc.b "209",0
-	dc.b "210",0
-	dc.b "211",0
-	dc.b "212",0
-	dc.b "213",0
-	dc.b "214",0
-	dc.b "215",0
-	dc.b "216",0
-	dc.b "217",0
-	dc.b "218",0
-	dc.b "219",0
-	dc.b "220",0
-	dc.b "221",0
-	dc.b "222",0
-	dc.b "223",0
-	dc.b "224",0
-	dc.b "225",0
-	dc.b "226",0
-	dc.b "227",0
-	dc.b "228",0
-	dc.b "229",0
-	dc.b "230",0
-	dc.b "231",0
-	dc.b "232",0
-	dc.b "233",0
-	dc.b "234",0
-	dc.b "235",0
-	dc.b "236",0
-	dc.b "237",0
-	dc.b "238",0
-	dc.b "239",0
-	dc.b "240",0
-	dc.b "241",0
-	dc.b "242",0
-	dc.b "243",0
-	dc.b "244",0
-	dc.b "245",0
-	dc.b "246",0
-	dc.b "247",0
-	dc.b "248",0
-	dc.b "249",0
-	dc.b "250",0
-	dc.b "251",0
-	dc.b "252",0
-	dc.b "253",0
-	dc.b "254",0
-	dc.b "255",0
-
+																																																																																																																																																																																																														
 Hexnumbers:
 			dc.b "00",0,0
 			dc.b "01",0,0
