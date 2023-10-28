@@ -1,4 +1,4 @@
-.PHONY: builddate.i
+.PHONY:
 
 DATEOPS= /t 
 CP := copy
@@ -6,6 +6,9 @@ ifneq ($(OS),Windows_NT)
 DATEOPS= +"%Y-%m-%d"
 CP := cp
 endif
+
+# always regenerate builddate.i (only picked up if inputs change)
+$(shell date $(DATEOPS) > builddate.i)
 
 AS := vasmm68k_mot 
 ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk
@@ -18,13 +21,11 @@ diagrom.rom: diagrom_nosum.bin checksum
 	./checksum $< $@
 diagrom_nosum.bin: $(OBJS)
 	$(LN) -t -x -Bstatic -Cvbcc -s -b rawbin1 -T link.txt $(OBJS) -M -o $@
-%.o: %.s builddate.i
+%.o: %.s
 	$(AS) $(ASOPTS) $< -o $@
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
-builddate.i: 
-	date $(DATEOPS) > builddate.i
 checksum: checksum.c
 	gcc checksum.c -o checksum
 clean:
-	rm -f diagrom.rom *.lst a.out *~ \#* *.o split checksum
+	rm -f diagrom.rom *.lst a.out *~ \#* *.o split checksum builddate.i
