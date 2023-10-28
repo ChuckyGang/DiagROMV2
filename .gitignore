@@ -4,3 +4,5 @@ builddate.i
 *.rom
 *.bin
 /checksum
+/vbcc
+/ndk
