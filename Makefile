@@ -32,6 +32,9 @@ checksum: checksum.c
 clean:
 	rm -f diagrom.rom *.lst a.out *~ \#* *.o split checksum builddate.i globalvars.i
 
+# all objects depend on this Makefile
+$(OBJS): Makefile
+
 # explicit dependencies
 earlystart.s: globalvars.i
 
