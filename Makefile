@@ -35,3 +35,7 @@ clean:
 # explicit dependencies
 earlystart.s: globalvars.i
 
+# quick test run
+run_test: diagrom.rom
+	# Use 'socat pty,raw,echo=0,link=/tmp/virtual-serial-port -,raw,echo=0,crlf' to read serial
+	fs-uae --kickstart_file=diagrom.rom --console_debugger=1 --serial_port=/tmp/virtual-serial-port
