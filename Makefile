@@ -14,11 +14,8 @@ CFLAGS := +aos68k -cpu=68000 -c99 -sc -sd -O2 -size -I$(NDK_INC) -I.
 LN := vlink 
 OBJS := earlystart.o constants.o test_c.o checksums.o autovec.o
 
-diagrom.rom: diagrom_nosum.bin
-	@echo
-	gcc checksum.c -o checksum
-	$(CP) $< $@
-	./checksum $@
+diagrom.rom: diagrom_nosum.bin checksum
+	./checksum $< $@
 diagrom_nosum.bin: $(OBJS)
 	$(LN) -t -x -Bstatic -Cvbcc -s -b rawbin1 -T link.txt $(OBJS) -M -o $@
 %.o: %.s builddate.i
@@ -27,5 +24,7 @@ diagrom_nosum.bin: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ -c $<
 builddate.i: 
 	date $(DATEOPS) > builddate.i
+checksum: checksum.c
+	gcc checksum.c -o checksum
 clean:
-	rm -f diagrom.rom *.lst a.out *~ \#* *.o split
+	rm -f diagrom.rom *.lst a.out *~ \#* *.o split checksum

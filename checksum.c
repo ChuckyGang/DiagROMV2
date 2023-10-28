@@ -16,9 +16,9 @@
 
 int main(int argc, const char** argv)
 {
-	if (argc != 2)
+	if (argc != 3)
 	{
-		printf("%s <diagromfile>\n", argv[0]);
+		printf("%s <in:diagromfile> <out:diagromfile>\n", argv[0]);
 		return -1;
 	}
 
@@ -122,10 +122,10 @@ int main(int argc, const char** argv)
 	}
 
 	// Write out the patched DiagROM
-	f = fopen(argv[1], "wb");
+	f = fopen(argv[2], "wb");
 	if (!f)
 	{
-		printf("failed to open '%s'\n", argv[1]);
+		printf("failed to open '%s'\n", argv[2]);
 		return -1;
 	}
 	if (size != fwrite(mem, sizeof(uint8_t), size, f))
