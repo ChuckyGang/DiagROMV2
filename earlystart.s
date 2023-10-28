@@ -1,4 +1,5 @@
 		include "earlymacros.i"
+		include "globalvars.i"
 
 		section "startup",code_p
 
@@ -334,9 +335,22 @@ done:
 
 						; CHIPMEM TEST DONE!   A3 = end of block, A6 = Beginning of block
 
+	; setup stack
+	move.l	#4096,stack_size(a6)		; store our stack size
+	lea.l	GlobalVars_sizeof(a6),sp	; stack area starts right after global vars
+	move.l	sp,stack_mem(a6)			; store the address of the stack
+	adda.l	stack_size(a6),sp			; stack grows backwards
 
 .aa:
-	move.b	$dff006,$dff181
+	bsr		_test_function (a6)
+	; d0 = $600dc0de 
+	cmp.l	#$600dc0de,d0
+	bne.b	.error
+
+	move.l	current_vhpos(a6),d0	; read back the vhpos
+	lsr.w	#8,d0					; we want the lower vertical byte
+.error:
+	move.b	d0,$dff181				; color the background
 	bra	.aa
 
 

@@ -11,7 +11,7 @@ endif
 $(shell date $(DATEOPS) > builddate.i)
 
 AS := vasmm68k_mot 
-ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk
+ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I ndk/Include_I
 CC := vc
 CFLAGS := +aos68k -cpu=68000 -c99 -sc -sd -O2 -size -I$(NDK_INC) -I.
 LN := vlink 
@@ -25,7 +25,13 @@ diagrom_nosum.bin: $(OBJS)
 	$(AS) $(ASOPTS) $< -o $@
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
+%.i: %.h
+	python3 h2i.py $< -- -I $(VBCC)/targets/m68k-amigaos/include > $@
 checksum: checksum.c
 	gcc checksum.c -o checksum
 clean:
-	rm -f diagrom.rom *.lst a.out *~ \#* *.o split checksum builddate.i
+	rm -f diagrom.rom *.lst a.out *~ \#* *.o split checksum builddate.i globalvars.i
+
+# explicit dependencies
+earlystart.s: globalvars.i
+

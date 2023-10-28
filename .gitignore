@@ -1,6 +1,7 @@
 *.o
 *~
 builddate.i
+globalvars.i
 *.rom
 *.bin
 /checksum
