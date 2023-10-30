@@ -11,7 +11,7 @@ endif
 $(shell date $(DATEOPS) > builddate.i)
 
 AS := vasmm68k_mot 
-ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I ndk/Include_I
+ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I.
 CC := vc
 CFLAGS := +aos68k -cpu=68000 -c99 -sc -sd -O2 -size -I$(NDK_INC) -I.
 LN := vlink 
