@@ -36,7 +36,7 @@ clean:
 $(OBJS): Makefile
 
 # explicit dependencies
-earlystart.s: globalvars.i
+earlystart.o: globalvars.i
 
 # quick test run
 run_test: diagrom.rom
