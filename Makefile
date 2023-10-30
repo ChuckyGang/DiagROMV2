@@ -26,7 +26,7 @@ diagrom_nosum.bin: $(OBJS)
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
 %.i: %.h
-	python3 h2i.py $< -- -I $(VBCC)/targets/m68k-amigaos/include > $@
+	python3 h2i.py $< -- -I libc > $@
 checksum: checksum.c
 	gcc checksum.c -o checksum
 clean:
