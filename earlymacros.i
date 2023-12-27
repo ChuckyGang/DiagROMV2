@@ -34,6 +34,14 @@ VBLT:		MACRO
 		bne.s	.vblt\@
 		ENDM
 
+PAUSE:		MACRO
+.waitdown\@	move.b	$dff006,$dff181
+		btst	#6,$bfe001
+		bne.s	.waitdown\@
+.waitup\@	btst	#6,$bfe001
+		beq.s	.waitup\@
+		ENDM
+
 DBINHEX: MACRO
 		; A0 points to string of content of D0 (byte)
 		lea .return\@,a5
