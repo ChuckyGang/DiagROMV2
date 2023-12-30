@@ -21,6 +21,10 @@ STACKSIZE:	EQU	8192						; Set the size of the stack
 
 	;	Make reservation of English is not my first language, add to that dyslexia and a BAD BAD BAD habit of typos.. :)
 
+	;	This is a horrible maze of weird registerusage and important data is moved around registers more then a politician moves
+	;	money to avoid being cought of being corrupt. any change in this code can (and WILL) cause harm that might hurt human life as we know it
+	;	think one, two even EIGHT times before changing anything, the world might blow up or you will find yourself falling out of a spaceship with a whale!
+	
 _start:
 		dc.b	"DIAG"
 		dc.l	_begin	
@@ -86,7 +90,33 @@ _begin:
 	move.l	#POSTUnimplInst,$2c
 	move.b	#$88,$bfed01
 	or.b	#$40,$bfee01		; For keyboard
-						
+
+	cmp.l	#"PPC!",d5		; Check if D5 is "PPC!" if so. we had been reset and should not reset again
+	beq	.wehadreset
+	cmp.l	#" PPC",$f00092	; If the strinbg " PPC" is located here, we have a CSPPC
+	bne	.nocsppc
+
+	lea	$4,a0			; OK we had a CSPPC in the machine, we need to do some magic
+	move.l	#5,d6
+.csloop:
+	move.l	#$ffff,d7
+	bchg	#1,$bfe001		; Some LED flashity..
+	move.w	d6,$dff180
+.csloop2:
+	move.b	$bfe001,d0		; Nonsense read from something slow
+	dbf	d7,.csloop2
+	dbf	d6,.csloop
+
+	move.l	#"PPC!",d5		; Set D5 to tell DiagROM we had a reset
+	move.w	#$2700,sr
+.even:					; this apparenlty needs to be a on a even longword....
+	reset
+	move.l	(a0),a0
+	jmp	(a0)
+.wehadreset:
+	move.b	#0,$bfe001		; Powerled will go ON! so user can see that CPU works
+
+.nocsppc:
 	clr.l	d0			; Lets clear all registers just to have a "nice" startup
 	clr.l	d1
 	clr.l	d2
