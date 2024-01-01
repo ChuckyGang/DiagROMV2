@@ -1,4 +1,4 @@
-.PHONY:
+.PHONY: clean
 
 DATEOPS= /t 
 CP := copy
@@ -26,9 +26,9 @@ diagrom_nosum.bin: $(OBJS)
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
 %.i: %.h
-	python3 h2i.py $< -- -I libc > $@
-checksum: checksum.c
-	gcc checksum.c -o checksum
+	python3 tools/h2i.py $< -- -I libc > $@
+checksum: tools/checksum.c
+	gcc $< -o $@
 clean:
 	rm -f diagrom.rom *.lst a.out *~ \#* *.o split checksum builddate.i globalvars.i
 
