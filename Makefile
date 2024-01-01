@@ -15,12 +15,15 @@ ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I.
 CC := vc
 CFLAGS := +aos68k -cpu=68000 -c99 -sc -sd -O2 -size -I$(NDK_INC) -I.
 LN := vlink 
-OBJS := earlystart.o constants.o test_c.o checksums.o autovec.o
+
+SRCS =$(wildcard srcs/*.c) $(wildcard srcs/*.s)
+OBJS =$(filter %.o,$(SRCS:.c=.o))
+OBJS+=$(filter %.o,$(SRCS:.s=.o))
 
 diagrom.rom: diagrom_nosum.bin checksum
 	./checksum $< $@
 diagrom_nosum.bin: $(OBJS)
-	$(LN) -t -x -Bstatic -Cvbcc -s -b rawbin1 -T link.txt $(OBJS) -M -o $@
+	$(LN) -t -x -Bstatic -Cvbcc -s -b rawbin1 -T srcs/link.txt $(OBJS) -M -o $@
 %.o: %.s
 	$(AS) $(ASOPTS) $< -o $@
 %.o: %.c
@@ -30,13 +33,13 @@ diagrom_nosum.bin: $(OBJS)
 checksum: tools/checksum.c
 	gcc $< -o $@
 clean:
-	rm -f diagrom.rom *.lst a.out *~ \#* *.o split checksum builddate.i globalvars.i
+	rm -f diagrom.rom diagrom_nosum.bin *.lst a.out *~ \#* *.o split checksum builddate.i globalvars.i
 
 # all objects depend on this Makefile
 $(OBJS): Makefile
 
 # explicit dependencies
-earlystart.o: globalvars.i
+srcs/earlystart.o: srcs/globalvars.i
 
 # quick test run
 run_test: diagrom.rom
