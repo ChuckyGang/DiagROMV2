@@ -1,5 +1,7 @@
 .PHONY: clean
 
+OUTDIR=build
+
 DATEOPS= /t 
 CP := copy
 ifneq ($(OS),Windows_NT)
@@ -7,39 +9,48 @@ DATEOPS= +"%Y-%m-%d"
 CP := cp
 endif
 
-# always regenerate builddate.i (only picked up if inputs change)
-$(shell date $(DATEOPS) > builddate.i)
-
 AS := vasmm68k_mot 
-ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I.
+ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I. -I$(OUTDIR)/srcs
 CC := vc
 CFLAGS := +aos68k -cpu=68000 -c99 -sc -sd -O2 -size -I$(NDK_INC) -I.
 LN := vlink 
 
 SRCS =$(wildcard srcs/*.c) $(wildcard srcs/*.s)
-OBJS =$(filter %.o,$(SRCS:.c=.o))
-OBJS+=$(filter %.o,$(SRCS:.s=.o))
+OBJS =$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.c=.o)))
+OBJS+=$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.s=.o)))
 
-diagrom.rom: diagrom_nosum.bin checksum
-	./checksum $< $@
-diagrom_nosum.bin: $(OBJS)
+# Create output dirs
+$(shell mkdir -p $(OUTDIR) $(dir $(OBJS)) > /dev/null)
+
+# always regenerate builddate.i (only picked up if inputs change)
+$(shell date $(DATEOPS) > $(OUTDIR)/srcs/builddate.i)
+
+diagrom.rom: $(OUTDIR)/diagrom_nosum.bin $(OUTDIR)/checksum
+	$(OUTDIR)//checksum $< $@
+
+$(OUTDIR)/diagrom_nosum.bin: $(OBJS)
 	$(LN) -t -x -Bstatic -Cvbcc -s -b rawbin1 -T srcs/link.txt $(OBJS) -M -o $@
-%.o: %.s
+
+$(OUTDIR)/%.o: %.s
 	$(AS) $(ASOPTS) $< -o $@
-%.o: %.c
+
+$(OUTDIR)/%.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
-%.i: %.h
+
+$(OUTDIR)/%.i: %.h
 	python3 tools/h2i.py $< -- -I libc > $@
-checksum: tools/checksum.c
+
+$(OUTDIR)/checksum: tools/checksum.c
 	gcc $< -o $@
+
 clean:
-	rm -f diagrom.rom diagrom_nosum.bin *.lst a.out *~ \#* *.o split checksum builddate.i globalvars.i
+	rm -fr diagrom.rom $(OUTDIR) *.lst a.out *~ \#* split
 
 # all objects depend on this Makefile
 $(OBJS): Makefile
 
 # explicit dependencies
-srcs/earlystart.o: srcs/globalvars.i
+$(OUTDIR)/srcs/earlystart.o: $(OUTDIR)/srcs/globalvars.i
 
 # quick test run
 run_test: diagrom.rom

@@ -1,9 +1,6 @@
 *.o
 *~
-builddate.i
-globalvars.i
 *.rom
-*.bin
-/checksum
+/build
 /vbcc
 /ndk
