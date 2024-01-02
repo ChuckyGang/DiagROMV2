@@ -4,13 +4,11 @@ OUTDIR=build
 
 DATEOPS= /t 
 CP := copy
-MD := md
-SLASHFIX = $(subst /,\,$(1))
+MD = md $(subst /,\,$(1)) > nul
 ifneq ($(OS),Windows_NT)
 DATEOPS= +"%Y-%m-%d"
 CP := cp
-MD := mkdir -p
-SLASHFIX = $(1)
+MD = mkdir -p $(1) > /dev/null
 endif
 
 AS := vasmm68k_mot 
@@ -25,7 +23,7 @@ OBJS+=$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.s=.o)))
 
 # Create output dirs
 DIRS:=$(OUTDIR) $(patsubst %/,%,$(dir $(OBJS)))
-$(foreach dir,$(DIRS),$(shell $(MD) $(call SLASHFIX,$(dir))))
+$(foreach dir,$(DIRS),$(shell $(call MD,$(dir))))
 
 # always regenerate builddate.i (only picked up if inputs change)
 $(shell date $(DATEOPS) > $(OUTDIR)/srcs/builddate.i)
