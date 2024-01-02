@@ -12,10 +12,10 @@ endif
 AS := vasmm68k_mot 
 ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I. -I$(OUTDIR)/srcs
 CC := vc
-CFLAGS := +aos68k -cpu=68000 -c99 -sc -sd -O2 -size -I$(NDK_INC) -I.
+CFLAGS := +aos68k -cpu=68000 -c99 -sc -sd -O2 -size -I$(NDK_INC) -I. -Isrcs
 LN := vlink 
 
-SRCS =$(wildcard srcs/*.c) $(wildcard srcs/*.s)
+SRCS =$(wildcard srcs/**/*.c) $(wildcard srcs/**/*.s)
 OBJS =$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.c=.o)))
 OBJS+=$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.s=.o)))
 
@@ -50,7 +50,7 @@ clean:
 $(OBJS): Makefile
 
 # explicit dependencies
-$(OUTDIR)/srcs/earlystart.o: $(OUTDIR)/srcs/globalvars.i
+$(OUTDIR)/srcs/asm/earlystart.o: $(OUTDIR)/srcs/globalvars.i
 
 # quick test run
 run_test: diagrom.rom
