@@ -4,8 +4,10 @@ SECTIONS
   .text :
   {
     *(startup)
+    *(initstartup)
     *(CODE)
     *(.text)
+    *(generic)
     *(.checksums)
   }
 

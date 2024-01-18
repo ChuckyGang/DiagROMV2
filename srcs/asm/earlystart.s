@@ -3,7 +3,7 @@
 
 		section "startup",code_p
 
-		XDEF	AnsiNull
+;		XDEF	AnsiNull
 
 RAMUsage: EQU GlobalVars_sizeof+Bitplanes_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
 STACKSIZE:	EQU	8192						; Set the size of the stack
@@ -24,6 +24,8 @@ STACKSIZE:	EQU	8192						; Set the size of the stack
 	;	This is a horrible maze of weird registerusage and important data is moved around registers more then a politician moves
 	;	money to avoid being cought of being corrupt. any change in this code can (and WILL) cause harm that might hurt human life as we know it
 	;	think one, two even EIGHT times before changing anything, the world might blow up or you will find yourself falling out of a spaceship with a whale!
+
+	;	A BIG ThankYou to Erik Hemming for helping me with thie Visual Code setup allowing me to combine asm/c etc.
 	
 _start:
 		dc.b	"DIAG"
@@ -342,7 +344,7 @@ done:
 	bset	#22,d2				; Set bit 22 to tell we had an addresserror at chipmemcheck
 	move.l	d2,a7
 .noflag:
-	cmp.l	#$400,a6			; Check if A6 is $400 if so we had low chipem. meaning we have registers for the cpu
+	cmp.l	#$400,a2			; Check if A2 is $400 if so we had low chipem. meaning we have registers for the cpu
 	bne	.no400
 	move.l	a7,d4
 	bset	#10,d4				; Set bit 10 to tell we had mem at $400
@@ -646,7 +648,7 @@ done:
 
 	move.l	current_vhpos(a6),d1	; read back the vhpos
 	;lsr.w	#8,d0					; we want the lower vertical byte
-	;bra	Initcode
+	bra	Initcode
 	.error:
 	move.b	d0,$dff181				; color the background
 	bra	.error
@@ -914,7 +916,7 @@ DumpSerial:
 	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
 	bne	.nomore
 	move.w	#$4000,$dff09a
-	move.w	#32,$dff032			; Set the speed of the serialport (115200BPS)
+	move.w	#30,$dff032			; Set the speed of the serialport (115200BPS)
 	move.b	#$4f,$bfd000			; Set DTR high
 	move.w	#$0801,$dff09a
 	move.w	#$0801,$dff09c
