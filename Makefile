@@ -26,7 +26,7 @@ DIRS:=$(OUTDIR) $(patsubst %/,%,$(dir $(OBJS)))
 $(foreach dir,$(DIRS),$(shell $(call MD,$(dir))))
 
 # always regenerate builddate.i (only picked up if inputs change)
-$(info date $(DATEOPS) > $(OUTDIR)/srcs/builddate.i)
+$(shell date $(DATEOPS) > $(OUTDIR)/srcs/builddate.i)
 
 diagrom.rom: $(OUTDIR)/diagrom_nosum.bin $(OUTDIR)/checksum
 	$(OUTDIR)//checksum $< $@

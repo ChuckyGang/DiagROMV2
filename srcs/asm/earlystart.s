@@ -1,11 +1,18 @@
 		include "earlymacros.i"
-		include "globalvars.i"
+		include "build/srcs/globalvars.i"
 
 		section "startup",code_p
 
 ;		XDEF	AnsiNull
+		XREF	DumpSerial
 
-RAMUsage: EQU GlobalVars_sizeof+Bitplanes_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
+rom_base:	equ $f80000	
+RAMUsage: EQU GlobalVars_sizeof+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
+INITBAUD: EQU 30				; Init baudrate  115200
+
+		xref RAMUsage
+		xref INITBAUD
+		xref rom_base
 STACKSIZE:	EQU	8192						; Set the size of the stack
 
 	;	This is where it all starts
@@ -243,7 +250,6 @@ _begin:
 	beq	.nopressed		; if no mouse was pressed skip next print
 
 .nopressed:
-	KPRINTC	_releasemousetxt
 
 ; ******************************************************************************************************************
 ;
@@ -306,6 +312,21 @@ done:
 	add.b	$dff00b,d1			; values every run. (like to find ghostmemory)
 	move.l	d1,a7
 
+
+	KPRINTC	_releasemousetxt
+
+	KPRINTC	_checkovltxt
+	cmp.l	#"DIAG",$0			; Check if $0 contains "DIAG" if so, OVL is NOT working.
+	bne	.ovlok
+	move.l	a7,d0
+	bset	#9,d0				; Set we had OVL Error
+	move.l	d0,a7
+	KPRINTC	_FAILtxt
+	bra	.ovlnotok
+.ovlok:
+	KPRINTC	_OKtxt
+.ovlnotok:
+	KPRINTC	_newlinetxt
 ; ******************************************************************************************************************
 ;
 ; Detect chipmem
@@ -314,6 +335,7 @@ done:
 
 
 	KPRINTC	_startMemDetectTxt
+
 
 	lea	$0,a6				; Start to detect ram at $0, as below that is cpu controlstuff only anyways.
 						; ACTUALLY detectroutine will change this to $400 as first k on a 68k is for CPU registers and stuff
@@ -332,8 +354,17 @@ done:
 	lea	.fastdetectdone2,a6
 	bra	checkiffastmem		; Check if there are any fastmem.
 .fastdetectdone2:
+	move.l	a7,d0
+	bset	#21,d0				; Set bit for not enough chipmem found
+	move.l	d0,a7
+	cmp.l	#0,a2				; IF A2 is 0 we did not find any fastmem
+	bne	.fastfound
 	bra	_chipfailed
-
+.fastfound:
+	move.l	a7,d0
+	bset	#12,d0				; As we have no chipmem, BUT fastmem set the "No Draw" bit
+	move.l	d0,a7
+	bra	.nochipbutfast
 .noerr:					; ok we found some chipmem, lets see if we have any addresserror issues
 	lea	.adrcheckdone,a4		; Set address to jump to after check
 	jmp	Adrcheck			; Do a check of addresserrors of this block
@@ -406,7 +437,7 @@ done:
 
 .noaddrerr:
 	bra	.noaddrerr			; kuk!  we had no addresserror still somehing went bobo.. loop forever
-
+.nochipbutfast:
 .enoughmem:
 	KPRINTC	_blockok
 
@@ -603,6 +634,9 @@ done:
 
 .RMB:
 	KPRINTC	_rmbtxt
+	move.l	a7,d0
+	bset	#8,d0				; Set we had reversed workorder (using ram from START instead of from end)
+	move.l	d0,a7
 	move.l	a2,d0
 	and.l	#$fffffffc,d0			; Make sure is is even to a longword
 	move.l	d0,a6
@@ -610,6 +644,7 @@ done:
 
 .nomouse:					; A6 should now contain first usable block of RAM.
 	move.w	#$fff,$dff180			; Set to bright white screen
+	move.l	d3,d4				; Make a copy of d3 (start of chipmem) to d4
 	KPRINTC _clearworktxt
 	move.l	#RAMUsage,d0
 	move.l	d0,d7
@@ -625,16 +660,26 @@ done:
 	KPRINTC _baseadr
 	move.l	a6,d0
 	KPRINTLONG
+	move.l	a2,StartChip(a6)
+	move.l	a3,ChipEnd(a6)		; Store where the chipend block is
+	btst	#13,d1
+	beq	.nofastatboot
+						; As we DID scan for fastmem aswell.  some data needs to be "rewritten"
+	move.l	d4,StartChip(a6)		; and start of it
+	move.l	d6,ChipEnd(a6)
+
+.nofastatboot:
 	move.l	d1,startupflags(a6)		; Store startupflags as we used the A7 register for this. (we had an backup in D1)
-	move.l	a2,startblock(a6)		; Store where workblock starts
+	move.l	a6,startblock(a6)		; Store where workblock starts
 	move.l	a1,endblock(a6)		; Store where the workblock ends
-	move.l	d3,startofchip(a6)
-	move.l	d6,endofchip(a6)		; Store where the chipend block is (will be random if chipmem is actually used now)
+
 	move.l	#STACKSIZE,stack_size(a6)		; store our stack size
 	lea.l	GlobalVars_sizeof(a6),sp	; stack area starts right after global vars
 	adda.l	#32,sp				; add a SMALL buffer
 	KPRINTC _stacktxt
 	move.l	sp,d0
+	and.l	#$fffffffe,d0
+	move.l	d0,sp				; Make sure this is at an even address
 	KPRINTLONG
 	move.l	sp,stack_mem(a6)			; store the address of the stack
 	move.l	stack_size(a6),d1
@@ -642,13 +687,28 @@ done:
 	KPRINTC _stacksettxt
 	move.l	sp,d0
 	KPRINTLONG
+	move.l	a6,d0
+	add.l	#EndVar+4,d0
+	move.l	d0,EndVar(a6)				; Store the end of the variableblock
+	move.l	SP,d0					; As we just set the stack. bitplanes are after it!
+	add.l	#8,d0					; add a small buffer
+	move.l	d0,ChipmemBlock(a6)			; Store pointer to the chipmemblock
+	move.l	d0,BPL(a6)				; Store that pointer to BPL
+	move.l	Bpl1str,d1
+	move.l	Bpl2str,d2
+	sub.l	d1,d2
+	sub.l	#4,d2
+	move.l	d2,BPLSIZE(a6)			; Store the size of a bitplane
 
 	KPRINTC _starttxt
-	bsr		_test_function	; d0 = $600dc0de 
+
+	bra	Initcode
 
 	move.l	current_vhpos(a6),d1	; read back the vhpos
 	;lsr.w	#8,d0					; we want the lower vertical byte
-	bra	Initcode
+	;bsr		_test_function	; d0 = $600dc0de 	
+
+
 	.error:
 	move.b	d0,$dff181				; color the background
 	bra	.error
@@ -916,7 +976,7 @@ DumpSerial:
 	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
 	bne	.nomore
 	move.w	#$4000,$dff09a
-	move.w	#30,$dff032			; Set the speed of the serialport (115200BPS)
+	move.w	#INITBAUD,$dff032			; Set the speed of the serialport (115200BPS)
 	move.b	#$4f,$bfd000			; Set DTR high
 	move.w	#$0801,$dff09a
 	move.w	#$0801,$dff09c
@@ -1282,13 +1342,19 @@ _workspace:
 _baseadr:
 	dc.b	$a,$d,"Baseaddress located at: $",0
 _stacktxt:
-	dc.b	$a,$d,"Start starts at $",0
+	dc.b	$a,$d,"Stack starts at $",0
 _stacksettxt:
 	dc.b	$a,$d,"Setting stack to: $",0
 _starttxt:
 	dc.b	$a,$d,$a,$d,"Starting to use allocated RAM now",$a,$d,0
 _clearworktxt:
 	dc.b	$a,$d,"Clearing workspace",$a,$d,0
+_checkovltxt:
+	dc.b	$a,$d,$a,$d,"Checking if OVL works: ",0
+_OKtxt:
+	dc.b	27,"[32mOK",0
+_FAILtxt:
+	dc.b	27,"[31mFAILED",0
 Decnumbers:
 	dc.b "0",0,0,0
 	dc.b "1",0,0,0
