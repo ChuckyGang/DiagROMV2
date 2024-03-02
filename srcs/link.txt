@@ -8,6 +8,7 @@ SECTIONS
     *(CODE)
     *(.text)
     *(generic)
+    *(mainmenu)
     *(.checksums)
   }
 

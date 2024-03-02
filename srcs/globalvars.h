@@ -30,6 +30,8 @@ typedef struct GlobalVars
 	void*		AudioModMVol;			// Address to MasterVolume
 	void*		AudioModData;			// Pointer to module
 	void*		ptplay;			// Pointer to Protracker playroutine
+	void*		CPUPointer;			// Pointer to CPU String
+	void*		FPUPointer;			// Pointer to FPU String
 
 	uint32_t	startupflags;
 	uint32_t 	stack_size;
@@ -41,7 +43,33 @@ typedef struct GlobalVars
 	uint32_t	BLTDDAT;
 	uint32_t	Xpos;				// Variable for X position on screen to print on
 	uint32_t	Ypos;				// Variable for Y position on screen to print on
-
+	uint32_t	PCRReg;			// Calue of PCRReg IF 060, if not, this is 0
+	uint32_t	CPU;				// Type of CPU
+	uint32_t	CPUGen;			// Generation of CPU
+	uint32_t	FPU;				// Type of FPU
+	uint32_t	DebugA0;			// Store variables for debughandling!
+	uint32_t	DebugD1;
+	uint32_t	DebD0;
+	uint32_t	DebD1;
+	uint32_t	DebD2;
+	uint32_t	DebD3;
+	uint32_t	DebD4;
+	uint32_t	DebD5;
+	uint32_t	DebD6;
+	uint32_t	DebD7;
+	uint32_t	DebD8;
+	uint32_t	DebA0;
+	uint32_t	DebA1;
+	uint32_t	DebA2;
+	uint32_t	DebA3;
+	uint32_t	DebA4;
+	uint32_t	DebA5;
+	uint32_t	DebA6;
+	uint32_t	DebA7;
+	uint32_t	DebSR;
+	uint32_t	DebPC;
+	uint32_t	PowerONStatus;
+	uint32_t	InputRegister;		// Value of D0 of GetInput is stored here aswell (apparently)
 
 	uint16_t	DMACONR;
 	uint16_t	VPOSR;
@@ -61,6 +89,13 @@ typedef struct GlobalVars
 	uint16_t	DENISEID;
 	uint16_t	HHPOSR;
 	uint16_t	SerialSpeed;			// What serialspeed is used (in list, not real baudrate)
+	uint16_t	CurX;
+	uint16_t	CurY;
+	uint16_t	CurAddX;
+	uint16_t	CurSubX;
+	uint16_t	CurAddY;
+	uint16_t	CurSubY;
+	uint16_t	SerAnsiChecks;		// Number of checks with a result of 0 in Ansimode
 
 	uint8_t	AudioVolSelect;		// Was Vol Selection in menu selected
 	uint8_t	NoSerial;			// No serial output
@@ -90,12 +125,55 @@ typedef struct GlobalVars
 	uint8_t	SCRNMODE;			// If 0 we are in PAL mode, any other is NTSC
 	uint8_t	Color;				// Current color
 	uint8_t	Inverted;			// if 0, former what was not inverted
+	uint8_t	NoChar;			// if 0 print a char. if not.  just do not print
+	uint8_t	CPU060Rev;			// Rev of 060 CPU
+	uint8_t	MMU;				// If 0, there is no MMU
+	uint8_t	ADR24BIT;			// If 0, no 24 bit address CPU
+	uint8_t	MOUSE;				// if not 0 mouse is moved
+	uint8_t	MBUTTON;			// if not 0 a mousebutton is pressed
+	uint8_t	LMB;				// if not 0 LMB is pressed
+	uint8_t	RMB;				// if not 0 RMB is pressed
+	uint8_t	MMB;
+	uint8_t	P1LMB;				// P1 LMB
+	uint8_t	P2LMB;				// P2 LMB
+	uint8_t	P1RMB;				// P1 RMB
+	uint8_t	P2RMB;				// P2 RMB
+	uint8_t	P1MMB;				// P1 MMB
+	uint8_t	P2MMB;				// P2 MMB
+	uint8_t	DISPAULA;			// If not 0, Paula seems to be bad! so  no paulatests shold be done to check keypresses etc.
+	uint8_t	Serial;			// Will contain output from serialport
+	uint8_t	key;				// Current Keycode
+	uint8_t	OldMouse1Y;
+	uint8_t	OldMouse2Y;
+	uint8_t	OldMouse1X;
+	uint8_t	OldMouse2X;
+	uint8_t	OldMouseX;
+	uint8_t	OldMouseY;
+	uint8_t	MouseX;
+	uint8_t	MouseY;
+	uint8_t	GetCharData;			// Result of GetChar
+	uint8_t	SerAnsiFlag;			// Nonzero means we are in buffermode (number is actually number of chars in buffer)
+	uint8_t	SerAnsi35Flag;
+	uint8_t	SerAnsi36Flag;
+	uint8_t	skipnextkey;			// If set to other then 0, next keypress will be ignored
+	uint8_t	keyresult;			// Actual result to be printed on screen
+	uint8_t	keynew;			// if 1 the keypress is new
+	uint8_t	keyup;				// if 1 a key is pressed
+	uint8_t	keydown;
+	uint8_t	scancode;
+	uint8_t	keyalt;
+	uint8_t	keyctrl;
+	uint8_t	keycaps;
+	uint8_t	keyshift;
+	uint8_t	keystatus;
+	uint8_t	keypressed[2];
+	uint8_t	keypressedshifted[2];
 	uint8_t	SerBuf[256];			// Serialbuffer
 	uint8_t	b2dString[12];		// Stringbuffer for bindec
 	uint8_t	b2dTemp[8];			// Tempbuffer for bindec
 	uint8_t	binhexoutput[10];		// Buffer for binhex
 	uint8_t	bindecoutput[14];		// Output of old bin->dec routine still used
-	uint8_t	NoChar;			// if 0 print a char. if not.  just do not print
+	uint8_t	binstringoutput[33];
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

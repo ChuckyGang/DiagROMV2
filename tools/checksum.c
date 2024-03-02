@@ -112,7 +112,7 @@ int main(int argc, const char** argv)
 		{
 			uint32_t offset = region_nr * 0x10000 + i;
 			// NB! the DiagROM checksum test uses incorrect boundary conditions!
-			if ((checksum_value_offset+4) <= offset && offset < (checksum_area_end+4))
+			if ((checksum_value_offset) <= offset && offset < (checksum_area_end))
 				continue;
 			uint32_t v = RL(mem,offset);
 			checksum += v;
