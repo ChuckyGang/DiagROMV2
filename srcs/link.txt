@@ -9,6 +9,14 @@ SECTIONS
     *(.text)
     *(generic)
     *(mainmenu)
+    *(audiotest)
+    *(memtest)
+    *(irqcia)
+    *(gfxtest)
+    *(porttest)
+    *(disktest)
+    *(othertest)
+    *(keyboardtest)
     *(.checksums)
   }
 

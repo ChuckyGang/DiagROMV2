@@ -251,6 +251,9 @@ _begin:
 
 .nopressed:
 
+	move.w	#$200,$dff100			; This is needed or we will not see any colour changes on screen
+	move.w	#0,$dff110			; This aswell!
+
 ; ******************************************************************************************************************
 ;
 ; Check ROM Addressdata to see if romspace can be addressed correctly
@@ -314,7 +317,6 @@ done:
 
 
 	KPRINTC	_releasemousetxt
-
 	KPRINTC	_checkovltxt
 	cmp.l	#"DIAG",$0			; Check if $0 contains "DIAG" if so, OVL is NOT working.
 	bne	.ovlok
@@ -660,12 +662,12 @@ done:
 	KPRINTC _baseadr
 	move.l	a6,d0
 	KPRINTLONG
-	move.l	a2,StartChip(a6)
+	move.l	a2,ChipStart(a6)
 	move.l	a3,ChipEnd(a6)		; Store where the chipend block is
 	btst	#13,d1
 	beq	.nofastatboot
 						; As we DID scan for fastmem aswell.  some data needs to be "rewritten"
-	move.l	d4,StartChip(a6)		; and start of it
+	move.l	d4,ChipStart(a6)		; and start of it
 	move.l	d6,ChipEnd(a6)
 
 .nofastatboot:

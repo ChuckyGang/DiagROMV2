@@ -2,7 +2,7 @@
 	XDEF 	_checksums
 	XDEF	_endofcode
 	XDEF	_endchecksums
-	
+	xref	EndRom:
 	dc.b	"Checksums:"
 	CNOP	0,4			; Start at even LONGWORD
 _checksums:		; Numbers here fits my Kickstart 3.1 rom.
@@ -11,3 +11,4 @@ _endchecksums:
 	dc.b	"This is the brutal end of this ROM, everything after this are just pure noise.    End of Code...",0
 	CNOP	0,4			; Start at even LONGWORD
 _endofcode:
+EndRom:

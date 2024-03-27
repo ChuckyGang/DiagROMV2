@@ -3,10 +3,11 @@
 #include <stdint.h>
 typedef struct GlobalVars
 {
+	
 	void*		stack_mem;
 	void*		startblock;
 	void*		endblock;
-	void*		StartChip;
+	void*		ChipStart;
 	void*		ChipEnd;
 	void*		GetChipAddr;
 	void*		BaseStart;
@@ -17,7 +18,7 @@ typedef struct GlobalVars
 	void*		Bpl1Ptr;			// Pointer to Bitplane1 // Those 3 must be stored in a row
 	void*		Bpl2Ptr;			// Pointer to Bitplane2
 	void*		Bpl3Ptr;			// Pointer to Bitplane3
-	uint32_t	null;				// Nullpointer
+	void*		BplNull;			// This should follow bitplanes and point to 0
 	void*		DummySprite;			// Pointer to the dummysprite
 	void*		MenuCopper;			// Pointer to Menu Copperlist
 	void*		ECSCopper;			// Pointer to ECS Copperlist
@@ -32,6 +33,10 @@ typedef struct GlobalVars
 	void*		ptplay;			// Pointer to Protracker playroutine
 	void*		CPUPointer;			// Pointer to CPU String
 	void*		FPUPointer;			// Pointer to FPU String
+	void*		CheckMemEditScreenAdr;	// Startaddress of memorydump on screen in edit-mode
+	void*		Menu;				// Pointer to the Menu to use
+	void*		MenuVariable;			// List of pointers to variables to print after menuitem
+	void*		test;
 
 	uint32_t	startupflags;
 	uint32_t 	stack_size;
@@ -70,6 +75,11 @@ typedef struct GlobalVars
 	uint32_t	DebPC;
 	uint32_t	PowerONStatus;
 	uint32_t	InputRegister;		// Value of D0 of GetInput is stored here aswell (apparently)
+	uint32_t	FastMem;
+	uint32_t	TotalFast;
+	void*		FastStart;
+	void*		FastEnd;
+	uint32_t	FastBlocksAtBoot;		// Amount of fastmemblocks found at boot
 
 	uint16_t	DMACONR;
 	uint16_t	VPOSR;
@@ -96,6 +106,30 @@ typedef struct GlobalVars
 	uint16_t	CurAddY;
 	uint16_t	CurSubY;
 	uint16_t	SerAnsiChecks;		// Number of checks with a result of 0 in Ansimode
+	uint16_t	MenuNumber;			// Contains the menunum ber to be printed, from the Menus list
+	uint16_t	MenuMouseSub;
+	uint16_t	MenuMouseAdd;
+	uint16_t	OldMarkItem;			// Contains the item being marked before
+	uint16_t	OldMenuNumber;		// Contains old menunumber
+	uint16_t	AudSimpVar;			// Those must all be in one block!!
+	uint32_t	AudSimpVar1;
+	uint16_t	AudSimpVar2;
+	uint32_t	AudSimpVar3;
+	uint16_t	AudSimpVar4;
+	uint32_t	AudSimpVar5;
+	uint16_t	AudSimpVar6;
+	uint32_t	AudSimpVar7;
+	uint16_t	AudSimpVar8;
+	uint32_t	AudSimpVar9;
+	uint16_t	AudSimpVar10;
+	uint32_t	AudSimpVar11;
+	uint16_t	AudSimpVar12;
+	uint32_t	AudSimpVar13;
+	uint16_t	AudSimpVar14;
+	uint32_t	AudSimpVar15;
+	uint16_t	AudSimpVar16;
+	uint32_t	AudSimpVar17;			// Those must all be in one block!
+
 
 	uint8_t	AudioVolSelect;		// Was Vol Selection in menu selected
 	uint8_t	NoSerial;			// No serial output
@@ -166,6 +200,20 @@ typedef struct GlobalVars
 	uint8_t	keycaps;
 	uint8_t	keyshift;
 	uint8_t	keystatus;
+	uint8_t	MenuChoose;			// If anything else then 0, user have chosen this item in the menu
+	uint8_t	MarkItem;			// Contains the item being marked
+	uint8_t	PrintMenuFlag;		// If set to anything else then 0, print the menu
+	uint8_t	MenuPos;			// What menu utom to highlight
+	uint8_t	MenuEntrys;			// Will contain number of entrys in the menu being displayed
+	uint8_t	UpdateMenuFlag;		// If set to anything then 0, update menu
+	uint8_t	UpdateMenuNumber;		// What itemnumber to update. 0 = all  (0 is the only that prints label)
+	uint8_t	AudSimpChan1;
+	uint8_t	AudSimpChan2;
+	uint8_t	AudSimpChan3;
+	uint8_t	AudSimpChan4;
+	uint8_t	AudSimpWave;
+	uint8_t	AudSimpVol;
+	uint8_t	AudSimpFilter;
 	uint8_t	keypressed[2];
 	uint8_t	keypressedshifted[2];
 	uint8_t	SerBuf[256];			// Serialbuffer
@@ -174,6 +222,7 @@ typedef struct GlobalVars
 	uint8_t	binhexoutput[10];		// Buffer for binhex
 	uint8_t	bindecoutput[14];		// Output of old bin->dec routine still used
 	uint8_t	binstringoutput[33];
+	uint8_t	AudSimpVolStr[10];
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

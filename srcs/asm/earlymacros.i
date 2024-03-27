@@ -42,6 +42,14 @@ PAUSE:		MACRO
 		beq.s	.waitup\@
 		ENDM
 
+PAUSE2:	MACRO
+.waitdown\@	move.b	$dff007,$dff181
+		btst	#6,$bfe001
+		bne.s	.waitdown\@
+.waitup\@	btst	#6,$bfe001
+		beq.s	.waitup\@
+		ENDM
+
 DBINHEX: MACRO
 		; A0 points to string of content of D0 (byte)
 		lea .return\@,a5
