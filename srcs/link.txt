@@ -6,7 +6,6 @@ SECTIONS
     *(startup)
     *(initstartup)
     *(CODE)
-    *(.text)
     *(generic)
     *(mainmenu)
     *(audiotest)
@@ -17,6 +16,8 @@ SECTIONS
     *(disktest)
     *(othertest)
     *(keyboardtest)
+    *(.text)
+    *(module)
     *(.checksums)
   }
 

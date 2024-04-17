@@ -37,6 +37,7 @@ typedef struct GlobalVars
 	void*		Menu;				// Pointer to the Menu to use
 	void*		MenuVariable;			// List of pointers to variables to print after menuitem
 	void*		test;
+	void*		ChipUnreservedAddr;		// End of reserved space
 
 	uint32_t	startupflags;
 	uint32_t 	stack_size;
@@ -130,7 +131,6 @@ typedef struct GlobalVars
 	uint16_t	AudSimpVar16;
 	uint32_t	AudSimpVar17;			// Those must all be in one block!
 
-
 	uint8_t	AudioVolSelect;		// Was Vol Selection in menu selected
 	uint8_t	NoSerial;			// No serial output
 	uint8_t	STUCKP1LMB;			// If LMB1 was stuck
@@ -223,6 +223,9 @@ typedef struct GlobalVars
 	uint8_t	bindecoutput[14];		// Output of old bin->dec routine still used
 	uint8_t	binstringoutput[33];
 	uint8_t	AudSimpVolStr[10];
+	uint8_t	AudioModStatData[8];		// Audiomod status.
+	uint8_t	AudioModStatFormerData[8];	// Should follow AudioModStatData
+
 	void*		EndVar;			// End of variables
 } GlobalVars;
 
@@ -242,5 +245,4 @@ typedef struct Chipmemstuff
 	uint32_t	ECSCopper2List[67];		// Copperlist for ECS2 Test
 	uint8_t	ptplayroutine[4538];		// Space for Protracker replayroutine
 	uint8_t	AudioWaveData[247];		// Audiodata
-
-} Bitplanes;
+} Chipmemstuff;

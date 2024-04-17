@@ -7,7 +7,7 @@
 		XREF	DumpSerial
 
 rom_base:	equ $f80000	
-RAMUsage: EQU GlobalVars_sizeof+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
+RAMUsage: EQU GlobalVars_sizeof+STACKSIZE+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
 INITBAUD: EQU 30				; Init baudrate  115200
 
 		xref RAMUsage
@@ -695,13 +695,14 @@ done:
 	move.l	SP,d0					; As we just set the stack. bitplanes are after it!
 	add.l	#8,d0					; add a small buffer
 	move.l	d0,ChipmemBlock(a6)			; Store pointer to the chipmemblock
+	KPRINTC _chipblocktxt
+	KPRINTLONG
 	move.l	d0,BPL(a6)				; Store that pointer to BPL
-	move.l	Bpl1str,d1
-	move.l	Bpl2str,d2
+	move.l	#Bpl1str,d1
+	move.l	#Bpl2str,d2
 	sub.l	d1,d2
 	sub.l	#4,d2
 	move.l	d2,BPLSIZE(a6)			; Store the size of a bitplane
-
 	KPRINTC _starttxt
 
 	bra	Initcode
@@ -1344,9 +1345,11 @@ _workspace:
 _baseadr:
 	dc.b	$a,$d,"Baseaddress located at: $",0
 _stacktxt:
-	dc.b	$a,$d,"Stack starts at $",0
+	dc.b	$a,$d,"Stack starts at: $",0
 _stacksettxt:
 	dc.b	$a,$d,"Setting stack to: $",0
+_chipblocktxt:
+	dc.b	$a,$d,"Chipmemblock starts at: $",0"
 _starttxt:
 	dc.b	$a,$d,$a,$d,"Starting to use allocated RAM now",$a,$d,0
 _clearworktxt:
