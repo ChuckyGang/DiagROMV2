@@ -530,6 +530,7 @@ AudioMod:
 .exitit:
 	move.l	AudioModEnd(a6),a1
 	lea	$dff000,a5
+       PAUSE
 	jsr	(a1)				; Call MT_End
 .exit:
 	bra	AudioMenu
@@ -787,3 +788,6 @@ ROMAudioWaves:
 
               EVEN
 EndROMAudioWaves:
+
+
+EVEN

@@ -47,6 +47,27 @@
 	xref	GetChip
 	xref	binhexbyte
 	xref	SpaceTxt
+	xref	RunCode
+	xref	GetMemory
+	xref	AnyKeyMouseTxt
+	xref	ToKB
+	xref	Random
+	xref	DividerTxt
+	xref	DeleteLine
+	xref	DetectMemory
+	xref	InputHexNum
+	xref	StrLen
+	xref	GetMouse
+	xref	hexbin
+	xref	InputDecNum
+	xref	hexbytetobin
+	xref	decbin
+	xref	GetChar
+	xref	GetHex
+	xref	MakePrintable
+	xref	binstringbyte
+	xref	EnableCache
+	xref	DisableCache
 	; This contains the generic code for all general-purpose stuff
 
 GetHWReg:					; Dumps all readable HW registers to memory
@@ -70,9 +91,8 @@ GetHWReg:					; Dumps all readable HW registers to memory
 	move.w	$dff1da,HHPOSR(a6)
 	rts
 
+
 DefaultVars:					; Set defualtvalues
-	;move.l	a6,d0
-	;add.l	#EndData-V,d0
 	move.l	$400,CheckMemEditScreenAdr(a6)
 	move.b	#0,skipnextkey(a6)
 	rts
@@ -2138,6 +2158,56 @@ WaitLong:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have de
 	POP
 	rts
 
+GetMemory:					; Get memory from workmem.  Fastmem prio.
+						; IN:
+						;	D0 = size wanted
+						; OUT:
+						;	A0 = startaddress of memory, if 0=no memory
+	PUSH
+	move.l	d0,d6				; We move size to d6...
+	clr.l	d7
+	move.l	FastStart(a6),d0		; D0 now contains start of fastmem
+	move.l	FastEnd(a6),d1		; D1 now contains end of fastmem
+	move.l	d1,d2
+	sub.l	d0,d2				; D2 now contains fastmemsize
+	move.l	ChipStart(a6),d3		; D3 now contains start of chipmem
+	move.l	ChipEnd(a6),d4		; D4 now contains end of chipmem
+	move.l	d4,d5
+	sub.l	d3,d5				; D6 now contains chipmemsize
+	cmp.l	#0,d0
+	beq	.nofast
+	cmp.l	d6,d2				; Check if we had enough
+	blt	.nofast				; we did not have enough fast..
+						; ok we had enough ram..
+	bra	.hadmem				; so go to "hadmem" to handle last part
+.nofast:
+	cmp.l	#0,d3
+	beq	.nochip				; we had nochip! out of mem!
+	cmp.l	d6,d5
+	blt	.nochip				; we had not enough chip!  out of mem!
+						; ok we had mem. to be lazy we copy over chipmem registers to where fastmem regs was
+	move.l	d3,d0
+	move.l	d4,d1				; Start and end is all we need
+	bra	.hadmem
+.nochip:					; ok sorry!  out of memory!we are screwed return 0 as memory
+	clr.l	MemAdr(a6)
+	bra	.memdone
+.hadmem:					; We had memory, just figure out if we should give from start or end of ram
+	move.b	WorkOrder(a6),d7		; if d7 is 0=work from back, if not work from start.
+	cmp.b	#0,d7				; Check status
+	beq	.FromBack
+	move.l	d0,MemAdr(a6)
+	bra	.memdone
+.FromBack:
+	sub.l	d6,d1
+	sub.l	#1,d1				; Subtract with 1 more or it will be an odd address
+	move.l	d1,MemAdr(a6)			; Store it and return it
+.memdone:
+	POP
+	move.l	MemAdr(a6),a0			; Return answer
+	rts
+
+
 GetChip:					; Gets extra chipmem below the reserved workarea.
 						; IN = D0=Size requested
 						; OUT = D0=Startaddress of chipmem.  1=not enough, 0=no chipmem
@@ -2162,6 +2232,676 @@ GetChip:					; Gets extra chipmem below the reserved workarea.
 .exit: 
 	POP
 	move.l	GetChipAddr(a6),d0		; Return the value
+	rts
+
+
+RunCode:					; Copy a routine to RAM, run it from there and return.
+						; IN =	A0 = link to routine
+						; 	D0 = length of routine (max 64K)
+	PUSH
+	add.l	#4,d0				; add 4 bytes to be sure
+	move.l	a0,a1				; copy link to routine to a0
+	move.l	a0,a5
+	move.l	d0,d7
+	bsr	GetMemory			; get memory
+	cmp.l	#0,a0				; if A0 is 0, we was out of memory, exit
+	beq	RunCodeInRom
+	move.l	a0,d1				; store memaddress to d0
+	add.l	#4,d1				; add 4 to be sure
+	asr.l	#2,d1				; as this migight put start 2 bytes before
+	asl.l	#2,d1				; Make sure start is on a even 32 bit location!
+	move.l	d1,a0
+						; A0 now contains pointer where to copy routine
+	lea	$0,a0				; kuk.  disable rum!!
+	move.l	a0,RunCodeStart(a6)		; Store first address of where code is
+	move.l	a0,a2				; make a backup of address
+	move.l	a1,a3
+	move.l	d0,d3
+.loop:
+	move.b	(a1)+,(a0)+
+	dbf	d0,.loop			; copy routine to RAM
+						; lets verify so the data is readable (working mem)
+	move.l	a2,a0
+	move.l	a3,a1
+	sub.l	#4,d3
+.loopa:
+	move.b	(a0)+,d6
+	move.b	(a1)+,d5
+	cmp.b	d5,d6				; Compare memory
+	bne	RunCodeInRom			; we failed
+	dbf	d3,.loopa
+						; memtest succeeded.  so lets run in ram.
+	move.l	a0,RunCodeEnd(a6)		; Store where end of code is
+.run:
+	jsr	(a2)				; jump to routine
+	POP
+	rts
+RunCodeInRom:
+	move.l	a5,RunCodeStart(a6)
+	move.l	a5,a4
+	add.l	d7,a4
+	move.l	a4,RunCodeEnd(a6)
+	jsr	(a5)	
+	POP
+	rts
+
+ToKB:						; Convert D0 to KB (divide by 1024)
+	asr.l	#8,d0
+	asr.l	#2,d0
+	rts
+
+
+Random:						;  out: d0 will contain a "random" number
+	add.l	d3,d0
+	add.l	d4,d0
+	add.b	$dff006,d0
+	add.l	d1,d0
+	swap	d0
+	add.b	$dff007,d0
+	add.l	d2,d0
+	add.l	d5,d0
+	add.l	d6,d0
+	add.l	d7,d0
+	rts
+	
+
+DeleteLine:					; Delete line D0 on screen, scrolls everything under it up one line
+	PUSH
+	move.b	Xpos(a6),d6			; Make a backup of XPos.
+	move.b	Ypos(a6),d7			; Make a backup of YPos
+	clr.l	d1
+	move.b	d0,d1				; set Y pos. (we used d0 to be lazy and logic)
+	move.l	d1,d5
+	move.l	#0,d0				; Set 0 to X pos. we already have Y pos in d0
+	bsr	SetPos
+	lea	DELLINE,a0			; Send ANSI command to delete line and scroll up
+	move.l	#3,d1
+	bsr	Print
+	cmp.b	#0,NoDraw(a6)			; Check if we should draw
+	bne	.exit
+						; Lets Scroll up physical screen
+	move.l	Bpl1Ptr(a6),a0		; load A0 with address of BPL1
+	move.l	Bpl2Ptr(a6),a1		; load A1 with address of BPL2
+	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
+	move.l	#31,d4				; Last line is 31
+	sub.l	d5,d4				; subtract number of lines to where we was
+	mulu	#640,d4				; calculate where in memory this is
+	mulu	#640,d5				; calulate where to start scroll
+	add.l	d5,a0
+	add.l	d5,a1
+	add.l	d5,a2
+	move.l	#-1,(a0)
+	move.l	#-1,(a1)
+	move.l	#-1,(a2)
+	divu	#4,d4
+.loop:
+	move.l	640(a0),(a0)+
+	move.l	640(a1),(a1)+
+	move.l	640(a2),(a2)+	
+	dbf	d4,.loop
+	move.w	#159,d4
+.loop2:
+	clr.l	(a0)+
+	clr.l	(a1)+
+	clr.l	(a2)+				; Clear last row
+	dbf	d4,.loop2
+.exit:
+	clr.l	d0				; Restore old X and Y cordinates
+	clr.l	d1
+	move.b	d6,d0
+	move.b	d7,d1
+	bsr	SetPos
+	POP
+	rts
+
+DetectMemory:
+					; D1 Total block of known working ram in 16K blocks (clear before first use)
+					; A0 first usable addr
+					; a1 First addr to scan
+					; a2 Addr to end
+					; a3 Addr to jump after done (as this does not use any stack
+					; only OK registers to use as write: (d1), d2,d3,d4,d5,d6,d7, a0,a1,a2,a5
+
+
+					; D0 is a special "in" never to be modified but taken as a "random" generator for shadowcontrol
+
+					; OUT:	d1 = blocks of found mem
+					;	a0 = first usable address
+					;	a1 = last usable address
+	move.l	a1,d7
+	and.l	#$fffffffc,d7		; just strip so we always work in longword area (just to be sure)
+	move.l	d7,a1
+	move.l	a3,d7			; Store jumpaddress in D7
+	lea	$0,a0			; clear a0
+.Detect:
+	lea	MEMCheckPattern,a3
+	move.l	(a1),d3			; Take a backup of content in memory to D3
+.loop:
+	cmp.l	a1,a2			; check if we tested all memory
+	blo	.wearedone		; we have, we are done!
+	move.l	(a3)+,d2		; Store value to test for in D2	
+	move.l	d2,(a1)			; Store testvalue to a1
+	move.l	#"CRAP",4(a1)		; Just to put crap at databus. so if a stuck buffer reads what is last written will get crap
+	nop
+	nop
+	nop
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+	move.l	(a1),d4			; read value from a1 to d4
+					; Reading several times.  as sometimes reading once will give the correct answer on bad areas.
+	cmp.l	d4,d2			; Compare values
+	bne	.failed			; ok failed, no working ram here.
+	cmp.l	#0,d2			; was value 0? ok end of list
+	bne	.loop			; if not, lets do this test again
+					; we had 0, we have working RAM
+	move.l	a1,a5			; OK lets see if this is actual CORRECT ram and now just a shadow.
+	move.l	a5,(a1)			; So we store the address we found in that location.
+	move.l	#32,d6			; ok we do test 31 bits
+	move.l	a5,d5
+.loopa:
+	cmp.l	#0,d6
+	beq	.done			; we went all to bit 0.. we are done I guess
+	sub.l	#1,d6
+	cmp.l	#0,d6
+	beq	.done			; we went all to bit 0.. we are done I guess	---------
+	btst	d6,d5			; scan until it isnt a 0
+	beq.s	.loopa
+.bitloop:
+	bclr	d6,d5			; ok. we are at that address, lets clear first bit of that address
+	move.l	d5,a3
+	cmp.l	(a3),a5			; ok check if that address contains the address we detected, if so. we have a "shadow"
+	beq	.shadow
+	cmp.l	#0,a3			; it was 0, so we "assume" we got memory
+	beq	.mem
+					; ok we didnt have a shadow here
+					; a5 will contain address if there was detected ram
+	sub.l	#1,d6
+	cmp.l	#4,d6
+	beq	.mem			; ok we was at 4 bits away..  we can be PRETTY sure we do not have a shadow here.  we found mem
+	bra	.bitloop
+.mem:
+	move.l	d3,(a1)			; restore backup of data
+	cmp.l	(a1),d0			; check if value at a1 is the same as d0. this means we have a shadow on top and we have already tested
+	beq	.shadowdone			; this memory.  basically: we are done
+	cmp.l	#0,a0			; check if a0 was 0, if so, this is the first working address
+	bne	.wehadmem
+	move.l	a5,a0			; so a5 contained the address we found, copy it to a0
+	move.l	d7,16(a1)		; ok store d7 into what a1 points to.. to say that this is a block of mem)
+.wehadmem:
+	add.l	#4,d1			; OK we found mem, lets add 4 do d1(as old routine was 64K blocks  now 256.  being lazy)
+	bra	.next
+.wearedone:
+	bra	.done
+.shadow:
+	TOGGLEPWRLED			; Flash with powerled doing this.. 
+.failed:
+	move.l	d3,(a1)			; restore backup of data
+	cmp.l	#0,a0			; ok was a0 0? if so, we havent found memory that works yet, lets loop until all area is tested
+	bne	.done
+.next:
+	move.l	d0,(a1)			; put a note at the first found address. to mark this as already tagged
+	move.l	a0,4(a1)		; put a note of first block found
+	move.l	a1,8(a1)		; where this block was
+	move.l	d1,12(a1)		; total amount of 64k blocks found
+					; Strangly enough. this seems to also write onscreen at diagrom?
+	add.l	#256*1024,a1		; Add 256k for next block to test
+	bra	.Detect
+.shadowdone:
+	TOGGLEPWRLED			; Flash with powerled doing this.. 
+.done:
+	move.l	d7,a3			; Restore jumpaddress
+	sub.l	#1,a1
+	jmp	(a3)
+
+InputHexNum:					; Inputs a 32 bit hexnumber
+						; INDATA
+						;	A0 = Defualtaddress
+	PUSH
+	move.b	Xpos(a6),CheckMemManualX(a6)
+	move.b	Ypos(a6),CheckMemManualY(a6); Store X and Y positions
+	move.l	a0,d0				; Store the defaultaddress in d0
+	jsr	binhex				; Convert it to hex
+	add.l	#1,a0				; Skip first $ sign in string
+	move.l	#8,d0
+	lea	CheckMemStartAdrTxt(a6),a1	; Clear workspace
+.clearloop:
+	clr.b	(a1,d0)
+	dbf	d0,.clearloop
+	move.l	#7,d0
+	clr.l	d7				; Clear d7, if this is 0 later we had not had any 0 yet
+.hexloop:
+	move.b	(a0)+,d1			; Store char in d1
+	cmp.b	#"0",d1				; is it a 0?
+	bne	.nozero
+	cmp.b	#0,d7				; Check if d7 is 0. if so, we will skip this
+	beq	.zero
+.nozero:
+	move.b	d1,(a1)+			; Copy to where a1 points to
+	move.b	#1,d7				; We had a nonzero.  set d7 to 1 so we handle 0 in the future
+.zero:
+	dbf	d0,.hexloop			; Copy string to defaultadress to be shown
+	lea	CheckMemStartAdrTxt(a6),a5	; Store pointer to string at a5
+	move.l	a5,a0
+	move.l	#7,d1
+	jsr	Print				; Print it
+	jsr	StrLen				; Get Stringlength
+	move.l	d0,d6
+	clr.l	d7				; Clear d7, this is the current position of the string
+	sub.b	#1,d7				; Change d7 so we will force a update of cursor first time
+.loop:
+	jsr	GetMouse
+	cmp.b	#1,RMB(a6)
+	beq	.exit
+	cmp.b	#1,LMB(a6)
+	beq	.exit
+	bsr	WaitShort
+	jsr	GetChar				; Get a char from keyboard/serial
+	bsr	WaitLong
+	cmp.b	#"x",d0				; did user press X?
+	beq	.xpressed
+	cmp.b	#$7f,d0				; did we have backspace from serial?
+	beq	.backspace
+.gethex:
+	jsr	GetHex				; Strip it to hexnumbers
+	cmp.b	#0,d0				; if returned value is 0, we had no keypress
+	beq	.no
+	cmp.b	#$1b,d0				; Was ESC pressed?
+	beq	.exit				; if so, Exit
+	cmp.b	#$a,d0				; did user press enter?
+	beq	.enter				; if so, we are done
+	cmp.b	#$8,d0				; Did we have a backspace?
+	bne	.nobackspace			; no
+						; oh. we had. lets erase one char
+.backspace:
+	move.b	#$0,(a5,d6)			; Store a null at that position
+	cmp.b	#0,d6				; check if we are at the back?
+	beq	.backmax			; yes, do not remove
+	move.b	#" ",d0
+	sub.b	#1,d6				; Subtract one
+	move.b	d0,(a5,d6)			; Put char in memory
+	bra	.back
+.nobackspace:
+	cmp.b	#8,d6				; Check if we have max number of chars
+	beq	.nomore
+	move.b	d0,(a5,d6)			; Put char in memory
+	add.b	#1,d6
+.back:
+	move.l	#7,d1
+	jsr	PrintChar			; Print the char
+.backmax:
+.nomore:
+.no:	cmp.b	d6,d7				; Check if d6 and d7 is same, if not, update cursor
+	beq	.same
+	move.b	d6,d7
+	bsr	.putcursor			; Put cursor
+.same:
+	bra	.loop
+.exit:
+	POP
+	move.l	#-1,d0				; Show we had an exit
+	rts
+.xpressed:					; X is pressed, lets clear the whole area.
+	clr.l	d6
+	move.l	#7,d0
+.xloop:
+	move.b	#" ",(a5,d0)
+	dbf	d0,.xloop
+	clr.l	d7
+	bsr	.putcursor
+	lea	space8,a0
+	move.l	#7,d1
+	jsr	Print
+	clr.l	d7
+	bsr	.putcursor
+	clr.l	d6
+	clr.l	d0
+	bra.w	.gethex
+.enter:
+	cmp.b	#0,d6				; was cursor at 0? then we had nothing
+	beq	.exit
+	bsr	.putcursor
+	move.l	#" ",d0
+	jsr	PrintChar			; Print a space to remove the old cursor
+
+	clr.l	d6				; Clear d6, we need to check how many numbers we have
+.countloop:
+	move.b	(a5,d6),d0			; load char in string
+	cmp.b	#0,d0				; is it a null?
+	beq	.null
+	cmp.b	#" ",d0				; same with space
+	beq	.null
+	add.b	#1,d6				; nope, so lets add 1 to the counter
+	cmp.b	#8,d6				; Check if we actually DID have 8 chars, then no rotate of data is needed
+	beq	.norotate
+	bra	.countloop			; do it all over again
+.null:						; ok we had a null, before doing 8 chars.
+						; We had less then 8 chars, meaning we need to trimp it to 8 chars.
+	move.l	d6,d7
+	sub.b	#1,d7
+	move.l	#7,d0
+.copyloop2:
+	move.b	(a5,d7),(a5,d0)
+	sub.b	#1,d0
+	dbf	d7,.copyloop2
+						; ok now we have moved the data to the end of the string, lets fill up with 0
+	move.l	#8,d0
+	sub.b	d6,d0				; d0 now contains of how many 0 to put in
+	sub.b	#1,d0
+.fill:
+	move.b	#"0",(a5,d0)
+	dbf	d0,.fill
+.norotate:
+	move.b	CheckMemManualX(a6),d0
+	move.b	CheckMemManualY(a6),d1
+	sub.l	#1,d0				; Set cursor to the first adress, minus pone
+	jsr	SetPos
+	lea	CheckMemStartAdrTxt(a6),a0
+	jsr	hexbin
+	POP
+	move.l	HexBinBin(a6),d0		; return the value
+	rts
+.putcursor:
+	PUSH
+	move.b	CheckMemManualX(a6),d0
+	add.b	d7,d0				; Add postion to X pos to get correct position
+	move.b	CheckMemManualY(a6),d1
+	jsr	SetPos
+	clr.l	d0
+	move.b	(a5,d7),d0			; Load current char from string
+	move.l	#11,d1
+	jsr	PrintChar			; Print it reversed
+	move.b	CheckMemManualX(a6),d0
+	add.b	d7,d0				; Add postion to X pos to get correct position
+	move.b	CheckMemManualY(a6),d1
+	jsr	SetPos
+	POP
+	rts	
+
+StrLen:
+						; Returns length of string
+						; IN:
+						;	A0 = Pointer to nullterminated string
+						; OUT:
+						;	D0 = Length of string
+	PUSH
+	clr.l	d0				; Clear d0
+.loop:
+	move.b	(a0)+,d7			; Load d7 with char
+	cmp.b	#0,d7
+	beq	.exit				; Exit if we found a null
+	cmp.b	#2,d7				; if centercommand, skip char
+	beq	.skip
+	add.l	#1,d0				; add 1 to stringlength
+.skip:
+	bra	.loop
+.exit:
+	move.l	d0,temp(a6)			; Store length in temp. as we will restore all registers
+	POP
+	move.l	temp(a6),d0			; So back to D0 again
+	rts
+
+GetMouse:
+	PUSH
+	clr.l	d0				; Clear d0..
+	move.b	#0,BUTTON(a6)			; Clear the generic "Button" variable
+	move.b	#0,LMB(a6)			; I use move as clr actually does a read first
+	move.b	#0,P1LMB(a6)
+	move.b	#0,P2LMB(a6)
+	move.b	#0,RMB(a6)
+	move.b	#0,P1RMB(a6)
+	move.b	#0,P2RMB(a6)
+	move.b	#0,MBUTTON(a6)		; Clear the generic "Mbutton" variable
+	clr.l	d1
+	bsr	GetMouseData
+	move.l	d0,InputRegister(a6)
+	POP
+	move.l	InputRegister(a6),d0
+	rts
+
+hexbin:						; Converts a longword to binary.
+						; NO ERRORCHECk WHATSOEVER!
+						; Input:
+						;	A0 = String to convert (8 bytes)
+						; Output:
+						;	D0 = binary number
+						;
+	PUSH
+	clr.l	d0				; Clear D0 that will contain the binary number
+	move.l	#3,d7				; Loop this 3 times.
+.loop:
+	bsr	hexbytetobin
+	asl.l	#8,d0				; Rotate d0 8 bits to make room for the next byte
+	add.l	d2,d0				; Add the content of d2 to d0
+	dbf	d7,.loop			; Repeat 3 times to complete one longword
+	move.l	d0,HexBinBin(a6)
+	POP
+	move.l	HexBinBin(a6),d0
+	rts
+
+InputDecNum:					; Inputs a 32 bit hexnumber
+						; INDATA
+						;	A0 = Defualtaddress
+	PUSH
+	move.b	Xpos(a6),CheckMemManualX(a6)
+	move.b	Ypos(a6),CheckMemManualY(a6); Store X and Y positions
+	move.l	a0,d0				; Store the defaultaddress in d0
+	jsr	bindec				; Convert it to hex
+	move.l	#8,d0
+	lea	CheckMemStartAdrTxt(a6),a1	; Clear workspace
+.clearloop:
+	clr.b	(a1,d0)
+	dbf	d0,.clearloop
+	move.l	#7,d0
+.decloop:
+	move.b	(a0)+,d1			; Store char in d1
+	cmp.b	#0,d1				; Check if d7 is 0. if so, we will skip this
+	beq	.zero
+	move.b	d1,(a1)+			; Copy to where a1 points to
+	dbf	d0,.decloop
+.zero:
+	lea	CheckMemStartAdrTxt(a6),a5	; Store pointer to string at a5
+	move.l	a5,a0
+	move.l	#7,d1
+	jsr	Print				; Print it
+	jsr	StrLen				; Get Stringlength
+	move.l	d0,d6
+	clr.l	d7				; Clear d7, this is the current position of the string
+	sub.b	#1,d7				; Change d7 so we will force a update of cursor first time
+.loop:
+	jsr	GetMouse
+	cmp.b	#1,RMB(a6)
+	beq	.exit
+	cmp.b	#1,LMB(a6)
+	beq	.exit
+	bsr	WaitShort
+	jsr	GetChar				; Get a char from keyboard/serial
+	bsr	WaitLong
+	cmp.b	#"x",d0				; did user press X?
+	beq	.xpressed
+	cmp.b	#$7f,d0				; did we have backspace from serial?
+	beq	.backspace
+.getdec:
+	jsr	GetDec				; Strip it to hexnumbers
+	cmp.b	#0,d0				; if returned value is 0, we had no keypress
+	beq	.no
+	cmp.b	#$1b,d0				; Was ESC pressed?
+	beq	.exit				; if so, Exit
+	cmp.b	#$a,d0				; did user press enter?
+	beq	.enter				; if so, we are done
+	cmp.b	#$8,d0				; Did we have a backspace?
+	bne	.nobackspace			; no
+						; oh. we had. lets erase one char
+.backspace:
+	move.b	#$0,(a5,d6)			; Store a null at that position
+	cmp.b	#0,d6				; check if we are at the back?
+	beq	.backmax			; yes, do not remove
+	move.b	#" ",d0
+	sub.b	#1,d6				; Subtract one
+	move.b	d0,(a5,d6)			; Put char in memory
+	bra	.back
+.nobackspace:
+	cmp.b	#8,d6				; Check if we have max number of chars
+	beq	.nomore
+	move.b	d0,(a5,d6)			; Put char in memory
+	add.b	#1,d6
+.back:
+	move.l	#7,d1
+	jsr	PrintChar			; Print the char
+.backmax:
+.nomore:
+.no:	cmp.b	d6,d7				; Check if d6 and d7 is same, if not, update cursor
+	beq	.same
+	move.b	d6,d7
+	bsr	.putcursor			; Put cursor
+.same:
+	bra	.loop
+.exit:
+	POP
+	move.l	#-1,d0				; Show we had an exit
+	rts
+.xpressed:					; X is pressed, lets clear the whole area.
+	clr.l	d6
+	move.l	#7,d0
+.xloop:
+	move.b	#" ",(a5,d0)
+	dbf	d0,.xloop
+	clr.l	d7
+	bsr	.putcursor
+	lea	space8,a0
+	move.l	#7,d1
+	jsr	Print
+	clr.l	d7
+	bsr	.putcursor
+	clr.l	d6
+	clr.l	d0
+	bra.w	.getdec
+
+.enter:
+	cmp.b	#0,d6				; was cursor at 0? then we had nothing
+	beq	.exit
+	bsr	.putcursor
+	move.l	#" ",d0
+	jsr	PrintChar			; Print a space to remove the old cursor
+	clr.l	d6				; Clear d6, we need to check how many numbers we have
+	move.l	a5,a0
+	jsr	decbin
+	POP
+	move.l	DecBinBin(a6),d0		; return the value
+	rts
+.putcursor:
+	PUSH
+	move.b	CheckMemManualX(a6),d0
+	add.b	d7,d0				; Add postion to X pos to get correct position
+	move.b	CheckMemManualY(a6),d1
+	jsr	SetPos
+	clr.l	d0
+	move.b	(a5,d7),d0			; Load current char from string
+	move.l	#11,d1
+	jsr	PrintChar			; Print it reversed
+	move.b	CheckMemManualX(a6),d0
+	add.b	d7,d0				; Add postion to X pos to get correct position
+	move.b	CheckMemManualY(a6),d1
+	jsr	SetPos
+	POP
+	rts	
+
+hexbytetobin:
+	clr.l	d2				; Clear D2 that holds the ASCII code
+	move.b	(a0)+,d2			; Read one byte of the string
+	bsr	.tobin				; Convert to binary
+	move.l	d2,d1				; Store the value in D1
+	move.b	(a0)+,d2			; Read next char to complete this byte
+	bsr	.tobin				; Convert to binary
+	asl.l	#4,d1				; Rotate the first char 4 bits
+	add.l	d1,d2				; add d1 to d2, d2 will now contain this byte in binary
+	rts
+.tobin:
+	cmp.b	#"A",d2				; Check if it is "A"
+	blt	.nochar				; Lower then A, this is not a char
+	sub.l	#7,d2				; ok we have a char, subtract 7
+.nochar:
+	sub.l	#$30,d2				; Subtract $30, converting it to binary.
+	rts
+
+decbin:						; Convert a decimal string to binary number
+						; IN:
+						;	A0 = String (NO SYNTAXCHECK!)
+						; OUT:
+						;	D0 = Number in binary (16 bit number max)
+	PUSH
+	jsr	StrLen
+	move.l	#1,d7
+	clr.l	d2
+	clr.l	d1
+.loop:
+	sub.l	#1,d0				; Subtract 1 to the length
+	move.b	(a0,d0),d1			; get char from the string
+	sub.b	#"0",d1				; Subtract "0" to get the binary number
+	mulu	d7,d1				; multiply with whats in d7 to d1 to get what to add in the result
+	add.l	d1,d2				; add it to d2
+	mulu	#10,d7				; multiply 10 do d7 to get next value to add for next char
+	cmp.w	#0,d0				; are we done?
+	bne.s	.loop				; no loop
+	move.l	d2,DecBinBin(a6)		; write result
+	POP
+	move.l	DecBinBin(a6),d0		; D0 now contains the binary form of the number
+	rts
+
+MakePrintable:
+						; Makes the char in D0 printable. remove controlchars etc.
+	cmp.b	#" ",d0
+	ble	.lessthenspace			; is less then space.. make it space.
+	rts
+.lessthenspace:
+	move.b	#" ",d0
+	rts
+
+binstringbyte:
+						; Converts a binary number (byte) to binary string
+						; INDATA:
+						;	D0 = binary number
+						; OUTDATA:
+						;	A0 = Poiner to outputstring
+	PUSH
+	move.l	#7,d7
+	lea	binstringoutput(a6),a0
+.loop:
+	btst	d7,d0
+	beq	.notset
+	move.b	#"1",(a0)+
+	bra	.done
+.notset:
+	move.b	#"0",(a0)+
+.done:
+	dbf	d7,.loop
+	move.b	#0,(a0)
+	POP
+	lea	binstringoutput(a6),a0
+	rts
+
+EnableCache:
+	PUSH
+	move.l	#$0808,d1
+	movec	d1,CACR
+	move.l	#$0101,d1
+	movec	d1,CACR
+	POP
+	rts
+
+DisableCache:
+	PUSH
+	move.l	#$0808,d1
+	movec	d1,CACR
+	move.l	#0,d1
+	movec	d1,CACR
+	POP
 	rts
 
 SerSpeeds:		; list of Baudrates (3579545/BPS)+1
@@ -2309,4 +3049,11 @@ ON:
 	dc.b	"ON ",0
 OFF:
 	dc.b	"OFF",0
+DELLINE:
+	dc.b	27,"[1M",0
+
+space8:
+	dc.b	"        ",0
+
+
 	EVEN

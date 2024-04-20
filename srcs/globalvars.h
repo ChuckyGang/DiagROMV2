@@ -38,6 +38,13 @@ typedef struct GlobalVars
 	void*		MenuVariable;			// List of pointers to variables to print after menuitem
 	void*		test;
 	void*		ChipUnreservedAddr;		// End of reserved space
+	void*		CheckMemFrom;			// Startadr of mem to check
+	void*		CheckMemTo;			// Endadr of mem to check
+	void*		RunCodeStart;			// will contain start of adr to run code in
+	void*		RunCodeEnd;			// End...
+	void*		CheckMemCurrent;		// Current adr to check
+	void*		CheckMemCurrentOLD;
+	void*		MemAdr;			// Pointer to memory from getmemory
 
 	uint32_t	startupflags;
 	uint32_t 	stack_size;
@@ -81,6 +88,43 @@ typedef struct GlobalVars
 	void*		FastStart;
 	void*		FastEnd;
 	uint32_t	FastBlocksAtBoot;		// Amount of fastmemblocks found at boot
+	uint32_t	LogYpos;
+	uint32_t	CheckMemStepSize;
+	uint32_t	CheckMemBitError;		// Contains the biterrors
+	uint32_t	CheckMemTypeStart;
+	uint32_t	CheckMemAdrRnd;		// Store a random number for addresstest
+	uint32_t	CheckMemUsable;		// How much usable memory
+	uint32_t	CheckMemPassQuit;		// If not 0, we quit this pass
+	uint32_t	CheckMemPreFail;		// shold be 0 or something failed preparing the block and do not test this block
+	uint32_t	CheckMemAdrError;		// Contain mask of addresserror
+	uint32_t	CheckMemAdrErrorOLD;
+	uint32_t	CheckMemNonUsable;
+	uint32_t	CheckMemNonUsableOLD;
+	uint32_t	CheckMemHighError;		// Will contain all bits with stuck 1
+	uint32_t	CheckMemLowError;		// Will contain all bits with stuck 0
+	uint32_t	CheckMemBlockDone;		// How many blocks is done
+	uint32_t	CheckMemChecked;		// How much memory is checked
+	uint32_t	CheckMemCheckedOLD;
+	uint32_t	CheckMemErrors;		// Number of errors found
+	uint32_t	CheckMemErrorsOLD;
+	uint32_t	CheckMemCancelReason;
+	uint32_t	CheckMemPass;			// Number of passes done
+	uint32_t	CheckMemPassOLD;
+	uint32_t	CheckMemPassOK;		// Number of OK passes
+	uint32_t	CheckMemPassOKOLD;
+	uint32_t	CheckMemPassFail;		// Number of failed passes
+	uint32_t	CheckMemPassFailOLD;
+	uint32_t	CheckMemUsableOLD;
+	uint32_t	CheckMemNoErrors;		// Total number of memoryerrors
+	uint32_t	CheckMemAdrError2;		// Total number of adresserrors
+	uint32_t	MemTestPass;			// Number of passes
+	uint32_t	DetectMemRnd;			// Used as a flag to tag for shadowram
+	uint32_t	FastmemBlock;			// Number of fastmem block found
+	uint32_t	HexBinBin;
+	uint32_t	DecBinBin;
+
+	uint16_t	CheckMemCancel;		// if not 0 we had to cancel test
+	uint16_t	MemDetected;			// If mem was detected
 
 	uint16_t	DMACONR;
 	uint16_t	VPOSR;
@@ -130,7 +174,6 @@ typedef struct GlobalVars
 	uint32_t	AudSimpVar15;
 	uint16_t	AudSimpVar16;
 	uint32_t	AudSimpVar17;			// Those must all be in one block!
-
 	uint8_t	AudioVolSelect;		// Was Vol Selection in menu selected
 	uint8_t	NoSerial;			// No serial output
 	uint8_t	STUCKP1LMB;			// If LMB1 was stuck
@@ -214,6 +257,25 @@ typedef struct GlobalVars
 	uint8_t	AudSimpWave;
 	uint8_t	AudSimpVol;
 	uint8_t	AudSimpFilter;
+	uint8_t	CheckMemNoShadow;		// If anything else then 0 no shadowcheck will be done
+	uint8_t	CheckMemType;			// Type of memory detected last time 0=none, 1=error, 2=good
+	uint8_t	CheckMemOldType;
+	uint8_t	CheckMemTypeEnd;		// If this is  0 tyhen we can have a "end" text
+	uint8_t	savexpos;
+	uint8_t	saveypos;
+	uint8_t	savecol;
+	uint8_t	CheckMemManualX;
+	uint8_t	CheckMemManualY;
+	uint8_t	CheckMemEditXpos;
+	uint8_t	CheckMemEditYpos;
+	uint8_t	CheckMemEditOldXpos;
+	uint8_t	CheckMemEditOldYpos;
+	uint8_t	CheckMemEditCharPos;
+	uint8_t	CPUCache;
+
+	uint8_t	temp[10];
+	uint8_t	CheckMemStartAdrTxt[9];
+	uint8_t	CheckMemEndAdrTxt[9];
 	uint8_t	keypressed[2];
 	uint8_t	keypressedshifted[2];
 	uint8_t	SerBuf[256];			// Serialbuffer

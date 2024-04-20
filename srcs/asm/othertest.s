@@ -1,5 +1,5 @@
        include "earlymacros.i"
-       include "build/srcs/globalvars.i"
+       include "build/srcs/globalvars.i"        
        section "othertest",code_p
        xref   OtherTest
        xref   Setup
@@ -529,3 +529,7 @@ DENISEIDTxt:
 	dc.b	"DENISEID ($dff07c): ",0
 HHPOSRTxt:
 	dc.b	"HHPOSR  ($dff1dc): ",0
+
+
+
+       EVEN

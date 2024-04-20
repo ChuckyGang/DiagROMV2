@@ -1669,3 +1669,5 @@ Hexnumbers:
 			dc.b "FD",0,0
 			dc.b "FE",0,0
 			dc.b "FF",0,0
+
+EVEN

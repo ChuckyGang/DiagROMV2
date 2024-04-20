@@ -9,6 +9,7 @@
 	xref	EnglishKeyShifted
 	xref	KB
 	xref	MinusTxt
+	xref	MEMCheckPattern
 
 Initcode:                                                      ; OK we have RAM. we can actually work some with real coding no weird JMP to registers etc.
                                                                ; So lets start to actually handle the stuff we stored during bootup and do a proper init.
@@ -117,25 +118,22 @@ Initcode:                                                      ; OK we have RAM.
        beq    .reversed
        move.l ChipStart(a6),d0
        move.l d0,GetChipAddr(a6)
-       move.l ChipEnd(a6),d0
-       sub.l  #RAMUsage+4,d0
-       and.l  #$fffffffe,d0
-       move.l ChipStart(a6),d1
-       sub.l  d1,d0
-	sub.l	#RAMUsage,d0
-       move.l d0,ChipUnreserved(a6) 
+	move.l	a6,d0
+	sub.l	#16,d0
+	move.l	d0,ChipUnreservedAddr(a6)				; Store end of usable free chipmem workspace
+	move.l ChipStart(a6),d1
+	sub.l	d1,d0
+	and.l  #$fffffffe,d0
+	move.l	d0,ChipUnreserved(a6)				; Store size of free chipmem workspace
        bra    .nochip                                          ; ok wrong name but same address anyway.
 .reversed:
-       move.l ChipStart(a6),d0
-       add.l  #RAMUsage+4,d0
-       and.l  #$fffffffe,d0                                    ; Make sure it is even
-       move.l d0,GetChipAddr(a6)                               ; Store this address as start of "available" memblock
-       move.l ChipEnd(a6),d1
-       sub.l  d0,d1
-	sub.l	#RAMUsage,d1
-       move.l d1,ChipUnreserved(a6)                            ; Weird label I know. but "available chipmem"
+       move.l ChipEnd(a6),d0
+	and.l  #$fffffffe,d0
+	move.l	d0,ChipUnreservedAddr(a6)				; Store end of usable free chipmem workspace
+	move.l ChipStart(a6),d1
+	sub.l	d1,d0
+	move.l	d0,ChipUnreserved(a6)
 .nochip:
-	PAUSE
 	jsr    GetHWReg
 
        move.l a6,BaseStart(a6)
@@ -593,7 +591,7 @@ CopyToChip:					; Copy data that needs to be in Chipmem from ROM for menusystem 
        move.l ptplay(a6),a4
        move.l d0,AudioModInit(a6)                ; Store pointer to Init routine
        move.l d0,d2                              ; Backup pointer
-       add.l  #mt_END-MT_Init,d0
+       add.l  #MT_End-MT_Init,d0
        move.l d0,AudioModEnd(a6)                 ; Store pointer to end of musicroutine
        move.l d2,d0                              ; Restore the pointer
        add.l  #MT_Music-MT_Init,d0               ; Add where MT_Music is

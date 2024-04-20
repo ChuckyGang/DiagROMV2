@@ -85,9 +85,6 @@ UpdateStatus:
 	move.l	CPUPointer(a6),a0
 	move.l	#7,d1
 	bsr	Print
-;	move.l	CPUPointer(a6),a0
-;	move.l	#2,d1
-;	bsr	Print
 	move.l	#40,d0				; Print Chipmem
 	move.l	#31,d1
 	bsr	SetPos
@@ -126,7 +123,7 @@ SwapMode:
        bchg	#5,SCRNMODE(a6)
        clr.l	d0
        move.b	SCRNMODE(a6),d0
-       move.w	d0,$dff1dc		; Set BEAMCON90
+       move.w	d0,$dff1dc			; Set BEAMCON90
        bra	MainMenu
 
 HandleMenu:					; Routine that handles menus.
@@ -146,12 +143,12 @@ HandleMenu:					; Routine that handles menus.
 	lea	MenuCode,a0			; Get list of pointers to list for the menu
 	mulu	#4,d0				; Multiply menunumber with 4
 	add.l	d0,a0				; read pointer to the correct menu
-	move.l	(a0),a0				; a0 now contains address of menu routines
+	move.l	(a0),a0			; a0 now contains address of menu routines
 	clr.l	d0
 	move.b	MarkItem(a6),d0		; Get the marked item
 	mulu	#4,d0
 	add.l	d0,a0				; a0 now contains the address of the pointer to the routing
-	move.l	(a0),a0				; a0 now contains the address of the routine.
+	move.l	(a0),a0			; a0 now contains the address of the routine.
 	jmp	(a0)				; go there
 .nobutton:
 	clr.l	d0
@@ -159,13 +156,13 @@ HandleMenu:					; Routine that handles menus.
 	lea	MenuKeys,a0
 	mulu	#4,d0
 	add.l	d0,a0
-	move.l	(a0),a0				; A0 now contains pointer to where list of interesting keys are.
+	move.l	(a0),a0			; A0 now contains pointer to where list of interesting keys are.
 	clr.l	d0				; Clear d0
 .loop:
-	cmp.b	#0,(a0)				; does A0 point to 0? in that case, out of list
+	cmp.b	#0,(a0)			; does A0 point to 0? in that case, out of list
 	beq	.nokey
 	move.b	GetCharData(a6),d7		; d7 is now what the last keycode was.
-	cmp.b	(a0),d7				; check if value in list is the same as pressed keycode
+	cmp.b	(a0),d7			; check if value in list is the same as pressed keycode
 	beq	.Pressed
 .nokeyboard:
 	add.l	#1,a0
@@ -598,3 +595,6 @@ Bps115200:
 	dc.b	"115200",0
 BpsLoop:
 	dc.b	"LOOP  ",0
+
+
+	EVEN
