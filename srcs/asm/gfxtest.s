@@ -7,7 +7,8 @@
        xref   GFXTestScroll
        xref   GFXTestRaster
        xref   GFXTestRGB
-
+       EVEN
+       
 GFXtestMenu:
        bra    MainMenu
 
@@ -22,3 +23,4 @@ GFXTestRaster:
 GFXTestRGB:
        bra    MainMenu
 
+       EVEN

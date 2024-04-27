@@ -3,6 +3,7 @@
 	XDEF	_endofcode
 	XDEF	_endchecksums
 	xref	EndRom:
+	EVEN
 	dc.b	"Checksums:"
 	CNOP	0,4			; Start at even LONGWORD
 _checksums:		; Numbers here fits my Kickstart 3.1 rom.

@@ -13,6 +13,8 @@
 	xref	FilterON
 	xref	FilterOFF
 
+	EVEN
+
 MainLoop:
        move.l	#0,a0
        bsr	PrintMenu			; Print or update the menu
@@ -75,7 +77,7 @@ UpdateStatus:
 	clr.l	d0
 	move.w	SerialSpeed(a6),d0		; Get SerialSpeed value
 	mulu	#4,d0				; Multiply with 4
-	lea	SerText,a0			; Load table of pointers to different texts
+	lea	SerText,a0			; Load table of pointers to different text
 	move.l	(a0,d0.l),a0			; load a0 with the value that a0+d0 points to (text of speed)
 	move.l	#7,d1
 	bsr	Print
@@ -89,6 +91,7 @@ UpdateStatus:
 	move.l	#31,d1
 	bsr	SetPos
 	move.l	TotalChip(a6),d0
+	bsr	ToKB
 	bsr	bindec
 	move.l	#7,d1
 	bsr	Print
@@ -558,7 +561,8 @@ OtherTestMenu5:
        dc.b	"9 - Mainmenu",0
        EVEN
 
-
+SerText:
+	dc.l	BpsNone,Bps2400,Bps9600,Bps38400,Bps115200,BpsLoop,BpsNone
 
 DiskTestMenuItems:
        dc.l	DiskTestText,DiskTestMenu1,DiskTestMenu2,DiskTestMenu3,DiskTestMenu4,0
@@ -580,9 +584,6 @@ DiskTestMenu4:
 
 StatusLine:
 	dc.b	"Serial: ",1,1,1,1,1," BPS - CPU: ",1,1,1,1,1,"  - Chip: ",1,1,1,1,1,1," - kBFast: ",1,1,1,1,1,1," Base: ",0
-
-SerText:
-	dc.l	BpsNone,Bps2400,Bps9600,Bps38400,Bps115200,BpsLoop,BpsNone
 BpsNone:
 	dc.b	"N/A   ",0
 Bps2400:

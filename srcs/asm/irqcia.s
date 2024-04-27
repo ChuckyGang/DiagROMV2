@@ -5,6 +5,7 @@
        xref   IRQCIAIRQTest
        xref   IRQCIACIATest
        xref   IRQCIATest
+       EVEN
 
 IRQCIAtestMenu:
        bra    MainMenu
@@ -15,3 +16,5 @@ IRQCIACIATest:
        bra    MainMenu
 IRQCIATest:
        bra    MainMenu
+
+       EVEN

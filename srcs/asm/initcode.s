@@ -10,7 +10,8 @@
 	xref	KB
 	xref	MinusTxt
 	xref	MEMCheckPattern
-
+	EVEN
+	
 Initcode:                                                      ; OK we have RAM. we can actually work some with real coding no weird JMP to registers etc.
                                                                ; So lets start to actually handle the stuff we stored during bootup and do a proper init.
                                                                ; First lets fins out if we had a stuck mousebutton. so we can ignore them in the future.
@@ -1109,6 +1110,8 @@ EndSerial:
 DotTxt:
 	dc.b	".",0
 	
+	EVEN
+
 RomMenuCopper:
        MenuSprite:
               dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$01380000,$013a0000,$013c0000,$013e0000

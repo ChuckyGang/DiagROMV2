@@ -733,6 +733,12 @@ done:
 	clr.l	d2				; clear d2 that contains biterrordata
 	lea	_mempattern,a1		; load a1 with start of mempattern to test.
 .testmore:
+	cmp.l	#$0,a6
+	beq	.noadrzero
+	move.l	#"SHDW",(a6)			; Write "SHDW" and see if it is readable at adr 0 then we have a shadow and we are out of chipmem
+	cmp.l	#"SHDW",$0
+	beq	.comparedone
+.noadrzero:
 	cmpa.l	#$200000,a6			; Have we reached the end of chipmem?
 	bge	.comparedone			; YUPP!
 	move.l	(a1)+,d0			; load first value into d0
@@ -1360,6 +1366,9 @@ _OKtxt:
 	dc.b	27,"[32mOK",0
 _FAILtxt:
 	dc.b	27,"[31mFAILED",0
+
+	EVEN
+
 Decnumbers:
 	dc.b "0",0,0,0
 	dc.b "1",0,0,0

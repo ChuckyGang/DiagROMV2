@@ -69,7 +69,7 @@
 	xref	EnableCache
 	xref	DisableCache
 	; This contains the generic code for all general-purpose stuff
-
+	EVEN
 GetHWReg:					; Dumps all readable HW registers to memory
 	move.w	$dff000,BLTDDAT(a6)
 	move.w	$dff002,DMACONR(a6)
@@ -1095,6 +1095,8 @@ ErrorScreen:
 	move.l	d1,DebugD1(a6)
 	move.l	#1,d1
 	bsr	Print
+	lea	NewLineTxt,a0
+	jsr	Print
 	lea	CrashTxt,a0
 	bsr	Print
 	move.l	DebugA0(a6),a0

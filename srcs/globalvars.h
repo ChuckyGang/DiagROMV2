@@ -284,6 +284,7 @@ typedef struct GlobalVars
 	uint8_t	binhexoutput[10];		// Buffer for binhex
 	uint8_t	bindecoutput[14];		// Output of old bin->dec routine still used
 	uint8_t	binstringoutput[33];
+	uint16_t	NULL2;				// need to be before ModStatData
 	uint8_t	AudSimpVolStr[10];
 	uint8_t	AudioModStatData[8];		// Audiomod status.
 	uint8_t	AudioModStatFormerData[8];	// Should follow AudioModStatData

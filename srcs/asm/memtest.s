@@ -15,6 +15,8 @@
        xref   SpacesTxt
        xref   TenSpacesTxt
        xref   MB
+	EVEN
+	
 MemtestMenu:
 	bsr	ClearBuffer
 	bsr	InitScreen

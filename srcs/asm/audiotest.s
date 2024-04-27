@@ -8,6 +8,8 @@
        xref   ROMAudioWaves
 Wavesize: equ EndROMAudioWaves-ROMAudioWaves
 
+       EVEN
+
 AudioMenu:
        bsr	InitScreen
        move.w	#2,MenuNumber(a6)
@@ -530,7 +532,6 @@ AudioMod:
 .exitit:
 	move.l	AudioModEnd(a6),a1
 	lea	$dff000,a5
-       PAUSE
 	jsr	(a1)				; Call MT_End
 .exit:
 	bra	AudioMenu
@@ -700,7 +701,7 @@ AudioSimpleWaveItems:
 
 AudioSimpleWaveKeys:
        dc.b	"1","2","3","4","5","6","7","9",0
-
+       EVEN
 AudioLen:	; Length of audio
 	dc.w	32,32,32,32,16,16,8,8,8,32,32,32,32,16,16,8,8,8,8
 AudioPer:	; Period (speed) of audio

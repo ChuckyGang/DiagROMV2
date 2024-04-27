@@ -5,6 +5,7 @@
        xref   PortTestPar
        xref   PortTestSer
        xref   PortTestJoystick
+       EVEN 
 
 PortTestMenu:
        bra    MainMenu
@@ -15,3 +16,4 @@ PortTestSer:
        bra    MainMenu
 PortTestJoystick:
        bra    MainMenu
+       EVEN
