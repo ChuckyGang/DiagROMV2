@@ -52,8 +52,10 @@ clean:
 # all objects depend on this Makefile
 $(OBJS): Makefile
 
-# explicit dependencies
-$(OUTDIR)/srcs/asm/earlystart.o: $(OUTDIR)/srcs/globalvars.i
+# explicit dependencies for asm sources
+ASM_SRCS = $(wildcard srcs/**/*.s)
+ASM_OBJS = $(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.s=.o)))
+$(ASM_OBJS): $(OUTDIR)/srcs/globalvars.i
 
 # quick test run
 run_test: diagrom.rom
