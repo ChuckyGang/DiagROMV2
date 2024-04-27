@@ -11,7 +11,7 @@ if [ ! -d vbcc ]; then
 fi
 
 if [ ! -d ndk ]; then
-  curl -#LO http://aminet.net/dev/misc/NDK3.2.lha
+  curl -#LO https://aminet.net/dev/misc/NDK3.2.lha
   7z x NDK3.2.lha -ondk
   rm NDK3.2.lha
 fi
