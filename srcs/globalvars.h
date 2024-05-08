@@ -46,6 +46,9 @@ typedef struct GlobalVars
 	void*		CheckMemCurrentOLD;
 	void*		MemAdr;			// Pointer to memory from getmemory
 	void*		GfxTestBpl[8];		// Pointers to bitplanes for gfxtest
+	void*		trackbuff;			// Pointer to trackbuffer
+	void*		DiskBuffer;			// Pointer to diskbuffer
+	void*		ShowMemAdr;			// Address to show at shomemaddr
 
 	uint32_t	startupflags;
 	uint32_t 	stack_size;
@@ -54,7 +57,6 @@ typedef struct GlobalVars
 	uint32_t	TotalChip;			// Total amount of Chipmem Found
 	uint32_t	ChipUnreserved;		// Total amount of not used chipmem
 	uint32_t	BootMBFastmem;		// Fastmem found during boot
-	uint32_t	BLTDDAT;
 	uint32_t	Xpos;				// Variable for X position on screen to print on
 	uint32_t	Ypos;				// Variable for Y position on screen to print on
 	uint32_t	PCRReg;			// Calue of PCRReg IF 060, if not, this is 0
@@ -126,6 +128,12 @@ typedef struct GlobalVars
 	uint32_t	CIACtrl;
 	uint32_t	Ticks;				// Number of ticks in CIA test
 	uint32_t	Passno;			// Number of passes
+	uint32_t	PortJoy0;			// Detected directions of Joystick 0
+	uint32_t	PortJoy1;
+	uint32_t	PortJoy0OLD;
+	uint32_t	PortJoy1OLD;
+	uint32_t	GayleData;			// Data from Gayletest
+	uint32_t	RTCold;			// How RTC first longword was read
 
 	uint16_t	CheckMemCancel;		// if not 0 we had to cancel test
 	uint16_t	MemDetected;			// If mem was detected
@@ -151,6 +159,8 @@ typedef struct GlobalVars
 	uint16_t	INTREQR;
 	uint16_t	DENISEID;
 	uint16_t	HHPOSR;
+	uint16_t	BLTDDAT;
+	uint16_t	CIAAPRA;
 	uint16_t	SerialSpeed;			// What serialspeed is used (in list, not real baudrate)
 	uint16_t	CurX;
 	uint16_t	CurY;
@@ -165,6 +175,19 @@ typedef struct GlobalVars
 	uint16_t	OldMarkItem;			// Contains the item being marked before
 	uint16_t	OldMenuNumber;		// Contains old menunumber
 	uint16_t	SerTstBps;			// BPS of serialtest
+	uint16_t	P0Fire;			// Detected fire on Joystick 0
+	uint16_t	P1Fire;
+	uint16_t	P0FireOLD;
+	uint16_t	P1FireOLD;
+	uint16_t	DriveNo;			// Drivenumber to test
+	uint16_t	DriveOK;			// Status of drive, 0=not ok, 1=OK
+	uint16_t	RTC1secframe;			// Number of frames in 1 sec
+	uint16_t	RTC10secframe;		// Number of frames in 10 sec
+	uint16_t	RTCsec;			// Number of seconds RTC test have been running
+	uint16_t	RTCirq;			// 0 if IRQ is off
+
+	uint32_t	DriveTestVar[4];
+	uint32_t	sectorbuff[4];		// Small part of MFM decoded sectordata
 
 	uint16_t	AudSimpVar;			// Those must all be in one block!!
 	uint32_t	AudSimpVar1;
@@ -282,6 +305,14 @@ typedef struct GlobalVars
 	uint8_t	CheckMemEditOldYpos;
 	uint8_t	CheckMemEditCharPos;
 	uint8_t	CPUCache;
+	uint8_t	oldbfe001;			// Contains old value of bfe001
+	uint8_t	oldbfd100;
+	uint8_t	SideNo;			// Side of disk 0=Upper
+	uint8_t	DriveMotor;			// Floppymotor. 0=off
+	uint8_t	TrackNo;			// Current tracknumber
+	uint8_t	WantedTrackNo;		// Wanted tracknumber
+	uint8_t	sector;			// Current sector
+	uint8_t	KeyBOld;			// Stores old scancode of keyboard
 
 	uint8_t	temp[10];
 	uint8_t	CheckMemStartAdrTxt[9];
@@ -299,6 +330,7 @@ typedef struct GlobalVars
 	uint8_t	AudioModStatData[8];		// Audiomod status.
 	uint8_t	AudioModStatFormerData[8];	// Should follow AudioModStatData
 	uint8_t	JunkBuffer[256];		// A small crapbuffer
+	uint8_t	RTCString[14];		// Block of RTC Data
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

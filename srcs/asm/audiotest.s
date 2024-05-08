@@ -6,6 +6,8 @@
        xref   AudioMod
        xref   Wavesize
        xref   ROMAudioWaves
+       xref   Donetxt
+       
 Wavesize: equ EndROMAudioWaves-ROMAudioWaves
 
        EVEN

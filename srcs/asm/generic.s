@@ -69,6 +69,10 @@
 	xref	EnableCache
 	xref	DisableCache
 	xref	SerSpeeds
+	xref	REVTxt
+	xref	SameRow
+	xref	DevPrint
+
 	; This contains the generic code for all general-purpose stuff
 	EVEN
 GetHWReg:					; Dumps all readable HW registers to memory
@@ -2907,6 +2911,28 @@ DisableCache:
 	POP
 	rts
 
+SameRow:
+						; Changes so we print on the same row. just clears the X column
+	PUSH
+	clr.b	Xpos(a6)
+	move.b	#$d,d0
+	bsr	rs232_out
+	POP
+	rts
+
+DevPrint:
+	clr.l	d0
+	move.l	#25,d1
+	jsr	SetPos
+	lea	UnderDevTxt,a0
+	move.l	#1,d1
+	jsr	Print
+	clr.l	d0
+	clr.l	d1
+	jsr	SetPos
+	rts
+
+
 SerSpeeds:		; list of Baudrates (3579545/BPS)+1
 	dc.l	0,1492,373,94,30,0,0
 
@@ -3057,6 +3083,7 @@ DELLINE:
 
 space8:
 	dc.b	"        ",0
-
+UnderDevTxt:
+	dc.b	2,"This function is under development, output can be weird, strange and false",$a,$d,$a,$d,0
 
 	EVEN

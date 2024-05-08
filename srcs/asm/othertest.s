@@ -14,25 +14,510 @@
        EVEN
        
 OtherTest:
-       bra    MainMenu
+	jsr	InitScreen
+	move.w	#7,MenuNumber(a6)
+	move.b	#1,PrintMenuFlag(a6)
+	jmp	MainLoop
+
+
 
 RTCTest:
-       bra    MainMenu
+	jsr	ClearScreen
+	jsr	DevPrint
+	move.l	#0,d0
+	move.l	#17,d1
+	jsr	SetPos
+	lea	RTCadjust1,a0
+	move.l	#7,d1
+	jsr	Print
+	lea	RTCadjust10,a0
+	move.l	#7,d1
+	jsr	Print
+	move.l	#0,d0
+	move.l	#20,d1
+	jsr	SetPos
+	move.b	#$8,$dc0039	; do some reset
+	lea	RTCIrq,a0
+	move.l	#2,d1
+	jsr	Print
+	lea	RTCIrq2,a0
+	move.l	#2,d1
+	jsr	Print
+	move.b	#$8,$dc0035	; more reset
+	clr.l	RTCold(a6)
+	clr.w	RTC1secframe(a6)
+	clr.w	RTC10secframe(a6)
+	clr.w	RTCsec(a6)
+	clr.w	RTCirq(a6)
+.loopa:
+	move.b	#8,$dc0037
+	jsr	WaitShort
+	lea	$dc0003,a1
+	clr.l	d0
+	move.b	(a1),d0
+	asl.l	#8,d0
+	add.b	1(a1),d0
+	asl.l	#8,d0
+	add.b	2(a1),d0
+	asl.l	#8,d0
+	add.b	3(a1),d0			; Now we have read a longword. 68k friendly from odd address
+;	move.b	$dff006,$dff181
+	cmp.l	RTCold(a6),d0			; Check if first byte have changed.
+	beq.w	.nochange
+	move.l	d0,RTCold(a6)
+	add.w	#1,RTCsec(a6)
+	cmp.w	#10,RTCsec(a6)
+	bne	.sec10				; do this every 10 second
+	clr.w	RTCsec(a6)
+	move.w	RTC10secframe(a6),d0
+	cmp.w	#0,.skip10			; if we had a 0, we just started
+	move.w	Frames(a6),d1
+	move.w	d1,RTC10secframe(a6)
+	sub.w	d0,d1
+	clr.l	d7
+	move.w	d1,d7
+	move.l	#65,d0
+	move.l	#18,d1
+	jsr	SetPos
+	clr.l	d1
+	lea	FiveSpacesTxt,a0
+	jsr	Print
+	move.l	#65,d0
+	move.l	#18,d1
+	jsr	SetPos
+	move.l	d7,d0
+	jsr	bindec
+	move.l	#3,d1
+	jsr	Print
+.sec10:
+.skip10:
+	move.w	RTC1secframe(a6),d0
+	cmp.w	#0,.skip			; if we had a 0, we just started
+	move.w	Frames(a6),d1
+	move.w	d1,RTC1secframe(a6)
+	sub.w	d0,d1
+	clr.l	d7
+	move.w	d1,d7
+	move.l	#65,d0
+	move.l	#17,d1
+	jsr	SetPos
+	clr.l	d1
+	lea	FiveSpacesTxt,a0
+	jsr	Print
+	move.l	#65,d0
+	move.l	#17,d1
+	jsr	SetPos
+	move.l	d7,d0
+	jsr	bindec
+	move.l	#3,d1
+	jsr	Print
+.skip:
+	clr.l	d0
+	clr.l	d1
+	jsr	SetPos
+	lea	RTCByteTxt,a0
+	lea	RTCString(a6),a2
+	move.l	#3,d1
+	jsr	Print
+	move.l	#13,d7
+.loop:
+	move.b	#8,$dc0037
+	jsr	WaitShort
+	clr.l	d0
+	move.b	(a1),d0
+	move.b	d0,d1
+	and.b	#$f,d1				;Strip away top 4 bits
+	move.b	d1,(a2)+
+	jsr	binhexbyte
+	move.l	#2,d1
+	jsr	Print
+	add.l	#4,a1
+	dbf	d7,.loop
+	lea	NewLineTxt,a0
+	jsr	Print
+	lea	NewLineTxt,a0
+	jsr	Print
+	lea	RTCBitTxt,a0
+	move.l	#3,d1
+	jsr	Print
+	move.b	#8,$dc0037
+	jsr	WaitShort
+	lea	RTCString(a6),a1
+	move.l	#13,d7
+.loop1:
+	clr.l	d0
+	move.b	(a1)+,d0
+	jsr	binstringbyte
+	move.l	#2,d1
+	jsr	Print
+	lea	SpaceTxt,a0
+	jsr	Print
+	cmp.b	#7,d7
+	bne	.nope
+	lea	NewLineTxt,a0
+	jsr	Print
+.nope:
+	dbf	d7,.loop1
+	lea	NewLineTxt,a0
+	jsr	Print
+	lea	NewLineTxt,a0
+	jsr	Print
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	jsr	ricoh
+	jsr	oki
+	clr.l	d0
+.nochange:
+	jsr	GetInput
+	cmp.b	#1,LMB(a6)
+	beq.s	.irq
+	cmp.b	#" ",keyresult(a6)
+	beq.s	.irq
+	cmp.b	#1,BUTTON(a6)
+	bne	.loopa
+.end:
+	cmp.w	#0,RTCirq(a6)			; did we run the IRQ code?
+	beq	.noirq
+	move.w	#$7fff,$dff09c			; Disable all INTREQ
+	move.w	#$7fff,$dff09a			; Disable all INTREQ
+	move.l	#RTEcode,$6c			; Restore IRC Vector to empty code
+.noirq:
+	jsr	WaitButton
+	bra	OtherTest
+.irq:
+	cmp.b	#1,RMB(a6)
+	beq.s	.end
+	cmp.w	#0,RTCirq(a6)			; check if no IRQ is running
+	bne	.running			; if it is go to running
+	move.w	#1,RTCirq(a6)			; set it to 1
+	clr.w	Frames(a6)			; Clear number frames
+	clr.w	TickFrame(a6)
+	clr.l	Ticks(a6)
+	move.l	#CIALevTst,$6c			; Set up IRQ Level 3
+	move.w	#$c020,$dff09a			; Enable IRQ
+	move.w	#$c020,$dff09a			; Enable IRQ
+	move.w	#$2000,sr			; Set SR to allow IRQs
+	move.w	#$fff,$dff180
+.running:
+	bra	.loopa
+ricoh:						; RICOH chipset detected.
+	lea	RTCRicoh,a0
+	move.l	#6,d1
+	jsr	Print
+	move.l	#2,d1
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	lea	RTCDay,a1
+	clr.l	d0
+	move.b	6(a0),d0
+	mulu	#10,d0
+	move.l	a1,a0
+	add.l	d0,a0
+	jsr	Print
+	move.b	#" ",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	clr.l	d0
+	move.b	12(a0),d0
+	mulu	#10,d0
+	add.b	11(a0),d0			; We have now the year, 2 digits
+	cmp.b	#78,d0				; Check for 78
+	bge	.r19				; more or equal to 78. we are in 19xx
+	add.l	#2000,d0
+	bra	.rno19
+.r19:
+	add.l	#1900,d0
+.rno19
+	jsr	bindec
+	jsr	Print
+						; Now year is printed
+	move.b	#"-",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	clr.l	d0
+	move.b	10(a0),d0
+	mulu	#10,d0
+	add.b	9(a0),d0			; We have now the month
+	sub.l	#1,d0
+	cmp.b	#12,d0
+	blt	.rnoover
+	move.l	#12,d0
+.rnoover:
+	mulu	#4,d0				; Multiply with 4 to get where string start
+	lea	RTCMonth,a5
+	move.l	a5,a0
+	add.l	d0,a0
+	jsr	Print
+	move.b	#"-",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	clr.l	d0
+	move.b	8(a0),d0
+	add.b	#$30,d0
+	jsr	PrintChar
+	move.b	7(a0),d0
+	add.b	#$30,d0
+	jsr	PrintChar
+	move.b	#" ",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	add.l	#6,a0
+	move.l	#5,d7
+	clr.l	d6				; Clear d6 as it is a counter when to print a :
+.rloop:
+	cmp.b	#2,d6				; time to print : ?
+	bne	.rnocolon
+	move.b	#":",d0
+	jsr	PrintChar
+	clr.l	d6
+.rnocolon:
+	add.l	#1,d6
+	move.b	-(a0),d0
+	add.b	#$30,d0
+	jsr	PrintChar
+	dbf	d7,.rloop
+	lea	NewLineTxt,a0
+	jsr	Print
+	lea	NewLineTxt,a0
+	jsr	Print
+	rts
+oki:
+	lea	RTCOKI,a0
+	move.l	#6,d1
+	jsr	Print
+	move.l	#2,d1
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	lea	RTCDay,a1
+	clr.l	d0
+	move.b	6(a0),d0
+	mulu	#10,d0
+	move.l	a1,a0
+	add.l	d0,a0
+	jsr	Print
+	move.b	#" ",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	clr.l	d0
+	move.b	11(a0),d0
+	mulu	#10,d0
+	add.b	10(a0),d0			; We have now the year, 2 digits
+	add.l	#1900,d0
+	jsr	bindec
+	move.l	#2,d1
+	jsr	Print
+	move.b	#"-",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	clr.l	d0
+	move.b	9(a0),d0
+	mulu	#10,d0
+	add.b	8(a0),d0			; We have now the month
+	sub.l	#1,d0
+	cmp.b	#11,d0
+	blt	.okinoover
+	move.l	#12,d0
+.okinoover:
+	mulu	#4,d0				; Multiply with 4 to get where string start
+       lea	RTCMonth,a5
+	move.l	a5,a0
+	add.l	d0,a0
+	jsr	Print
+	move.b	#"-",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	clr.l	d0
+	move.b	7(a0),d0
+	add.b	#$30,d0
+	jsr	PrintChar
+	move.b	6(a0),d0
+	add.b	#$30,d0
+	jsr	PrintChar
+	move.b	#" ",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	clr.l	d0
+	clr.l	d7				; if d7 is not 0, we are in PM
+	move.b	5(a0),d0
+	btst	#2,d0
+	beq	.ono
+	move.b	#1,d7				; Set that we are in PM
+	bclr	#2,d0
+.ono:
+	mulu	#10,d0
+	add.b	4(a0),d0
+	cmp.b	#0,d7
+	beq.w	.ono1
+	sub.b	#2,d0
+	cmp.b	#254,d0
+	beq.b	.oki8
+	cmp.b	#255,d0
+	beq.b	.oki9
+	bra	.ono2
+.oki8:
+	move.b	#8,d0
+	bra.s	.ono2
+.oki9:
+	move.b	#9,d0
+	bra.w	.ono2
+.ono2:
+	add.b	#12,d0
+.ono1:
+	cmp.b	#9,d0
+	bgt	.okilow
+	PUSH
+	move.b	#"0",d0
+	jsr	PrintChar
+	POP
+.okilow:
+	jsr	bindec
+	jsr	Print
+	move.b	#":",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	move.b	3(a0),d0
+	add.b	#"0",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	move.b	2(a0),d0
+	add.b	#"0",d0
+	jsr	PrintChar
+	move.b	#":",d0
+	jsr	PrintChar
+
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	move.b	1(a0),d0
+	add.b	#"0",d0
+	jsr	PrintChar
+	lea	RTCString(a6),a0		; load a0 to string from RTC
+	move.b	(a0),d0
+	add.b	#"0",d0
+	jsr	PrintChar
+	rts
+
+
 AutoConfigDetail:
-       bra    MainMenu
+       jmp    MainMenu
+
 ShowMemAddress:
-       bra    MainMenu
+	jsr	InitScreen
+	lea	ShowMemAdrTxt,a0
+	move.l	#6,d1
+	jsr	Print
+	lea	ShowMemAdrTxt2,a0
+	move.l	#6,d1
+	jsr	Print
+	lea	ShowMemAdrTxt3,a0
+	move.l	#6,d1
+	jsr	Print
+	lea	$0,a0
+	jsr	InputHexNum
+	cmp.l	#-1,d0
+	beq	.exit
+	move.l	d0,ShowMemAdr(a6)
+	jsr	binhex
+	move.l	#2,d1
+	jsr	Print
+	lea	ShowMemTypeTxt,a0
+	move.l	#6,d1
+	jsr	Print
+.Inploop:
+	jsr	GetInput
+	cmp.b	#1,BUTTON(a6)
+	bne	.Inploop
+	clr.l	d6				; clear d6 setting what type of read to do
+	move.b	keypressed(a6),d0
+	bclr	#5,d0				; make result uppercase
+	cmp.b	#"B",d0
+	beq	.byte
+	cmp.b	#"W",d0
+	beq	.word
+	cmp.b	#"L",d0
+	beq	.longword
+	beq	.exit
+.byte:
+	lea	ByteTxt,a0
+	jsr	Print
+	move.l	#1,d6				; Set byte read
+	bra	.next
+.word:
+	lea	WordTxt,a0
+	jsr	Print
+	move.l	#2,d6				; Set word read
+	bra	.next
+.longword:
+	lea	LongWordTxt,a0
+	jsr	Print
+	move.l	#3,d6				; Set longword read
+.next:
+	lea	NewLineTxt,a0
+	jsr	Print
+	move.l	#0,d0
+	move.l	#10,d1
+	jsr	SetPos
+	lea	ShowMemTxt,a0
+	move.l	#5,d1
+	jsr	Print
+.loopa:
+	move.l	#31,d0
+	move.l	#10,d1
+	jsr	SetPos
+	move.l	ShowMemAdr(a6),a0		; Get memadress and put in a0
+	clr.l	d0				; Clear d0 to be sure
+	cmp.l	#1,d6				; are we in bytemode
+	beq	.bytemode
+	cmp.l	#2,d6
+	beq	.wordmode
+	move.l	(a0),d0
+	bra	.modedone
+.bytemode:
+	move.b	(a0),d0
+	bra	.modedone
+.wordmode:
+	move.w	(a0),d0
+.modedone:
+	cmp.l	d0,d7				; is it same as old value?
+	beq	.same
+	move.l	d0,d7
+	cmp.l	#1,d6
+	beq	.printbyte
+	cmp.l	#2,d6
+	beq	.printword
+	jsr	binhex
+	bra	.printdone
+.printbyte:
+	jsr	binhexbyte
+	bra	.printdone
+.printword:
+	jsr	binhexword	
+.printdone:
+	move.w	#3,d1
+	jsr	Print
+.same:
+	jsr	GetInput
+	cmp.b	#1,BUTTON(a6)
+	bne	.loopa
+.exit:
+	bra	OtherTest	
+
 TF1260:
-       bra    MainMenu
+       jmp    MainMenu
 
 Setup:
-       bra    MainMenu
+       jmp    MainMenu
 
 About:
-       bra    MainMenu
+	jsr	ClearScreen
+	lea	AboutTxt,a0
+	move.l	#1,d1
+	jsr	Print
+	lea	AboutTxt2,a0
+	move.l	#7,d1
+	jsr	Print
+	jsr	ClearBuffer
+	jsr	WaitPressed
+	jsr	WaitReleased
+	jmp	MainMenu
 
 SystemInfoTest:
-       bsr	InitScreen
+       jsr	InitScreen
        lea	SystemInfoTxt,a0
        move.w	#2,d1
        jsr	Print
@@ -41,7 +526,7 @@ SystemInfoTest:
        jsr	Print
 
        jsr	GetHWReg
-       bsr	PrintHWReg
+       jsr	PrintHWReg
 
        lea	NewLineTxt,a0
        jsr	Print
@@ -160,7 +645,7 @@ SystemInfoTest:
        lea	.CpuDone,a5
        jsr	DetectCPU
 .CpuDone:
-       bsr	PrintCPU
+       jsr	PrintCPU
 
        clr.l	d0
        move.b	CPUGen(a6),d0
@@ -181,13 +666,13 @@ SystemInfoTest:
 
 ;	move.l	#2,d1
 ;	lea	EXPERIMENTAL,a0
-;	bsr	Print
+;	jsr	Print
 ;	move.l	#DetMMU,$80
 ;	trap	#0
 ;	move.l	d6,d0
 ;	move.l	#3,d1
-;	bsr	bindec
-;	bsr	Print
+;	jsr	bindec
+;	jsr	Print
 
 .no060
 
@@ -309,7 +794,7 @@ SystemInfoTest:
        jsr	Print
 
        jsr	WaitButton
-       bra	MainMenu
+       jmp	MainMenu
 
 PrintHWReg:
        lea	BLTDDATTxt,a0
@@ -533,5 +1018,89 @@ HHPOSRTxt:
 	dc.b	"HHPOSR  ($dff1dc): ",0
 
 
+FiveSpacesTxt:
+	dc.b	"     ",0
+
+RTCByteTxt:
+	dc.b	"Raw RTC data in hex:",$a,0
+RTCBitTxt:
+	dc.b	"Raw RTC data in binary:",$a,0
+RTCRicoh:
+	dc.b	"Ricoh Chipset output:",$a,0
+RTCOKI:
+	dc.b	"OKI Chipset output:",$a,0
+
+
+RTCadjust1:
+	dc.b	"Number of frames during 1 sec RTC test    (50 = PAL, 60 = NTSC): ",$a,0
+RTCadjust10:
+	dc.b	"Number of frames during 10 sec RTC test (500 = PAL, 600 = NTSC): ",$a,0
+
+RTCIrq:
+	dc.b	2,"Press space/left mouse to enable IRQ Timing for RTC Adjusting",$a,0
+RTCIrq2:
+	dc.b	2,"Requires working IRQ3 Interrupt.  Both mouse to exit (or ESC)",0
+       EVEN
+RTCMonth:
+	dc.b	"Jan",0
+	dc.b	"Feb",0
+	dc.b	"Mar",0
+	dc.b	"Apr",0
+	dc.b	"May",0
+	dc.b	"Jun",0
+	dc.b	"Jul",0
+	dc.b	"Aug",0
+	dc.b	"Sep",0
+	dc.b	"Oct",0
+	dc.b	"Nov",0
+	dc.b	"Dec",0
+	dc.b	"BAD",0
+RTCDay:
+	dc.b	"   Sunday",0
+	dc.b	"   Monday",0
+	dc.b	"  Tuesday",0
+	dc.b	"Wednesday",0
+	dc.b	" Thursday",0
+	dc.b	"   Friday",0
+	dc.b	" Saturday",0	
+
+ShowMemAdrTxt:
+	dc.b	2,"Constantly monitor memaddress quit with buttonpress",$a,0
+ShowMemAdrTxt2:
+	dc.b	2,"Only useful for dev of hardware not as a functiontest",$a,0
+ShowMemAdrTxt3:
+	dc.b	$a,"Memoryaddress to monitor: $",0
+ShowMemTypeTxt:
+	dc.b	$a,"B)yte, W)ord or L)ongword (other quit)",0
+ShowMemTxt:
+	dc.b	"Monitoring content of address: ",0
+ByteTxt:
+	dc.b 	"Byte",0
+WordTxt:
+	dc.b	"Word",0
+LongWordTxt:
+	dc.b	"Longword",0
+
+
+AboutTxt:
+	dc.b	2,"About DiagROM",0
+AboutTxt2:
+	dc.b	$a,$a,"Coding by: John 'Chucky' Hertell",$a,$a
+	dc.b	"Small code-example help from Stephen Leary, HighPuff",$a,$a
+	dc.b	"          IMPORTANT ABOUT THIS TOOL! also: http://www.diagrom.com",$a,$a
+	dc.b	"It is delivered AS-IS! No Warranty!  Mail suggestions to chucky@thegang.nu",$a,$a
+	dc.b	"This is a tool for people with technical know-how of the Amiga system and it",$a
+	dc.b	"will not give a pointer saying 'Chip XX is dead', So it is not for people who",$a
+	dc.b	"randomly just swap chips, you need to do a proper diagnose with this tool",$a,$a
+	dc.b	"However I hope you have use of this program and do please send me a mail",$a
+	dc.b	"telling what you like and what you do NOT like in it",$a,$a
+	dc.b	"I love all kind of suggestions possible also if you have code-examples how to",$a
+	dc.b	"detect different issues etc, PLEASE contact me",$a,$a
+	dc.b	"Some good-to-know facts: Pressing mousebuttons at powerup (and release after a",$a
+	dc.b	"short while (or it will be misstaken as stuck and will be ignored)",$a,$a
+	dc.b	"Mouseport 1: Left mouse, Disable screen output, if fastmem found use it",$a
+	dc.b	"             Right mouse, Instead of using end of mem as work, use start",$a,$a
+	dc.b	"Serial output HIGHLY recomended: 9600 BPS, 8N1, No handshaking used!",$a,$a
+	dc.b	"Press any key or button!",0
 
        EVEN

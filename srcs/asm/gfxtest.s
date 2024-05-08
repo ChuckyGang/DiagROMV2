@@ -631,4 +631,4 @@ GFXtestRasterTxt:
 GFXtestRasterTxt2:
 	dc.b	2,"As testing keys/serial etc takes too much time.",0
 
-       EVEN
+      EVEN

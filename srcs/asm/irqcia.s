@@ -6,6 +6,8 @@
        xref   IRQCIACIATest
        xref   IRQCIATest
        xref   FAILED
+	xref	RTEcode
+	xref	CIALevTst
        EVEN
 
 CIATIME	EQU	174

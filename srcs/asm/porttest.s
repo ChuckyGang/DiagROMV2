@@ -409,7 +409,7 @@ PortTestSer:
 	rts
 
 PortTestJoystick:
-	bsr	ClearScreen
+	jsr	ClearScreen
 	move.w	#$ffff,JOY0DAT(a6)
 	move.w	#$ffff,JOY1DAT(a6)
 	move.w	#$ffff,POT0DAT(a6)
@@ -426,43 +426,43 @@ PortTestJoystick:
 	move.w	#$fff,P1FireOLD(a6)
 	lea	PortJoyTest,a0
 	move.l	#7,d1
-	bsr	Print
+	jsr	Print
 	lea	PortJoyTest1,a0
 	move.l	#6,d1
-	bsr	Print
+	jsr	Print
 	lea	PortJoyTestHW1,a0
 	move.l	#3,d1
-	bsr	Print
+	jsr	Print
 	lea	PortJoyTestHW2,a0
 	move.l	#3,d1
-	bsr	Print
+	jsr	Print
 	lea	PortJoyTestHW3,a0
 	move.l	#3,d1
-	bsr	Print
+	jsr	Print
 	lea	PortJoyTestHW4,a0
 	move.l	#3,d1
-	bsr	Print
+	jsr	Print
 	lea	PortJoyTestHW5,a0
 	move.l	#3,d1
-	bsr	Print
+	jsr	Print
 	lea	PortJoyTestHW6,a0
 	move.l	#3,d1
-	bsr	Print
+	jsr	Print
 	move.l	#0,d0
 	move.l	#11,d1
-	bsr	SetPos
+	jsr	SetPos
 	lea	PortJoyTest2,a0
 	move.l	#6,d1
-	bsr	Print
+	jsr	Print
 	lea	PortJoyTest3,a0
 	move.l	#6,d1
-	bsr	Print
+	jsr	Print
 	move.l	#0,d0
 	move.l	#23,d1
-	bsr	SetPos
+	jsr	SetPos
 	lea	PortJoyTestExitTxt,a0
 	move.l	#7,d1
-	bsr	Print
+	jsr	Print
 .loop:
 	move.w	$dff00a,d7
 	lea	JOY0DAT(a6),a0
@@ -472,20 +472,20 @@ PortTestJoystick:
 	move.w	d7,PortJoy0(a6)
 	move.l	#36,d0
 	move.l	#4,d1
-	bsr	SetPos
+	jsr	SetPos
 	clr.l	d0
 	move.l	d7,d0
-	bsr	binhexword
+	jsr	binhexword
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 	move.l	#47,d0
 	move.l	#4,d1
-	bsr	SetPos
+	jsr	SetPos
 	move.l	d7,d0
-	bsr	binstring
+	jsr	binstring
 	add.l	#16,a0
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 .samejoy0dat:
 	move.w	$dff00c,d7
 	lea	JOY1DAT(a6),a0
@@ -495,21 +495,21 @@ PortTestJoystick:
 	move.w	d7,PortJoy1(a6)
 	move.l	#36,d0
 	move.l	#5,d1
-	bsr	SetPos
+	jsr	SetPos
 	clr.l	d0
 	move.l	d7,d0
-	bsr	binhexword
+	jsr	binhexword
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 	move.l	#47,d0
 	move.l	#5,d1
-	bsr	SetPos
+	jsr	SetPos
 	move.l	d7,d0
-	bsr	binstring
+	jsr	binstring
 	PUSH
 	add.l	#16,a0
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
        POP
 .samejoy1dat:
 	move.w	$dff012,d7
@@ -519,20 +519,20 @@ PortTestJoystick:
 	move.w	d7,(a0)
 	move.l	#36,d0
 	move.l	#6,d1
-	bsr	SetPos
+	jsr	SetPos
 	clr.l	d0
 	move.l	d7,d0
-	bsr	binhexword
+	jsr	binhexword
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 	move.l	#47,d0
 	move.l	#6,d1
-	bsr	SetPos
+	jsr	SetPos
 	move.l	d7,d0
-	bsr	binstring
+	jsr	binstring
 	add.l	#16,a0
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 .samepot0dat:
 	move.w	$dff014,d7
 	lea	POT1DAT(a6),a0
@@ -541,20 +541,20 @@ PortTestJoystick:
 	move.w	d7,(a0)
 	move.l	#36,d0
 	move.l	#7,d1
-	bsr	SetPos
+	jsr	SetPos
 	clr.l	d0
 	move.l	d7,d0
-	bsr	binhexword
+	jsr	binhexword
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 	move.l	#47,d0
 	move.l	#7,d1
-	bsr	SetPos
+	jsr	SetPos
 	move.l	d7,d0
-	bsr	binstring
+	jsr	binstring
 	add.l	#16,a0
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 .samepot1dat:
 	move.w	$dff016,d7
 	lea	POTINP(a6),a0
@@ -563,20 +563,20 @@ PortTestJoystick:
 	move.w	d7,(a0)
 	move.l	#36,d0
 	move.l	#8,d1
-	bsr	SetPos
+	jsr	SetPos
 	clr.l	d0
 	move.l	d7,d0
-	bsr	binhexword
+	jsr	binhexword
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 	move.l	#47,d0
 	move.l	#8,d1
-	bsr	SetPos
+	jsr	SetPos
 	move.l	d7,d0
-	bsr	binstring
+	jsr	binstring
 	add.l	#16,a0
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 .samepotinp:
 	clr.l	d7
 	move.b	$bfe001,d7
@@ -600,30 +600,30 @@ PortTestJoystick:
 .nop:
 	move.l	#36,d0
 	move.l	#9,d1
-	bsr	SetPos
+	jsr	SetPos
 	clr.l	d0
 	move.l	d7,d0
-	bsr	binhexword
+	jsr	binhexword
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 	move.l	#47,d0
 	move.l	#9,d1
-	bsr	SetPos
+	jsr	SetPos
 	move.l	d7,d0
-	bsr	binstring
+	jsr	binstring
 	add.l	#16,a0
 	move.l	#2,d1
-	bsr	Print
+	jsr	Print
 .samefire:
 	clr.l	d0
 	move.w	PortJoy0(a6),d0
 	cmp.w	PortJoy0OLD(a6),d0
 	beq	.samejoy0
 	move.w	d0,PortJoy0OLD(a6)
-	bsr	GetJoy
+	jsr	GetJoy
 	move.l	d0,d7
 	move.l	#0,d2
-	bsr	PrintJoy
+	jsr	PrintJoy
 .samejoy0:
 	clr.l	d0
 	move.w	PortJoy1(a6),d0
@@ -632,10 +632,10 @@ PortTestJoystick:
 	move.w	d0,PortJoy1OLD(a6)
 	clr.l	d0
 	move.w	PortJoy1(a6),d0
-	bsr	GetJoy
+	jsr	GetJoy
 	move.l	d0,d7
 	move.l	#37,d2
-	bsr	PrintJoy
+	jsr	PrintJoy
 .samejoy1:
 	clr.l	d0
 	move.w	P0Fire(a6),d0
@@ -644,7 +644,7 @@ PortTestJoystick:
 	move.w	d0,P0FireOLD(a6)
 	move.l	#19,d0
 	move.l	#17,d1
-	bsr	SetPos
+	jsr	SetPos
 	lea	FIRE,a0
 	cmp.w	#0,P0Fire(a6)
 	bne	.nop0
@@ -653,7 +653,7 @@ PortTestJoystick:
 .nop0:
 	move.l	#1,d1
 .p0:
-	bsr	Print
+	jsr	Print
 .samefire0:
 	clr.l	d0
 	move.w	P1Fire(a6),d0
@@ -662,7 +662,7 @@ PortTestJoystick:
 	move.w	d0,P1FireOLD(a6)
 	move.l	#56,d0
 	move.l	#17,d1
-	bsr	SetPos
+	jsr	SetPos
 	lea	FIRE,a0
 	cmp.w	#0,P1Fire(a6)
 	bne	.nop1
@@ -671,16 +671,16 @@ PortTestJoystick:
 .nop1:
 	move.l	#1,d1
 .p2:
-	bsr	Print
+	jsr	Print
 .samefire1:
-	bsr	GetInput
+	jsr	GetInput
 	cmp.b	#$1b,GetCharData(a6)
 	beq	.exit
 	cmp.b	#1,RMB(a6)
 	bne	.loop
 	cmp.b	#1,LMB(a6)
 	bne	.loop
-	bsr	WaitReleased
+	jsr	WaitReleased
 .exit:
 	bra	PortTestMenu
 PrintJoy:				; Print Joystatus
@@ -689,7 +689,7 @@ PrintJoy:				; Print Joystatus
 	move.l	#20,d0
 	add.l	d2,d0
 	move.l	#15,d1
-	bsr	SetPos
+	jsr	SetPos
 	lea.l	UP,a0
 	btst	#2,d7
 	beq	.noup
@@ -698,11 +698,11 @@ PrintJoy:				; Print Joystatus
 .noup:
 	move.l	#6,d1
 .up:
-	bsr	Print
+	jsr	Print
 	move.l	#19,d0
 	add.l	d2,d0
 	move.l	#19,d1
-	bsr	SetPos
+	jsr	SetPos
 	lea.l	DOWN,a0
 	btst	#0,d7
 	beq	.nodown
@@ -711,11 +711,11 @@ PrintJoy:				; Print Joystatus
 .nodown:
 	move.l	#6,d1
 .down:	
-	bsr	Print
+	jsr	Print
 	move.l	#13,d0
 	add.l	d2,d0
 	move.l	#17,d1
-	bsr	SetPos
+	jsr	SetPos
 	lea	LEFT,a0
 	btst	#3,d7
 	beq	.noleft
@@ -724,11 +724,11 @@ PrintJoy:				; Print Joystatus
 .noleft:
 	move.l	#6,d1
 .left:
-	bsr	Print
+	jsr	Print
 	move.l	#25,d0
 	add.l	d2,d0
 	move.l	#17,d1
-	bsr	SetPos
+	jsr	SetPos
 	lea	RIGHT,a0
 	btst	#1,d7
 	beq	.noright
@@ -737,7 +737,7 @@ PrintJoy:				; Print Joystatus
 .noright:
 	move.l	#6,d1
 .right:
-	bsr	Print
+	jsr	Print
 	rts
 GetJoy:
 	;			IN d0=joy data
@@ -855,5 +855,37 @@ PortSerTestB208:
 PortSerString:
 	;	 123	456789012345678901234567890123456789012345678901234567890"
 	dc.b	"This is a serialporttest for loopbackadapter! NOT Console!",$a,$d,0
+PortJoyTest:
+	dc.b	2,"Joystickport tests",$a,$a,0
+PortJoyTest1:
+	dc.b	2,"Dumping data of hardwareregisters:",$a,$a,0
+PortJoyTestHW1:
+	dc.b	2,"JOY0DAT ($DFF00A):       BIN:                 ",$a,0
+PortJoyTestHW2:
+	dc.b	2,"JOY1DAT ($DFF00C):       BIN:                 ",$a,0
+PortJoyTestHW3:
+	dc.b	2,"POT0DAT ($DFF012):       BIN:                 ",$a,0
+PortJoyTestHW4:
+	dc.b	2,"POT1DAT ($DFF014):       BIN:                 ",$a,0
+PortJoyTestHW5:
+	dc.b	2,"POTINP  ($DFF016):       BIN:                 ",$a,0
+PortJoyTestHW6:
+	dc.b	2,"CIAAPRA ($BFE001):       BIN:                 ",$a,0
 
+PortJoyTest2:
+	dc.b	2,"Joystick positions",$a,$a,0
+PortJoyTest3:
+	dc.b	2,"PORT0                               PORT1",0
+PortJoyTestExitTxt:
+	dc.b	2,"Exit with both mousebuttons or ESC",0
+DOWN:
+	dc.b	"DOWN",0
+UP:
+	dc.b	"UP  ",0
+LEFT:
+	dc.b	"LEFT",0
+RIGHT:
+	dc.b	"RIGHT",0
+FIRE:
+	dc.b	"FIRE",0
        EVEN
