@@ -18,6 +18,7 @@ SECTIONS
     *(keyboardtest)
     *(.text)
     *(module)
+    *(gfx)
     *(.checksums)
   }
 

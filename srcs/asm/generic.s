@@ -68,6 +68,7 @@
 	xref	binstringbyte
 	xref	EnableCache
 	xref	DisableCache
+	xref	SerSpeeds
 	; This contains the generic code for all general-purpose stuff
 	EVEN
 GetHWReg:					; Dumps all readable HW registers to memory

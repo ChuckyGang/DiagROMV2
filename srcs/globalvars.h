@@ -45,6 +45,7 @@ typedef struct GlobalVars
 	void*		CheckMemCurrent;		// Current adr to check
 	void*		CheckMemCurrentOLD;
 	void*		MemAdr;			// Pointer to memory from getmemory
+	void*		GfxTestBpl[8];		// Pointers to bitplanes for gfxtest
 
 	uint32_t	startupflags;
 	uint32_t 	stack_size;
@@ -122,9 +123,16 @@ typedef struct GlobalVars
 	uint32_t	FastmemBlock;			// Number of fastmem block found
 	uint32_t	HexBinBin;
 	uint32_t	DecBinBin;
+	uint32_t	CIACtrl;
+	uint32_t	Ticks;				// Number of ticks in CIA test
+	uint32_t	Passno;			// Number of passes
 
 	uint16_t	CheckMemCancel;		// if not 0 we had to cancel test
 	uint16_t	MemDetected;			// If mem was detected
+	uint16_t	IRQLev7;			// If 0 not lev 7
+	uint16_t	IRQLevDone;
+	uint16_t	Frames;			// Number of frames shown
+	uint16_t	TickFrame;			// How many frames reached when CIA test was done
 
 	uint16_t	DMACONR;
 	uint16_t	VPOSR;
@@ -156,6 +164,8 @@ typedef struct GlobalVars
 	uint16_t	MenuMouseAdd;
 	uint16_t	OldMarkItem;			// Contains the item being marked before
 	uint16_t	OldMenuNumber;		// Contains old menunumber
+	uint16_t	SerTstBps;			// BPS of serialtest
+
 	uint16_t	AudSimpVar;			// Those must all be in one block!!
 	uint32_t	AudSimpVar1;
 	uint16_t	AudSimpVar2;
@@ -288,7 +298,7 @@ typedef struct GlobalVars
 	uint8_t	AudSimpVolStr[10];
 	uint8_t	AudioModStatData[8];		// Audiomod status.
 	uint8_t	AudioModStatFormerData[8];	// Should follow AudioModStatData
-
+	uint8_t	JunkBuffer[256];		// A small crapbuffer
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

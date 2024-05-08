@@ -10,6 +10,7 @@
        xref   TF1260
        xref   SystemInfoTest
        xref   Space3
+       xref   NONE
        EVEN
        
 OtherTest:
@@ -39,7 +40,7 @@ SystemInfoTest:
        move.w	#2,d1
        jsr	Print
 
-       bsr	GetHWReg
+       jsr	GetHWReg
        bsr	PrintHWReg
 
        lea	NewLineTxt,a0
@@ -51,7 +52,7 @@ SystemInfoTest:
        jsr	Print
 
        move.l	BaseStart(a6),d0			; Get startaddress of chipmem
-       bsr	binhex
+       jsr	binhex
        move.l	#2,d1
        jsr	Print
 
@@ -60,7 +61,7 @@ SystemInfoTest:
 
 
        move.l	BaseEnd(a6),d0			; Get startaddress of chipmem
-       bsr	binhex
+       jsr	binhex
        move.l	#2,d1
        jsr	Print
 
@@ -128,13 +129,13 @@ SystemInfoTest:
        jsr	Print
 
        move.l	ChipStart(a6),d0
-       bsr	binhex
+       jsr	binhex
        move.l	#2,d1
        jsr	Print
        lea	MinusTxt,a0
        jsr	Print
        move.l	ChipEnd(a6),d0
-       bsr	binhex
+       jsr	binhex
        jsr	Print
 
 
@@ -144,20 +145,20 @@ SystemInfoTest:
 
 
        move.l	FastStart(a6),d0
-       bsr	binhex
+       jsr	binhex
        move.l	#2,d1
        jsr	Print
        lea	MinusTxt,a0
        jsr	Print
        move.l	FastEnd(a6),d0
-       bsr	binhex
+       jsr	binhex
        jsr	Print
 
 
        jsr	RomChecksum
 
        lea	.CpuDone,a5
-       bsr	DetectCPU
+       jsr	DetectCPU
 .CpuDone:
        bsr	PrintCPU
 
@@ -167,12 +168,12 @@ SystemInfoTest:
        bne	.no060
 
        lea	FlagTxt,a0
-       bsr	Print
+       jsr	Print
        lea	PCRFlagsTxt,a0
        move.l	#2,d1
        jsr	Print
        move.l	PCRReg(a6),d0
-       bsr	binstring
+       jsr	binstring
        move.l	#3,d1
        jsr	Print
 
@@ -307,7 +308,7 @@ SystemInfoTest:
        lea	NewLineTxt,a0
        jsr	Print
 
-       bsr	WaitButton
+       jsr	WaitButton
        bra	MainMenu
 
 PrintHWReg:

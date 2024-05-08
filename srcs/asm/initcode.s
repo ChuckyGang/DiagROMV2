@@ -10,6 +10,13 @@
 	xref	KB
 	xref	MinusTxt
 	xref	MEMCheckPattern
+	xref	SetMenuCopper
+	xref	InitCOP1LCH
+	xref	InitDONEtxt
+	xref	InitCOPJMP1
+	xref	InitDMACON
+	xref	InitBEAMCON0
+	xref	RealLoopbacktest
 	EVEN
 	
 Initcode:                                                      ; OK we have RAM. we can actually work some with real coding no weird JMP to registers etc.
