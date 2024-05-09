@@ -5,14 +5,10 @@
        xref   Setup
        xref   About
        xref   RTCTest
-       xref   AutoConfigDetail
        xref   ShowMemAddress
-       xref   TF1260
        xref   SystemInfoTest
-       xref   Space3
-       xref   NONE
-       EVEN
-       
+
+
 OtherTest:
 	jsr	InitScreen
 	move.w	#7,MenuNumber(a6)
@@ -391,10 +387,6 @@ oki:
 	add.b	#"0",d0
 	jsr	PrintChar
 	rts
-
-
-AutoConfigDetail:
-       jmp    MainMenu
 
 ShowMemAddress:
 	jsr	InitScreen
@@ -934,173 +926,3 @@ PrintHWReg:
        jsr	Print
 
        rts
-
-
-SystemInfoTxt:
-       dc.b	2,"Information of this machine:",$a,$a,0
-SystemInfoHWTxt:
-       dc.b	2,"Dump of all readable Custom Chipset HW Registers:",$a,0
-WorkTxt:
-       dc.b	"Workmem: ",0
-WorkSizeTxt:
-       dc.b	" Size: ",0
-RomSizeTxt:
-       dc.b	"   ROM size: ",0
-WorkOrderTxt:
-       dc.b	"  Order: ",0
-StartTxt2:
-       dc.b	"Start",0
-EndTxt2:
-       dc.b	"End",0
-ChipTxt:
-       dc.b	$a,"Chipmem workarea: ",0
-FastTxt:
-       dc.b	" Fastmem workarea: ",0
-FlagTxt:
-       dc.b	$a,"                   -----CPUID-----| CPURev|E*****DE",0
-StuckButtons:
-       dc.b	$a,$d,"Stuck buttons & keys etc at boot: ",0
-InitP1LMBtxt:
-       dc.b	"P1LMB ",0
-InitP2LMBtxt:
-       dc.b	"P2LMB ",0
-InitP1RMBtxt:
-       dc.b	"P1RMB ",0
-InitP2RMBtxt:
-       dc.b	"P2RMB ",0
-InitP1MMBtxt:
-       dc.b	"P1RMB ",0
-InitP2MMBtxt:
-       dc.b	"P2RMB ",0
-BadPaulaTXT:
-       dc.b	"BADPAULA",0
-OvlErrTxt:
-       dc.b	"OVLERROR",0
-NONE:
-       dc.b	"NONE",0
-Space3:
-       dc.b	"   ",0
-BLTDDATTxt:
-       dc.b	"BLTDDAT ($dff000): ",0
-DMACONRTxt:
-	dc.b	"DMACONR  ($dff002): ",0
-VPOSRTxt:
-	dc.b	"VPOSR   ($dff004): ",0
-VHPOSRTxt:
-	dc.b	"VHPOSR  ($dff006): ",0
-DSKDATRTxt:
-	dc.b	"DSKDATR  ($dff008): ",0
-JOY0DATTxt:
-	dc.b	"JOY0DAT ($dff00a): ",0
-JOY1DATTxt:
-	dc.b	"JOY1DAT ($dff00c): ",0
-CLXDATTxt:
-	dc.b	"CLXDAT   ($dff00e): ",0
-ADKCONRTxt:
-	dc.b	"ADKCONR ($dff010): ",0
-POT0DATTxt:
-	dc.b	"POT0DAT ($dff012): ",0
-POT1DATTxt:
-	dc.b	"POT1DAT  ($dff014): ",0
-POTINPTxt:
-	dc.b	"POTINP  ($dff016): ",0
-SERDATRTxt:
-	dc.b	"SERDATR ($dff018): ",0
-DSKBYTRTxt:
-	dc.b	"DSKBYTR  ($dff01a): ",0
-INTENARTxt:
-	dc.b	"INTENAR ($dff01c): ",0
-INTREQRTxt:
-	dc.b	"INTREQR ($dff01e): ",0
-DENISEIDTxt:
-	dc.b	"DENISEID ($dff07c): ",0
-HHPOSRTxt:
-	dc.b	"HHPOSR  ($dff1dc): ",0
-
-
-FiveSpacesTxt:
-	dc.b	"     ",0
-
-RTCByteTxt:
-	dc.b	"Raw RTC data in hex:",$a,0
-RTCBitTxt:
-	dc.b	"Raw RTC data in binary:",$a,0
-RTCRicoh:
-	dc.b	"Ricoh Chipset output:",$a,0
-RTCOKI:
-	dc.b	"OKI Chipset output:",$a,0
-
-
-RTCadjust1:
-	dc.b	"Number of frames during 1 sec RTC test    (50 = PAL, 60 = NTSC): ",$a,0
-RTCadjust10:
-	dc.b	"Number of frames during 10 sec RTC test (500 = PAL, 600 = NTSC): ",$a,0
-
-RTCIrq:
-	dc.b	2,"Press space/left mouse to enable IRQ Timing for RTC Adjusting",$a,0
-RTCIrq2:
-	dc.b	2,"Requires working IRQ3 Interrupt.  Both mouse to exit (or ESC)",0
-       EVEN
-RTCMonth:
-	dc.b	"Jan",0
-	dc.b	"Feb",0
-	dc.b	"Mar",0
-	dc.b	"Apr",0
-	dc.b	"May",0
-	dc.b	"Jun",0
-	dc.b	"Jul",0
-	dc.b	"Aug",0
-	dc.b	"Sep",0
-	dc.b	"Oct",0
-	dc.b	"Nov",0
-	dc.b	"Dec",0
-	dc.b	"BAD",0
-RTCDay:
-	dc.b	"   Sunday",0
-	dc.b	"   Monday",0
-	dc.b	"  Tuesday",0
-	dc.b	"Wednesday",0
-	dc.b	" Thursday",0
-	dc.b	"   Friday",0
-	dc.b	" Saturday",0	
-
-ShowMemAdrTxt:
-	dc.b	2,"Constantly monitor memaddress quit with buttonpress",$a,0
-ShowMemAdrTxt2:
-	dc.b	2,"Only useful for dev of hardware not as a functiontest",$a,0
-ShowMemAdrTxt3:
-	dc.b	$a,"Memoryaddress to monitor: $",0
-ShowMemTypeTxt:
-	dc.b	$a,"B)yte, W)ord or L)ongword (other quit)",0
-ShowMemTxt:
-	dc.b	"Monitoring content of address: ",0
-ByteTxt:
-	dc.b 	"Byte",0
-WordTxt:
-	dc.b	"Word",0
-LongWordTxt:
-	dc.b	"Longword",0
-
-
-AboutTxt:
-	dc.b	2,"About DiagROM",0
-AboutTxt2:
-	dc.b	$a,$a,"Coding by: John 'Chucky' Hertell",$a,$a
-	dc.b	"Small code-example help from Stephen Leary, HighPuff",$a,$a
-	dc.b	"          IMPORTANT ABOUT THIS TOOL! also: http://www.diagrom.com",$a,$a
-	dc.b	"It is delivered AS-IS! No Warranty!  Mail suggestions to chucky@thegang.nu",$a,$a
-	dc.b	"This is a tool for people with technical know-how of the Amiga system and it",$a
-	dc.b	"will not give a pointer saying 'Chip XX is dead', So it is not for people who",$a
-	dc.b	"randomly just swap chips, you need to do a proper diagnose with this tool",$a,$a
-	dc.b	"However I hope you have use of this program and do please send me a mail",$a
-	dc.b	"telling what you like and what you do NOT like in it",$a,$a
-	dc.b	"I love all kind of suggestions possible also if you have code-examples how to",$a
-	dc.b	"detect different issues etc, PLEASE contact me",$a,$a
-	dc.b	"Some good-to-know facts: Pressing mousebuttons at powerup (and release after a",$a
-	dc.b	"short while (or it will be misstaken as stuck and will be ignored)",$a,$a
-	dc.b	"Mouseport 1: Left mouse, Disable screen output, if fastmem found use it",$a
-	dc.b	"             Right mouse, Instead of using end of mem as work, use start",$a,$a
-	dc.b	"Serial output HIGHLY recomended: 9600 BPS, 8N1, No handshaking used!",$a,$a
-	dc.b	"Press any key or button!",0
-
-       EVEN

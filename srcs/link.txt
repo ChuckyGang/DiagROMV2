@@ -16,10 +16,12 @@ SECTIONS
     *(disktest)
     *(othertest)
     *(keyboardtest)
+    *(autoconfig)
+    *(terriblefire)
     *(.text)
     *(module)
     *(gfx)
-    *(strings)
+    *(data)
     *(.checksums)
   }
 

@@ -4,20 +4,8 @@
        section "initstartup",code_p
        XREF   Initcode
        xref   playsize
-	xref	NewLineTxt
-	xref	EnglishKey
-	xref	EnglishKeyShifted
-	xref	KB
-	xref	MinusTxt
-	xref	MEMCheckPattern
 	xref	SetMenuCopper
-	xref	InitCOP1LCH
-	xref	InitDONEtxt
-	xref	InitCOPJMP1
-	xref	InitDMACON
-	xref	InitBEAMCON0
 	xref	RealLoopbacktest
-	EVEN
 	
 Initcode:                                                      ; OK we have RAM. we can actually work some with real coding no weird JMP to registers etc.
                                                                ; So lets start to actually handle the stuff we stored during bootup and do a proper init.
@@ -163,7 +151,7 @@ Initcode:                                                      ; OK we have RAM.
 	cmp.b	#0,d6			; Check if we had any return, if so we have a loopbackadapter installed.
 	beq	.noloopback
 
-	move.w	#5,SerialSpeed(a6)	; Set serialspeed to 5 ,(same as 0 but mark loopbackadapter)
+	move.w	#6,SerialSpeed(a6)	; Set serialspeed to 5 ,(same as 0 but mark loopbackadapter)
 	move.b	#1,LoopB(a6)
 
        KPRINTC       DDETECTED
@@ -177,12 +165,12 @@ Initcode:                                                      ; OK we have RAM.
 	beq	.noser
 	cmp.b	#1,LoopB(a6)		; Check if loopbackadapter was attacjhed
 	beq	.noserloop		; in that case, no serial output
-	move.w	#4,SerialSpeed(a6)	; Set speed 4 (115200)
+	move.w	#3,SerialSpeed(a6)	; Set speed 3 (38400)
 	bsr	Init_Serial
 	bra	.ser
 
 .noserloop:
-	move.w	#5,SerialSpeed(a6)	; Set serialspeed to 5 ,(same as 0 but mark loopbackadapter)
+	move.w	#6,SerialSpeed(a6)	; Set serialspeed to 6 ,(same as 0 but mark loopbackadapter)
 	move.b	#1,NoSerial(a6)
 	bra	.ser
 .noser:
@@ -499,7 +487,7 @@ InitStuff:
        move.l a6,a1
        add.l  #Bpl1Ptr,a1
 	move.l	MenuCopper(a6),a0
-	add.l	#MenuBplPnt-RomMenuCopper,a0
+	add.l	#MenuBplPntPos,a0
        move.l a0,a4
 	bsr	FixBitplane
  	bset	#5,SCRNMODE(a6)		; Set bit in SCRNMODE, to tell that we are in PAL mode
@@ -517,7 +505,7 @@ CopyToChip:					; Copy data that needs to be in Chipmem from ROM for menusystem 
        move.l d0,MenuCopper(a6)           ; Set pointer to MenuCopperlist
 	move.l	d0,a1
        lea	RomMenuCopper,a0
-	move.l	#EndRomMenuCopper-RomMenuCopper,d0
+	move.l	#EndRomMenuCopperSize,d0
 	bsr	CopyMem				; Copy the MenuCopper to chipmem
 	move.l	MenuCopper(a6),d0
 	bsr	binhex
@@ -532,7 +520,7 @@ CopyToChip:					; Copy data that needs to be in Chipmem from ROM for menusystem 
        move.l d0,ECSCopper(a6)
        move.l d0,a1
        lea	RomEcsCopper,a0
-       move.l	#EndRomEcsCopper-RomEcsCopper,d0
+       move.l	#EndRomEcsCopperSize,d0
 	bsr	CopyMem
 	move.l	ECSCopper(a6),d0
 	bsr	binhex
@@ -546,7 +534,7 @@ CopyToChip:					; Copy data that needs to be in Chipmem from ROM for menusystem 
 	add.l	#ECSCopper2List,d0
        move.l d0,ECSCopper2(a6)
        move.l d0,a1
-	move.l	#EndRomEcsCopper2-RomEcsCopper2,d0
+	move.l	#EndRomEcsCopper2Size,d0
 	bsr	CopyMem
 	move.l	ECSCopper2(a6),d0
 	bsr	binhex
@@ -613,7 +601,7 @@ ClearSerial:					; Just read serialport, to empty it
 	move.l	#1,d6				; load d6 with 1, so we run this, twice to be sure serialbuffer is cleared
 .loop:
 	move.w	#$4000,$dff09a
-	move.w	#INITBAUD,$dff032			; Set the speed of the serialport (9600BPS)
+	move.w	#INITBAUD,$dff032			; Set the speed of the serialport
 	move.b	#$4f,$bfd000			; Set DTR high
 	move.w	#$0801,$dff09a
 	move.w	#$0801,$dff09c
@@ -637,7 +625,7 @@ RealLoopbacktest:				; Test if we have a loopbackadapter connected.
 						; Simply by outputing the char in D2 and check if the same char comes back.
 						; if so, 1 is added to D6
 	move.w	#$4000,$dff09a
-	move.w	#INITBAUD,$dff032			; Set the speed of the serialport (9600BPS)
+	move.w	#INITBAUD,$dff032			; Set the speed of the serialport
 	move.b	#$4f,$bfd000			; Set DTR high
 	move.w	#$0801,$dff09a
 	move.w	#$0801,$dff09c
@@ -993,166 +981,6 @@ DetectMemory:
 	move.l	d7,a3			; Restore jumpaddress
 	sub.l	#1,a1
 	jmp	(a3)
-
-
-MEMCheckPattern:
-	dc.l	$ffffffff,$aaaaaaaa,$55555555,$f0f0f0f0,$0f0f0f0f,$0f0ff0f0,0,0
-
-LoopSerTest:
-       dc.b	$a,$d,"Testing if serial loopbackadapter is installed: ",0
-DDETECTED:
-       dc.b	" DETECTED",$a,$d,0
-NoLoopback:
-       dc.b	" NOT DETECTED",$a,$d,0
-DetectRasterTxt:
-       dc.b	"Detecting if we have a working raster: ",0
-DETECTED:
-       dc.b	27,"[32mDETECTED",27,"[0m",0
-SFAILED:
-       dc.b	27,"[31mFAILED",27,"[0m",0
-NewLineTxt:
-       dc.b	$a,$d,0
-DetChipTxt:
-       dc.b	"Detected Chipmem: ",0
-KB:
-       dc.b	"kB",0
-DetMBFastTxt:
-       dc.b	"Detected Motherboard Fastmem (not reliable result): ",0
-ChipSetupInit:
-       dc.b	" - Doing Initstuff",$a,$d,0
-
-ChipSetup1:
-       dc.b	" - Setting up Chipmemdata",$a,$d,0
-ChipSetup2:
-       dc.b	"   - Copy Menu Copperlist from ROM to memory at: ",0
-ChipSetup3:
-       dc.b	"   - Copy ECS TestCopperlist from ROM to memory at: ",0
-ChipSetup4:
-       dc.b	"   - Copy ECS testCopperlist2 from ROM to memory at: ",0
-ChipSetup5:
-       dc.b	"   - Fixing Bitplane Pointers etc in Menu Copperlist",$a,$d,0
-ChipSetup6:
-       dc.b	"   - Copy Audio Data from ROM to memory at: ",0
-ChipSetup8:
-	dc.b	"   - Copy Protracker replayroutine from ROM to memory at: ",0
-ChipSetup7:
-       dc.b	"   - Do final Bitplanedata in Menu Copperlist",$a,$d,0
-ChipSetupDone:
-       dc.b	" - Initstuff done!",$a,$d,$a,$d,0
-InitCOP1LCH:
-		dc.b	"    Set Start of copper (COP1LCH $dff080): ",0
-InitCOPJMP1:
-	dc.b	"    Starting Copper (COPJMP1 $dff088): ",0
-InitDMACON:
-	dc.b	"    Set all DMA enablebits (DMACON $dff096) to Enabled: ",0
-InitBEAMCON0:
-	dc.b	"    Set Beam Conter control register to 32 (PAL) (BEAMCON0 $dff1dc): ",0
-InitPOTGO:
-	dc.b	"    Set POTGO to all OUTPUT ($FF00) (POTGO $dff034): ",0
-InitDONEtxt:
-	dc.b	"Done",$a,$d,0
-Bpl1attxt:
-	dc.b	"   - Bitplane 1 at: $",0
-Bpl2attxt:
-	dc.b	"   - Bitplane 2 at: $",0
-Bpl3attxt:
-	dc.b	"   - Bitplane 3 at: $",0
-WorkAreasTxt:
-	dc.b	$a,"Extra workareas Chipmem: ",0
-WorkAreasTxt2:
-	dc.b	"  Fastmem: ",0	
-MinusTxt:
-	dc.b	" - ",0	
-InitTxt:
-	dc.b	"Amiga DiagROM "
-	VERSION
-	dc.b	" - By John (Chucky/The Gang) Hertell - "
-	incbin	"builddate.i"
-	dc.b	$a,$d,$a,$d,0
-
-	EVEN
-
-NoDrawTxt:
-       dc.b	"We are in a nonchip/nodraw mode. Serialoutput is all we got.",$a,$d
-	dc.b	"colourflash on screen is actually chars that should be printed on screen.",$a,$d
-	dc.b	"Just to tell user something happens",$a,$d,$a,$d,0
-
-FastDetectTxt:
-	dc.b	$a,$a,"Checking for fastmem",$a
-	dc.b	"Pressing left mousebutton will cancel detection (if hanged)",$a,$a,0
-A24BitTxt:
-	dc.b	"Checking if a 24 Bit address cpu is used: ",0
-A3k4kMemTxt:
-	dc.b	" - Checking for A3000/A4000 Motherboardmemory",$a,0
-CpuMemTxt:
-	dc.b	" - Checking for CPU-Board Memory (most A3k/A4k)",$a,0
-A1200CpuMemTxt:
-	dc.b	" - Checking for CPU-Board Memory (most A1200)",$a,"    (WILL crash with A3640/A3660 and Maprom on)",$a,0
-a24BitAreaTxt:
-	dc.b	" - Checking for Memory in 24 Bit area (NON AUTOCONFIG)",$a,0
-FakeFastTxt:
-	dc.b	" - Checking for Memory in Ranger or Fakefast area",$a,0
-BPPCtxt:
-	dc.b	"   - BPPC Found, detecting in a smaller memoryarea",$a,0
-FastFoundtxt:
-	dc.b	"  - Fastmem found between: $",0
-MinusDTxt:
-	dc.b	" - $",0
-IfSoldTxt:
-	;12345678901234567890123456789012345678901234567890123456789012345678901234567890
-	dc.b	$a,$a,"IF This ROM is sold, if above 10eur+hardware cost 25% MUST be donated to",$a
-	dc.b	"an LEGITIMATE charity of some kind, like curing cancer for example... ",$a
-	dc.b	"If you paid more than 10Eur + Hardware + Shipping, please ask what charity you",$a
-	dc.b	"have supported!!!      This software is fully open source and free to use.",$a
-	dc.b	"Go to www.diagrom.com or http://github.com/ChuckyGang/DiagROM2 for information",$a,$a,0
-
-InitSerial2:
-	dc.b	$a,$d,"Please read the readme.txt file in the download archive for instructions"
-	dc.b	$a,$d,"DiagROM is mainly for people with technical knowledge of the Amiga"
-	dc.b	$a,$d,"and might not be fully 'stright forward' for all - Delivered AS IS"
-	dc.b	$a,$d,$a,$d,"To use serial communication please hold down ANY key now",$a,$d
-	dc.b	"OR click the RIGHT mousebutton.",$a,$d,0
-EndSerial:
-	dc.b	27,"[0m",$a,$d,"No key pressed, disabling any serialcommunications.",$a,$d,0
-DotTxt:
-	dc.b	".",0
-	
-	EVEN
-
-RomMenuCopper:
-       MenuSprite:
-              dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$01380000,$013a0000,$013c0000,$013e0000
-       
-              dc.l	$0100b200,$0092003c,$009400d4,$008e2c81,$00902cc1,$01020000,$01080000,$010a0000
-              dc.l	$01800000,$01820f00,$018400f0,$01860ff0,$0188000f,$018a0f0f,$018c00ff,$018e0fff,$01900ff0
-       
-       MenuBplPnt:
-              dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000
-              dc.l	$fffffffe	;End of copperlist
-EndRomMenuCopper:
-
-RomEcsCopper:
-       dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$0138000,$013a0000,$013c0000,$013e0000
-       dc.l	$01005200,$00920038,$009400d0,$008e2c81,$00902cc1,$01020000,$01080000,$010a0000
-
-       blk.l	32,0
-;MenuBplPnt2:
-       dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000,$00ec0000,$00ee0000,$00f00000,$00f20000
-
-       dc.l	$fffffffe	;End of copperlist
-EndRomEcsCopper:
-
-RomEcsCopper2:
-       dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$0138000,$013a0000,$013c0000,$013e0000
-       dc.l	$01005200,$00920038,$009400d0,$008e2c81,$00902cc1,$01020000,$01080004,$010a0004
-
-       blk.l	32,0
-;MenuBplPnt2:
-       dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000,$00ec0000,$00ee0000,$00f00000,$00f20000
-
-       dc.l	$fffffffe	;End of copperlist
-EndRomEcsCopper2:
-
 
 
        ;      This is the protrackerreplayer, to be copied to chipmem due to the fact it would require too mucg

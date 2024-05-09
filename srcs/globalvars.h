@@ -49,6 +49,13 @@ typedef struct GlobalVars
 	void*		trackbuff;			// Pointer to trackbuffer
 	void*		DiskBuffer;			// Pointer to diskbuffer
 	void*		ShowMemAdr;			// Address to show at shomemaddr
+	void*		AutoConfAddr;			// Address to config board to
+	void*		AutoConfFrom;
+	void*		AutoConfTo;
+	void*		TF1260IOStart;
+	void*		TF1260IOEnd;
+	void*		TF1260MemStart;
+	void*		TF1260MemEnd;
 
 	uint32_t	startupflags;
 	uint32_t 	stack_size;
@@ -134,6 +141,8 @@ typedef struct GlobalVars
 	uint32_t	PortJoy1OLD;
 	uint32_t	GayleData;			// Data from Gayletest
 	uint32_t	RTCold;			// How RTC first longword was read
+	uint32_t	AutoConfBoards;		// how many boards are autoconfigured
+	uint32_t	AutoConfSize;			// Size of current board
 
 	uint16_t	CheckMemCancel;		// if not 0 we had to cancel test
 	uint16_t	MemDetected;			// If mem was detected
@@ -185,9 +194,13 @@ typedef struct GlobalVars
 	uint16_t	RTC10secframe;		// Number of frames in 10 sec
 	uint16_t	RTCsec;			// Number of seconds RTC test have been running
 	uint16_t	RTCirq;			// 0 if IRQ is off
+	uint16_t	AutoConfZ3;			// Where to config next Z3 card
+	uint16_t	BackupAutoConffZ3;
+	uint16_t	AutoConfWByte;		// "Byte" to write to autoconfigboards (word for Z3)
 
 	uint32_t	DriveTestVar[4];
 	uint32_t	sectorbuff[4];		// Small part of MFM decoded sectordata
+	uint32_t	AutoConfList[14*33];		// Store data for 33 boards
 
 	uint16_t	AudSimpVar;			// Those must all be in one block!!
 	uint32_t	AudSimpVar1;
@@ -313,6 +326,19 @@ typedef struct GlobalVars
 	uint8_t	WantedTrackNo;		// Wanted tracknumber
 	uint8_t	sector;			// Current sector
 	uint8_t	KeyBOld;			// Stores old scancode of keyboard
+	uint8_t	AutoConfZ2Ram;		// Where to config ram to next Z2 card
+	uint8_t	AutoConfZ2IO;			// Where to config rom to next Z2 card
+	uint8_t	AutoConfType;			// If set to 0 no autoconfig was found, 1=ROM, 2=RAM, 3=Z2Space, no RAM
+	uint8_t	AutoConfShutD;		// if not 0, we had to shutdown of a card
+	uint8_t	AutoConfMode;			// if anything but 0, a detailed (and manual) autoconfig till be done
+	uint8_t	AutoConfDone;			// if set to anything but 0, autoconfig has been done
+	uint8_t	AutoConfFlag;
+	uint8_t	BackupAutoConfZ2Ram;
+	uint8_t	BackupAutoConfZ2IO;
+	uint8_t	AutoConfExit;			// If anything then 0, force exit of loop
+	uint8_t	AutoConfIllegal;		// if not 0, autoconfig was illegal force shutdown of card
+	uint8_t	AutoConfZorro;		// 0 = Z2, 1=Z3
+
 
 	uint8_t	temp[10];
 	uint8_t	CheckMemStartAdrTxt[9];
@@ -331,6 +357,7 @@ typedef struct GlobalVars
 	uint8_t	AudioModStatFormerData[8];	// Should follow AudioModStatData
 	uint8_t	JunkBuffer[256];		// A small crapbuffer
 	uint8_t	RTCString[14];		// Block of RTC Data
+	uint8_t	AutoConfBuffer[20];		// Autoconfigbuffer
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

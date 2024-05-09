@@ -5,10 +5,8 @@
        xref   IRQCIAIRQTest
        xref   IRQCIACIATest
        xref   IRQCIATest
-       xref   FAILED
 	xref	RTEcode
 	xref	CIALevTst
-       EVEN
 
 CIATIME	EQU	174
 ;	equ	174			(10000ms / 1.3968255 for PAL)
@@ -567,69 +565,3 @@ IRQLevTest:					; Small IRQ Rouine, all it does is to set IRQLevDone to 1
 RTEcode:					; Just to have something to point IRQ to.. doing nothing
 	move.w	#$444,$dff180
 	rte
-
-
-
-IRQCIAIRQTestText:
-	dc.b	2,"Testing IRQ Levels. Press any key to start.   ESC or RMB to exit",$a,$a,0
-IRQCIAIRQTestText2:
-	dc.b	2,"Screen Flashing during test is normal, it is a sign that IRQ is executed",$a,$a,0
-       
-IRQLev1Txt:
-	dc.b	"Testing IRQ Level 1: ",0
-IRQLev2Txt:
-	dc.b	"Testing IRQ Level 2: ",0
-IRQLev3Txt:
-	dc.b	"Testing IRQ Level 3: ",0
-IRQLev4Txt:
-	dc.b	"Testing IRQ Level 4: ",0
-IRQLev5Txt:
-	dc.b	"Testing IRQ Level 5: ",0
-IRQLev6Txt:
-	dc.b	"Testing IRQ Level 6: ",0
-IRQLev7Txt:
-	dc.b	"Testing IRQ Level 7 (WILL Fail unless you press a custom IRQ7 button): ",0
-IRQTestDone:
-	dc.b	$a,$a,$a,"IRQ Tests done",$a,0
-FAILED:
-	dc.b	"FAILED",0
-CANCELED:
-	dc.b	"CANCELED",0
-
-CIATestTxt:
-	dc.b	2,"CIA Tests. Check if your CIAs can time stuff. REQUIRES LEV3 IRQ!",$a,$a,0
-CIATestTxt2:
-	dc.b	2,"Press any key to start tests (aprox 2 sec/each), Press ESC for mainmenu",$a,$a,$a,0
-CIATestTxt3:
-	dc.b	2,"Flashing on screen is fully normal, indicating CIA timing. NTSC Will fail",$a,$a,0
-CIAATestAATxt:
-	dc.b	"Testing Timer A, on CIA-A (ODD) :",0
-CIAATestBATxt:
-	dc.b	"Testing Timer B, on CIA-A (ODD) :",0
-CIAATestABTxt:
-	dc.b	"Testing Timer A, on CIA-B (EVEN):",0
-CIAATestBBTxt:
-	dc.b	"Testing Timer B, on CIA-B (EVEN):",0
-CIATestATOD:
-	dc.b	"Testing CIA-A TOD (Tick/VSync)  :",0
-CIATestBTOD:
-	dc.b	"Testing CIA-B TOD (HSync)       :",0
-ButtonExit:
-	dc.b	2,"Press any button to exit",0
-CIATickSlowTxt:
-	dc.b	" - Too slow ticksignal ",0
-CIATickFastTxt:
-	dc.b	" - Too fast ticksignal ",0
-CIANoRasterTxt:
-	dc.b	2,"CIA Tests requires a working raster, Unable to test",$a,$a,0
-CIANoRasterTxt2:
-	dc.b	2,"Press any key to return to Main Menu",$a,0
-ms:
-	dc.b	"ms",0      
-VblankOverrunTXT:
-	dc.b	" - CIA Timing too slow! ",0
-VblankUnderrunTXT:
-	dc.b	" - CIA Timing too fast! ",0
-ticks:
-	dc.b	" Ticks",0
-       EVEN

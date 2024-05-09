@@ -20,39 +20,26 @@
 	xref	RomChecksum
 	xref	DetectCPU
 	xref	PrintCPU
-	xref	YES
-	xref	NO
 	xref 	EnglishKey
 	xref	EnglishKeyShifted
 	xref	ClearBuffer
 	xref	GetInput
 	xref	DefaultVars
-	xref	SPACE
-	xref	PCRFlagsTxt
 	xref	UnimplInst
 	xref	binstring
 	xref	BusError
-	xref	DebugROM
-	xref	DebugROM2
-	xref	DebugROM3
 	xref	WaitButton
 	xref	binhexword
 	xref	Trap
 	xref	WaitLong
-	xref	EmptyRowTxt
-	xref	OFF
-	xref	ON
 	xref	WaitReleased
 	xref	WaitPressed
 	xref	GetChip
 	xref	binhexbyte
-	xref	SpaceTxt
 	xref	RunCode
 	xref	GetMemory
-	xref	AnyKeyMouseTxt
 	xref	ToKB
 	xref	Random
-	xref	DividerTxt
 	xref	DeleteLine
 	xref	DetectMemory
 	xref	InputHexNum
@@ -68,13 +55,10 @@
 	xref	binstringbyte
 	xref	EnableCache
 	xref	DisableCache
-	xref	SerSpeeds
-	xref	REVTxt
 	xref	SameRow
 	xref	DevPrint
 
 	; This contains the generic code for all general-purpose stuff
-	EVEN
 GetHWReg:					; Dumps all readable HW registers to memory
 	move.w	$dff000,BLTDDAT(a6)
 	move.w	$dff002,DMACONR(a6)
@@ -2932,91 +2916,11 @@ DevPrint:
 	jsr	SetPos
 	rts
 
-
-SerSpeeds:		; list of Baudrates (3579545/BPS)+1
-	dc.l	0,1492,373,94,30,0,0
-
 hextab:
 	dc.b	"0123456789ABCDEF"	; For bin->hex convertion
 
 	EVEN
-
-
-RomCheckTxt:
-	dc.b	$a,$a,"Doing ROM Checksumtest: (64K blocks, Green OK, Red Failed)",$a,0
-SpaceTxt:
-	dc.b	" ",0
-CPUString:	dc.b	"68000 ",0,"68010 ",0,"68EC20",0,"68020 ",0,"68EC30",0,"68030 ",0,"68EC40",0,"68LC40",0,"68040 ",0,"68EC60",0,"68LC60",0,"68060 ",0,"68FAIL",0,"68???? ",0,"NOCHIP",0
-FPUString:	dc.b	"NONE ",0,"68881",0,"68882",0,"68040",0,"68060",0
-	EVEN
-PCRFlagsTxt:
-	dc.b	$a,"PCR Registerflags: ",0
-SSPErrorTxt:
-	dc.b	2,"oOoooops Something went borked",0
-BusErrorTxt:
-	dc.b	2,"BusError Detected",0
-AddressErrorTxt:
-	dc.b	2,"AddressError Detected",0
-IllegalErrorTxt:
-	dc.b	2,"Illegal Instruction Detected",0
-DivByZeroTxt:
-	dc.b	2,"Division by Zero Detected",0
-ChkInstTxt:
-	dc.b	2,"Chk Inst Detected",0
-TrapVTxt:
-	dc.b	2,"Trap V Detected",0
-PrivViolTxt:
-	dc.b	2,"Privilige Violation Detected",0
-TraceTxt:
-	dc.b	2,"Trace Detected",0
-UnImplInstrTxt:
-	dc.b	2,"Unimplemented instruction Detected",0
-TrapTxt:
-	dc.b	2,"TRAP Detected",0
-CrashTxt:
-	dc.b	2,"DiagROM CRASHED - Software/Hardware failure - Unexpected event",0
-DebugTxt:
-	dc.b	"Debugdata (Dump of CPU Registers D0-D7/A0-A7):",0
-AnyKeyMouseTxt:
-	dc.b	2,"Press any key/mouse to continue",0
-SPACE:
-	dc.b	" ",0
-DebugIRQ:
-	dc.b	"IRQ Level ",0
-DebugIRQPoint:
-	dc.b	" Points to: ",0
-DebugContent:
-	dc.b	" Content: ",0
-DebugSR:
-	dc.b	"SR: ",0
-DebugADR:
-	dc.b	" ADR: ",0
-DebugPWR:
-	dc.b	$a,"Poweronflags: ",0
-DebugROM:
-	dc.b	"Is 'DIAG' readable at addr $0 (ROM still at $0): ",0
-DebugROM2:	
-	dc.b	"Is 'DIAG' readable at addr $f80000 (Real ROM addr): ",0
-DebugROM3:
-	dc.b	$a,"Is $1111 readable at addr $f00000 (expansion ROM addr): ",0
-YES:
-	dc.b	"YES",0
-NO:
-	dc.b	"NO ",0
-CPUTxt:
-	dc.b	$a,"CPU: ",0
-FPUTxt:
-	dc.b	" FPU: ",0
-MMUTxt:
-	dc.b	" MMU: ",0
-REVTxt:
-	dc.b	" Rev: ",0
-NOTCHECKED:
-	dc.b	"NOT CHECKED",0
-RomFont:
-	incbin	"data/TopazFont.bin"
-
-EnglishKey:
+EnglishKey::
 	dc.b	" 1234567890-=| 0"
 	dc.b	"qwertyuiop[] "; 1c
 	dc.b	"123asdfghjkl;`" ; 2a
@@ -3047,7 +2951,7 @@ EnglishKey:
 	dc.b	"0" ;f10
 	dc.b	"()/*+"
 	dc.b	0 ; Help
-EnglishKeyShifted:
+EnglishKeyShifted::
 	; Shifted
 	dc.b	"~!@#$%^& ()_+| 0QWERTYUIOP{} 123ASDFGHJKL:",34,"  456 ZXCVBNM<>? .789          - "
 	dc.b	1 ; Up
@@ -3066,24 +2970,3 @@ EnglishKeyShifted:
 	dc.b	0 ;f10
 	dc.b	"()/*+"
 	dc.b	0 ; Help
-
-
-Divider2Txt:
-	dc.b	$a,$d
-DividerTxt:
-	dc.b	"--------------------------------------------------------------------------------",0
-EmptyRowTxt:
-	dc.b	"                                                                                ",0
-ON:
-	dc.b	"ON ",0
-OFF:
-	dc.b	"OFF",0
-DELLINE:
-	dc.b	27,"[1M",0
-
-space8:
-	dc.b	"        ",0
-UnderDevTxt:
-	dc.b	2,"This function is under development, output can be weird, strange and false",$a,$d,$a,$d,0
-
-	EVEN

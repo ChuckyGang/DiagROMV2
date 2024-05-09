@@ -2,8 +2,7 @@
        include "build/srcs/globalvars.i"
        section "keyboardtest",code_p
        xref   KeyBoardTest
-       EVEN
-       
+
 KeyBoardTest:
 	jsr	InitScreen
 	lea	KeyBoardTestText,a0
@@ -115,12 +114,3 @@ KeyBoardTest:
 
 	jmp	MainMenu
 
-
-KeyBoardTestText:
-	dc.b	2,"Keyboardtest ESC or mouse to exit",$a,$a,0
-KeyBoardTestCodeTxt:
-	dc.b	"Current Scancode read from Keyboardbuffer:      Keyboardcode:      Char: ",$a,0
-KeyBoardTestCodeTxt2:
-	dc.b	"Scancode binary:           HEX:      Keyboardcode binary:           HEX: ",0
-
-       EVEN

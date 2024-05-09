@@ -1,5 +1,5 @@
-// #include "globalvars.h"
-/*
+#include "globalvars.h"
+
 __section(".text") uint32_t test_function(__reg("a6") struct GlobalVars* globals)
 {
 	// fill out current vhpos
@@ -8,4 +8,3 @@ __section(".text") uint32_t test_function(__reg("a6") struct GlobalVars* globals
 	// return some hexspeak (this is verified at the callsite)
 	return 0x600dc0de;
 }
-*/

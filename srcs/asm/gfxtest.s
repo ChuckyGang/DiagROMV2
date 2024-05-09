@@ -7,8 +7,7 @@
        xref   GFXTestScroll
        xref   GFXTestRaster
        xref   GFXTestRGB
-       EVEN
-
+ 
 LOWRESSize:	equ	40*256
 HIRESSize:	equ	80*512
 
@@ -213,7 +212,7 @@ GFXTestRaster:
 GFXTestRGB:
 	jsr	ClearScreen
 	move.l	#257*40,d0					; Amount of memory needed for one bitplan
-	add.l	#GFXColTestCopperEnd-GFXColTestCopperStart,d0	; Add for size of copperlist
+	add.l	#GFXColTestCopperSize,d0	; Add for size of copperlist
 	bsr	GetChip						; Get chipmem needed.
 	cmp.l	#2,d0						; Check if 2 or lower
 	ble	GFXtestMenu					; if so just exit (I know. bad move not to tell user)
@@ -228,12 +227,12 @@ GFXTestRGB:
 	move.l	d0,a2
 	move.l	d0,d6
 	lea	GFXColTestCopperStart,a1
-	add.l	#GFXColTestCopperEnd-GFXColTestCopperStart,d7	; Add for size of copperlist
+	add.l	#GFXColTestCopperSize,d7	; Add for size of copperlist
 .loop:
 	move.b	(a1)+,(a2)+
 	dbf	d7,.loop					; Copy in copperlist to start of memory
 	move.l	d0,a0
-	add.l	#GFXColTestCopperWait-GFXColTestCopperStart,a0	; Fix a0 to where the wait block in copper list starts
+	add.l	#GFXColTestCopperWaitPos,a0	; Fix a0 to where the wait block in copper list starts
 	clr.l	d2						; Clear the testcolor
 	move.l	a0,a1
 	sub.l	#4*4-2,a1					; a1 will now contain address of bitplanepointers
@@ -592,43 +591,3 @@ PlotPixel:						; Plots a pixel
 	dbf	d7,.loop
 	POP
 	rts
-
-GFXColTestCopperStart:
-	dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$0138000,$013a0000,$013c0000,$013e0000
-	dc.l	$01002200,$00920038,$009400d0,$008e2c81,$00902cc1,$01020000,$0108ffd8,$010affd8
-	dc.l	$0180000f,$01800000,$01820000,$01840000,$01860000
-	dc.l	$00e00000,$00e20000,$00e40000,$00e60000
-GFXColTestCopperWait:
-	blk.l	8*15,0
-;	blk.l	3,0
-	dc.l	$01800000,$01820000,$01840000,$01860000
-	dc.l	$fffffffe	;End of copperlist
-
-GFXColTestCopperEnd:
-
-ECSTestColor:
-	dc.w	$000,$aaa,$666,$777,$777,$00b,$76e,$0b0,$397,$790,$0bb,$fff,$971,$b48,$bb0,$888
-	dc.w	$999,$333,$b00,$ddd,$333,$444,$555,$666,$777,$888,$999,$aaa,$ccc,$ddd,$eee,$fff
-
-ECSColor32:
-	dc.w	$000,$fff,$eee,$ddd,$ccc,$aaa,$999,$888,$777,$555,$444,$333,$222,$111,$f00,$800
-	dc.w	$400,$0f0,$080,$040,$00f,$008,$004,$ff0,$880,$440,$f0f,$808,$404,$0ff,$088,$044
-
-Octant_Table:
-	dc.b	0*4+1
-	dc.b	4*4+1
-	dc.b	2*4+1
-	dc.b	5*4+1
-	dc.b	1*4+1
-	dc.b	6*4+1
-	dc.b	3*4+1
-	dc.b	7*4+1
-
-GFXtestNoSerial:
-	dc.b	$a,$d,$a,$d,"GRAPHICTEST IN ACTION, Serialoutput is not possible during test",$a,$d,$a,$d,0
-GFXtestRasterTxt:
-	dc.b	2,"CPU Busywaiting for raster, flicker is normal.",$a,0
-GFXtestRasterTxt2:
-	dc.b	2,"As testing keys/serial etc takes too much time.",0
-
-      EVEN
