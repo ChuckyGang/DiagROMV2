@@ -418,6 +418,17 @@ _diagRomTxt::
 	incbin	"builddate.i"
 	dc.b $a,$d,0
 
+
+Ansi::
+	dc.b	27,"[",0
+AnsiNull::
+	dc.b	27,"[0m",27,"[40m",27,"[37m",0
+Black::
+	dc.b	27,"[30m",0
+
+		cnop 0,16
+
+
 AudioSimpleVolTxt::
        dc.b	2,"Cursor left/right or left/right mousebutton to change volume",0
 AudioModTxt::
