@@ -2,16 +2,16 @@
        include "build/srcs/globalvars.i"
        section "mainmenu",code_p
        
-       xref   MainMenu
-	xref	PrintStatus
-	xref	UpdateStatus
-	xref	InitScreen
-	xref	MainLoop
-	xref	PrintMenu
-	xref	Exit
-	xref	FilterON
-	xref	FilterOFF
-	xref	SwapMode
+       xdef   MainMenu
+	xdef	PrintStatus
+	xdef	UpdateStatus
+	xdef	InitScreen
+	xdef	MainLoop
+	xdef	PrintMenu
+	xdef	Exit
+	xdef	FilterON
+	xdef	FilterOFF
+	xdef	SwapMode
 
 MainLoop:
        move.l	#0,a0

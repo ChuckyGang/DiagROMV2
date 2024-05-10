@@ -1,12 +1,12 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"
        section "irqcia",code_p
-       xref   IRQCIAtestMenu
-       xref   IRQCIAIRQTest
-       xref   IRQCIACIATest
-       xref   IRQCIATest
-	xref	RTEcode
-	xref	CIALevTst
+       xdef   IRQCIAtestMenu
+       xdef   IRQCIAIRQTest
+       xdef   IRQCIACIATest
+       xdef   IRQCIATest
+	xdef	RTEcode
+	xdef	CIALevTst
 
 CIATIME	EQU	174
 ;	equ	174			(10000ms / 1.3968255 for PAL)

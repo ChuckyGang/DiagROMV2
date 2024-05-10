@@ -1,12 +1,12 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"        
        section "othertest",code_p
-       xref   OtherTest
-       xref   Setup
-       xref   About
-       xref   RTCTest
-       xref   ShowMemAddress
-       xref   SystemInfoTest
+       xdef   OtherTest
+       xdef   Setup
+       xdef   About
+       xdef   RTCTest
+       xdef   ShowMemAddress
+       xdef   SystemInfoTest
 
 
 OtherTest:

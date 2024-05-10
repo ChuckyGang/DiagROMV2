@@ -1,10 +1,10 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"
        section "porttest",code_p
-       xref   PortTestMenu
-       xref   PortTestPar
-       xref   PortTestSer
-       xref   PortTestJoystick
+       xdef   PortTestMenu
+       xdef   PortTestPar
+       xdef   PortTestSer
+       xdef   PortTestJoystick
 
 PortTestMenu:
 	jsr	InitScreen

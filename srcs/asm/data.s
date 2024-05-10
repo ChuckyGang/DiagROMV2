@@ -59,7 +59,6 @@ GFXColTestCopperWait::
 ;	blk.l	3,0
 	dc.l	$01800000,$01820000,$01840000,$01860000
 	dc.l	$fffffffe	;End of copperlist
-
 GFXColTestCopperEnd::
 GFXColTestCopperSize:: EQU GFXColTestCopperEnd-GFXColTestCopperStart
 GFXColTestCopperWaitPos:: EQU GFXColTestCopperWait-GFXColTestCopperStart
@@ -112,7 +111,6 @@ ROMAudioWaves::
               EVEN
        ROMAudio16ByteSinus::
               dc.b 	0,-52,-95,-121,-127,-110,-75,-26,26,75,110,127,121,95,52,0,0,0
-
               EVEN
 EndROMAudioWaves::
 

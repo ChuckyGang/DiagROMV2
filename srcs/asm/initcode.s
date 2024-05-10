@@ -2,10 +2,10 @@
        include "build/srcs/globalvars.i"
 
        section "initstartup",code_p
-       XREF   Initcode
-       xref   playsize
-	xref	SetMenuCopper
-	xref	RealLoopbacktest
+       xdef   Initcode
+       xdef   playsize
+	xdef	SetMenuCopper
+	xdef	RealLoopbacktest
 	
 Initcode:                                                      ; OK we have RAM. we can actually work some with real coding no weird JMP to registers etc.
                                                                ; So lets start to actually handle the stuff we stored during bootup and do a proper init.

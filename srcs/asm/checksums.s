@@ -2,7 +2,7 @@
 	XDEF 	_checksums
 	XDEF	_endofcode
 	XDEF	_endchecksums
-	xref	EndRom
+	xdef	EndRom
 
 	dc.b	"Checksums:"
 	CNOP	0,4			; Start at even LONGWORD

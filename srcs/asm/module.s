@@ -1,7 +1,7 @@
        section "module",code_p
-       xref   Music
-       xref   EndMusic
-       xref   MusicSize
+       xdef   Music
+       xdef   EndMusic
+       xdef   MusicSize
        MusicSize: EQU    EndMusic-Music
 Music:
        incbin "data/Music.MOD"

@@ -1,15 +1,15 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"
        section "memtest",code_p
-       xref   MemtestMenu
-       xref   CheckDetectedChip
-       xref   CheckExtendedChip
-       xref   CheckDetectedMBMem
-       xref   CheckExtended16MBMem
-       xref   ForceExtended16MBMem
-       xref   Detectallmemory
-       xref   CheckMemManual
-       xref   CheckMemEdit
+       xdef   MemtestMenu
+       xdef   CheckDetectedChip
+       xdef   CheckExtendedChip
+       xdef   CheckDetectedMBMem
+       xdef   CheckExtended16MBMem
+       xdef   ForceExtended16MBMem
+       xdef   Detectallmemory
+       xdef   CheckMemManual
+       xdef   CheckMemEdit
     	
 MemtestMenu:
 	bsr	ClearBuffer

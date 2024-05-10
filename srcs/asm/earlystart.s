@@ -4,15 +4,15 @@
 		section "startup",code_p
 
 ;		XDEF	AnsiNull
-		XREF	DumpSerial
+		xdef	DumpSerial
 
 rom_base:	equ $f80000	
 RAMUsage: EQU GlobalVars_sizeof+STACKSIZE+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
 INITBAUD: EQU 183			; Init baudrate  115200
 
-		xref RAMUsage
-		xref INITBAUD
-		xref rom_base
+		xdef RAMUsage
+		xdef INITBAUD
+		xdef rom_base
 STACKSIZE:	EQU	8192						; Set the size of the stack
 
 	;	This is where it all starts

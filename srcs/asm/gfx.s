@@ -1,6 +1,6 @@
        section "gfx",code_p
-       xref   testpicsize
-       xref   TestPic
+       xdef   testpicsize
+       xdef   TestPic
        testpicsize: equ EndTestPic-TestPic
 
 TestPic:

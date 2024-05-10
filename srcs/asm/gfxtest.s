@@ -1,12 +1,12 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"
        section "gfxtest",code_p
-       xref   GFXtestMenu
-       xref   GFXTestScreen
-       xref   GFXtest320x200
-       xref   GFXTestScroll
-       xref   GFXTestRaster
-       xref   GFXTestRGB
+       xdef   GFXtestMenu
+       xdef   GFXTestScreen
+       xdef   GFXtest320x200
+       xdef   GFXTestScroll
+       xdef   GFXTestRaster
+       xdef   GFXTestRGB
  
 LOWRESSize:	equ	40*256
 HIRESSize:	equ	80*512
@@ -212,6 +212,7 @@ GFXTestRaster:
 GFXTestRGB:
 	jsr	ClearScreen
 	move.l	#257*40,d0					; Amount of memory needed for one bitplan
+	PAUSE
 	add.l	#GFXColTestCopperSize,d0	; Add for size of copperlist
 	bsr	GetChip						; Get chipmem needed.
 	cmp.l	#2,d0						; Check if 2 or lower

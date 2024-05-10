@@ -1,12 +1,12 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"
        section "disktest",code_p
-       xref   DiskTest
-       xref   DiskdriveTest
-       xref   GayleTest
-       xref   GayleExp
-	xref	PrintYes
-	xref	PrintNo
+       xdef   DiskTest
+       xdef   DiskdriveTest
+       xdef   GayleTest
+       xdef   GayleExp
+	xdef	PrintYes
+	xdef	PrintNo
 
 
 DiskTest:

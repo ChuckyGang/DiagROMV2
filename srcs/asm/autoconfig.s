@@ -1,9 +1,9 @@
 	include "earlymacros.i"
 	include "build/srcs/globalvars.i"
 	section "autoconfig",code_p
-	xref	AutoConfig
-	xref	AutoConfigDetail
-	xref	DoAutoconfig
+	xdef	AutoConfig
+	xdef	AutoConfigDetail
+	xdef	DoAutoconfig
 
 AutoConfig:	
 				; Do Autoconfigmagic

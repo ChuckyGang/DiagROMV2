@@ -1,7 +1,7 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"
        section "terriblefire",code_p
-       xref   TF1260
+       xdef   TF1260
 
 TF1260:						; Some TF360/TF1260 Diag tests
 	cmp.b	#0,AutoConfDone(a6)		; Check if we had autoconfig done.

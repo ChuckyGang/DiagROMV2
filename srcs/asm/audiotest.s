@@ -1,10 +1,10 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"
        section "audiotest",code_p
-       xref   AudioMenu
-       xref   AudioSimple
-       xref   AudioMod
-     
+       xdef AudioMenu
+       xdef AudioSimple
+       xdef AudioMod
+
 AudioMenu:
        bsr	InitScreen
        move.w	#2,MenuNumber(a6)
