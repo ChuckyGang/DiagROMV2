@@ -1,3 +1,4 @@
+
 #include "globalvars.h"
 
 __section(".text") uint32_t test_function(__reg("a6") struct GlobalVars* globals)
