@@ -296,12 +296,12 @@ typedef struct GlobalVars
 	uint8_t	MenuEntrys;			// Will contain number of entrys in the menu being displayed
 	uint8_t	UpdateMenuFlag;		// If set to anything then 0, update menu
 	uint8_t	UpdateMenuNumber;		// What itemnumber to update. 0 = all  (0 is the only that prints label)
-	uint8_t	AudSimpChan1;
+	uint8_t	AudSimpChan1;		// This until filter needs to be unchanged or audiotest will break
 	uint8_t	AudSimpChan2;
 	uint8_t	AudSimpChan3;
 	uint8_t	AudSimpChan4;
-	uint8_t	AudSimpWave;
 	uint8_t	AudSimpVol;
+	uint8_t	AudSimpWave;
 	uint8_t	AudSimpFilter;
 	uint8_t	CheckMemNoShadow;		// If anything else then 0 no shadowcheck will be done
 	uint8_t	CheckMemType;			// Type of memory detected last time 0=none, 1=error, 2=good

@@ -20,19 +20,18 @@ FAN:
        move.l	#AudioSimpleMenu,Menu(a6)	; Set different menu
                                           ;	OK we have variables to handle here
        move.l	a6,d0
-       ;lea	AudSimpChan1(a6),a0
+       lea	AudSimpChan1(a6),a0
        add.l	#AudSimpVar,d0
        move.l	d0,MenuVariable(a6)
                                          ; ok lets populate this with default values.
-       move.l d0,a0
        move.b	#0,(a0)+
        move.b	#0,(a0)+
        move.b	#0,(a0)+
        move.b	#0,(a0)+
        move.b	#64,(a0)+
        move.b	#12,(a0)+
-       move.b	#1,(a0)+
        move.b	#0,(a0)+
+       move.b #0,(a0)+
        bsr	.setvar
 .loop:
        bsr	.Playaudio
@@ -99,7 +98,6 @@ FAN:
        bne	.yesselected
        move.b	#1,AudioVolSelect(a6)
        move.l	#0,d0
-       move.l	#22,d1
        bsr	SetPos
        lea	AudioSimpleVolTxt,a0
        move.l	#2,d1
@@ -196,7 +194,6 @@ FAN:
        beq	.noch1
        clr.l	d7
        move.b	AudSimpVol(a6),d7
-       move.w #64,d7 ;jjjj
        move.w	d7,$dff0a8			;volume
        lea	AudioLen,a2
        move.w	(a2,d1),$dff0a4			;number of words

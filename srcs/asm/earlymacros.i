@@ -3,7 +3,7 @@ VER:	MACRO
 	dc.b "2"			; Versionnumber
 	ENDM
 REV:	MACRO
-	dc.b "0 BETA"			; Revisionmumber
+	dc.b "0 ALFA"			; Revisionmumber
 	ENDM
 
 VERSION:	MACRO
@@ -70,6 +70,14 @@ KPRINT:	MACRO
 		bra	DumpSerial
 .return\@:
 		ENDM
+
+KPRINT9600: MACRO 
+		; print a contstant from a pointer
+		lea	\1,a0		
+		lea	.return\@,a5
+		bra	DumpSerial9600
+.return\@:
+		ENDM 
 
 KPRINTC: MACRO 
 		; print a contstant from a pointer

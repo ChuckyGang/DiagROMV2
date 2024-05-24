@@ -5,6 +5,7 @@
 
 ;		XDEF	AnsiNull
 		xdef	DumpSerial
+		xdef	DumpSerial9600
 
 rom_base:	equ $f80000	
 RAMUsage: EQU GlobalVars_sizeof+STACKSIZE+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
@@ -143,6 +144,7 @@ _begin:
 	lea	$0,a6
 	lea	$0,SP			; Set the stack. BUT!!! do not use it yet. we need to check memory first! so meanwhile we use it as a dirty status register
 
+	KPRINT9600 _use19200bps
 	KPRINTC _diagRomTxt		; Print some text
 
 ; some writes to check some logicanalyzer shit at start.  just ignore :)  so addresslines and datalines steps up one bit at a time at startup
@@ -337,7 +339,6 @@ done:
 
 
 	KPRINTC	_startMemDetectTxt
-
 
 	lea	$0,a6				; Start to detect ram at $0, as below that is cpu controlstuff only anyways.
 						; ACTUALLY detectroutine will change this to $400 as first k on a 68k is for CPU registers and stuff
@@ -743,9 +744,10 @@ done:
 	bge	.comparedone			; YUPP!
 	move.l	(a1)+,d0			; load first value into d0
 	move.l	d0,(a6)			; write that value into where a1 points to.
+	move.l	#"CRAP",4(a6)		; Write crapdata in the bus! this is to make sure buffers have wrong data if no memory and read next time just reads "whatever was on the bus"
 	nop
 	nop					; just do some nops.. to take some time.
-	move.l	(a6),d1			; load value where a1 points to d1
+	move.l	(a6),d1			; load value where a6 points to d1
 
 ;	cmpa.l	#18*1024,a6			; check to create an error
 ;	ble	.nott				; lines to be removed
@@ -898,8 +900,7 @@ Adrcheck:					; Check for addresserrors
 	cmp.l	d7,d6
 	bne	.nodot2
 	bchg	#1,$bfe001
-	move.w	4(a1),$dff180
-
+	move.w	d3,$dff180
 	cmp.l	#1,a0
 	bne	.nobiterr
 	move.w	#$f00,$dff180			; Set screen to RED
@@ -980,19 +981,28 @@ Adrcheck:					; Check for addresserrors
 	move.w	#$532,$dff180			; Just set a color that is not red
 	jmp	(a4)
 
+DumpSerial9600:
+	move.l	a7,d7
+	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
+	bne	nomore
+	move.w	#$4000,$dff09a
+	move.w	#373,$dff032			; Set the speed of the serialport (115200BPS)
+	bra	bpsset
+
 DumpSerial:
 	move.l	a7,d7
 	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
-	bne	.nomore
+	bne	nomore
 	move.w	#$4000,$dff09a
 	move.w	#INITBAUD,$dff032			; Set the speed of the serialport (115200BPS)
+bpsset:
 	move.b	#$4f,$bfd000			; Set DTR high
 	move.w	#$0801,$dff09a
 	move.w	#$0801,$dff09c
 	clr.l	d7				; Clear d7
 .loop:
 	cmp.b	#0,(a0)			; end of string?
-	beq	.nomore			; yes
+	beq	nomore			; yes
 .wait:
 	cmp.w	#30000,d7			; have we timed out?
 	beq	.timeout
@@ -1006,8 +1016,6 @@ DumpSerial:
 	move.w	#$0001,$dff09c		; turn off the TBE bit
 	clr.w	d7				; Clear timeout
 	bra.s	.loop
-.nomore:
-	jmp	(a5)
 .timeout:
 	add.w	#1,d7
 	swap	d7				; Swap high/low word
@@ -1020,7 +1028,9 @@ DumpSerial:
 	move.l	a7,d7
 	bset	#31,d7				; Ser bit 31 to tell we had too many serial timeouts
 	move.l	d7,a7
-	bra	.nomore			
+	bra	nomore			
+nomore:
+	jmp	(a5)
 
 
 	;Call C crap
