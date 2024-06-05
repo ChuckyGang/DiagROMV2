@@ -21,7 +21,7 @@ AutoConfig:
 	move.l	#3,d1
 	jsr	Print
 	jsr	WaitButton
-	jmp	MainMenu
+	jmp	MemtestMenu
 
 
 AutoConfigDetail:				; Do Autoconfigmagic

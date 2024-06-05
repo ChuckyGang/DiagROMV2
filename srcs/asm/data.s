@@ -1,4 +1,4 @@
-       section "data",data_p
+	section "data",data_p
 	include "earlymacros.i"
 
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -7,21 +7,17 @@
 ;
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
-
 MEMCheckPattern::
-	dc.l	$ffffffff,$aaaaaaaa,$55555555,$f0f0f0f0,$0f0f0f0f,$0f0ff0f0,0,0
+	dc.l	$ff0000ff,$00ffff00,$ff00ff00,$00ff00ff,$ffff0000,$0000ffff,$ffffffff,$aaaaaaaa,$aaaa5555,$5555aaaa,$55555555,$f0f0f0f0,$0f0f0f0f,$0f0ff0f0,0,0
 
 RomMenuCopper::
-       MenuSprite::
-              dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$01380000,$013a0000,$013c0000,$013e0000
-       
-              dc.l	$0100b200,$0092003c,$009400d4,$008e2c81,$00902cc1,$01020000,$01080000,$010a0000
-              dc.l	$01800000,$01820f00,$018400f0,$01860ff0,$0188000f,$018a0f0f,$018c00ff,$018e0fff,$01900ff0
-       
+    MenuSprite::
+		dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$01380000,$013a0000,$013c0000,$013e0000
+		dc.l	$0100b200,$0092003c,$009400d4,$008e2c81,$00902cc1,$01020000,$01080000,$010a0000
+		dc.l	$01800000,$01820f00,$018400f0,$01860ff0,$0188000f,$018a0f0f,$018c00ff,$018e0fff,$01900ff0
        MenuBplPnt::
-              dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000
-              dc.l	$fffffffe	;End of copperlist
+		dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000
+		dc.l	$fffffffe	;End of copperlist
 EndRomMenuCopper::
 MenuBplPntPos::		EQU	MenuBplPnt-RomMenuCopper
 EndRomMenuCopperSize::	EQU	EndRomMenuCopper-RomMenuCopper
@@ -30,22 +26,18 @@ EndRomEcsCopper2Size::	EQU	EndRomEcsCopper2-RomEcsCopper2
 RomEcsCopper::
        dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$0138000,$013a0000,$013c0000,$013e0000
        dc.l	$01005200,$00920038,$009400d0,$008e2c81,$00902cc1,$01020000,$01080000,$010a0000
-
        blk.l	32,0
 ;MenuBplPnt2:
        dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000,$00ec0000,$00ee0000,$00f00000,$00f20000
-
        dc.l	$fffffffe	;End of copperlist
 EndRomEcsCopper::
 
 RomEcsCopper2::
        dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$0138000,$013a0000,$013c0000,$013e0000
        dc.l	$01005200,$00920038,$009400d0,$008e2c81,$00902cc1,$01020000,$01080004,$010a0004
-
        blk.l	32,0
 ;MenuBplPnt2:
        dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000,$00ec0000,$00ee0000,$00f00000,$00f20000
-
        dc.l	$fffffffe	;End of copperlist
 EndRomEcsCopper2::
 
@@ -56,7 +48,6 @@ GFXColTestCopperStart::
 	dc.l	$00e00000,$00e20000,$00e40000,$00e60000
 GFXColTestCopperWait::
 	blk.l	8*15,0
-;	blk.l	3,0
 	dc.l	$01800000,$01820000,$01840000,$01860000
 	dc.l	$fffffffe	;End of copperlist
 GFXColTestCopperEnd::
@@ -65,7 +56,6 @@ GFXColTestCopperWaitPos:: EQU GFXColTestCopperWait-GFXColTestCopperStart
 ECSTestColor::
 	dc.w	$000,$aaa,$666,$777,$777,$00b,$76e,$0b0,$397,$790,$0bb,$fff,$971,$b48,$bb0,$888
 	dc.w	$999,$333,$b00,$ddd,$333,$444,$555,$666,$777,$888,$999,$aaa,$ccc,$ddd,$eee,$fff
-
 ECSColor32::
 	dc.w	$000,$fff,$eee,$ddd,$ccc,$aaa,$999,$888,$777,$555,$444,$333,$222,$111,$f00,$800
 	dc.w	$400,$0f0,$080,$040,$00f,$008,$004,$ff0,$880,$440,$f0f,$808,$404,$0ff,$088,$044
@@ -81,37 +71,37 @@ Octant_Table::
 	dc.b	7*4+1
 
 ROMAudioWaves::
-       ROMAudio64ByteTriangle::
-              dc.b	127,119,111,103,95,87,79,71,63,55,47,39,31,23,15,6
-              dc.b	-1,-9,-17,-25,-33,-41,-49,-57,-65,-73,-81,-89,-97,-105,-113,-121,-127
-              dc.b	-121,-113,-105,-97,-89,-81,-73,-65,-57,-49,-41,-33,-25,-17,-9,-1
-              dc.b	6,15,23,31,39,47,55,63,71,79,87,95,103,111,119,127,127,127
-              EVEN
-       ROMAudio32ByteTriangle::
-              dc.b	127,111,95,79,63,47,31,15
-              dc.b	-1,-17,-33,-49,-65,-81,-97,-113,-127
-              dc.b	-113,-97,-81,-65,-49,-33,-17,-1
-              dc.b	15,31,47,63,79,95,111,127,127,127
-              EVEN
-       ROMAudio16ByteTriangle::
-              dc.b	127,95,63,31
-              dc.b	-1,-33,-65,-97
-              dc.b	-127,-97,-65,-33
-              dc.b	-1,31,63,95
-              EVEN
-       ROMAudio64ByteSinus::
-              dc.b 	0,-12,-25,-37,-49,-61,-72,-82,-91,-100,-107,-113,-119,-123,-126,-127
-              dc.b 	-127,-127,-124,-121,-116,-110,-103,-95,-87,-77,-66,-55,-43,-31,-19,-6
-              dc.b 	6,19,31,43,55,66,77,87,95,103,110,116,121,124,127,127
-              dc.b 	127,126,123,119,113,107,100,91,82,72,61,49,37,25,12,0,0,0
-              EVEN
-       ROMAudio32ByteSinus::
-              dc.b 	0,-25,-50,-73,-92,-108,-120,-126,-127,-123,-114,-101,-83,-62,-38,-12
-              dc.b 	12,38,62,83,101,114,123,127,126,120,108,92,73,50,25,0,0,0
-              EVEN
-       ROMAudio16ByteSinus::
-              dc.b 	0,-52,-95,-121,-127,-110,-75,-26,26,75,110,127,121,95,52,0,0,0
-              EVEN
+	ROMAudio64ByteTriangle::
+    dc.b	127,119,111,103,95,87,79,71,63,55,47,39,31,23,15,6
+    dc.b	-1,-9,-17,-25,-33,-41,-49,-57,-65,-73,-81,-89,-97,-105,-113,-121,-127
+    dc.b	-121,-113,-105,-97,-89,-81,-73,-65,-57,-49,-41,-33,-25,-17,-9,-1
+    dc.b	6,15,23,31,39,47,55,63,71,79,87,95,103,111,119,127,127,127
+    EVEN
+    ROMAudio32ByteTriangle::
+    dc.b	127,111,95,79,63,47,31,15
+    dc.b	-1,-17,-33,-49,-65,-81,-97,-113,-127
+    dc.b	-113,-97,-81,-65,-49,-33,-17,-1
+    dc.b	15,31,47,63,79,95,111,127,127,127
+    EVEN
+    ROMAudio16ByteTriangle::
+    dc.b	127,95,63,31
+	dc.b	-1,-33,-65,-97
+    dc.b	-127,-97,-65,-33
+    dc.b	-1,31,63,95
+    EVEN
+    ROMAudio64ByteSinus::
+    dc.b 	0,-12,-25,-37,-49,-61,-72,-82,-91,-100,-107,-113,-119,-123,-126,-127
+    dc.b 	-127,-127,-124,-121,-116,-110,-103,-95,-87,-77,-66,-55,-43,-31,-19,-6
+    dc.b 	6,19,31,43,55,66,77,87,95,103,110,116,121,124,127,127
+    dc.b 	127,126,123,119,113,107,100,91,82,72,61,49,37,25,12,0,0,0
+    EVEN
+    ROMAudio32ByteSinus::
+    dc.b 	0,-25,-50,-73,-92,-108,-120,-126,-127,-123,-114,-101,-83,-62,-38,-12
+    dc.b 	12,38,62,83,101,114,123,127,126,120,108,92,73,50,25,0,0,0
+    EVEN
+    ROMAudio16ByteSinus::
+    dc.b 	0,-52,-95,-121,-127,-110,-75,-26,26,75,110,127,121,95,52,0,0,0
+    EVEN
 EndROMAudioWaves::
 
 Wavesize:: equ EndROMAudioWaves-ROMAudioWaves
@@ -122,8 +112,8 @@ SerSpeeds::		; list of Baudrates (3579545/BPS)+1
 	dc.l	0,1492,373,187,94,30,0,0
 
 AudioName::	; Pointers to string of name of wave
-       dc.l	TTxt206,TTxt55,TTxt239,TTxt440,TTxt640,TTxt879,TTxt985,TTxt1295,TTxt1759
-       dc.l	STxt206,STxt55,STxt239,STxt440,STxt640,STxt879,STxt985,STxt1295,STxt1759
+    dc.l	TTxt206,TTxt55,TTxt239,TTxt440,TTxt640,TTxt879,TTxt985,TTxt1295,TTxt1759
+    dc.l	STxt206,STxt55,STxt239,STxt440,STxt640,STxt879,STxt985,STxt1295,STxt1759
 
 AudioPointers::	; Pointers to actual waveform
 	dc.l	0,0,0,0
@@ -164,14 +154,14 @@ MenuKeys::
 	dc.l	MainMenuKey,0,AudioMenuKey,MemtestMenuKey,IRQCIAtestMenuKey,GFXtestMenuKey,PortTestMenuKey,OtherTestKey,DiskTestMenuKey,0,0
 
 MainMenuItems::
-       dc.l	MainMenuText,MainMenu1,MainMenu2,MainMenu3,MainMenu4,MainMenu5,MainMenu6,MainMenu7,MainMenu8,MainMenu9,MainMenu10,MainMenu11,0,0
+    dc.l	MainMenuText,MainMenu1,MainMenu2,MainMenu3,MainMenu4,MainMenu5,MainMenu6,MainMenu7,MainMenu8,MainMenu9,MainMenu10,MainMenu11,0,0
 MainMenuCode::
-       dc.l	SystemInfoTest,AudioMenu,MemtestMenu,IRQCIAtestMenu,GFXtestMenu,PortTestMenu,DiskTest,KeyBoardTest,OtherTest,Setup,About,SwapMode
+    dc.l	SystemInfoTest,AudioMenu,MemtestMenu,IRQCIAtestMenu,GFXtestMenu,PortTestMenu,DiskTest,KeyBoardTest,OtherTest,Setup,About,SwapMode
 MainMenuKey::	; Keys needed to choose menu. first byte keycode 2:nd byte serialcode.
-       dc.b	"0","1","2","3","4","5","6","7","8","s","a"," ",0
+    dc.b	"0","1","2","3","4","5","6","7","8","s","a"," ",0
 MainMenuText::
 	dc.b	"                              DiagROM "
-       VERSION
+    VERSION
 	;EDITION
 	dc.b	" - "
 	incbin	"builddate.i"
@@ -179,33 +169,33 @@ MainMenuText::
 	dc.b	"                        By John (Chucky / The Gang) Hertell",$a,$a
 	dc.b	"                                       MAIN MENU",$a,$a,0
 MainMenu1::
-       dc.b	"0 - Systeminfo",0
+    dc.b	"0 - Systeminfo",0
 MainMenu2::
-       dc.b	"1 - Audiotests",0
+    dc.b	"1 - Audiotests",0
 MainMenu3::
-       dc.b	"2 - Memorytests",0
+    dc.b	"2 - Memorytests",0
 MainMenu4::
-       dc.b	"3 - IRQ/CIA Tests",0
+    dc.b	"3 - IRQ/CIA Tests",0
 MainMenu5::
-       dc.b	"4 - Graphictests",0
+    dc.b	"4 - Graphictests",0
 MainMenu6::
-       dc.b	"5 - Porttests",0
+    dc.b	"5 - Porttests",0
 MainMenu7::
-       dc.b	"6 - Drivetests",0
+    dc.b	"6 - Drivetests",0
 MainMenu8::
-       dc.b	"7 - Keyboardtests",0
+    dc.b	"7 - Keyboardtests",0
 MainMenu9::
-       dc.b	"8 - Other tests",0
+    dc.b	"8 - Other tests",0
 MainMenu10::
-       dc.b	"S - Setup",0
+    dc.b	"S - Setup",0
 MainMenu11::
-       dc.b	"A - About",0
-       EVEN
+    dc.b	"A - About",0
+    EVEN
 
 AudioMenuItems::
-       dc.l	AudioMenuText,AudioMenu1,AudioMenu2,AudioMenu3,0
+    dc.l	AudioMenuText,AudioMenu1,AudioMenu2,AudioMenu3,0
 AudioMenuCode::
-       dc.l	AudioSimple,AudioMod,MainMenu
+    dc.l	AudioSimple,AudioMod,MainMenu
 AudioMenuKey::
        dc.b	"1","2","9",0
 AudioMenuText::
@@ -411,7 +401,7 @@ DriveTestMenu12::
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 _use19200bps::
-	dc.b	"USE 19200BPS NOT 9600!!  ",$a,$d,$a,$d,0
+	dc.b	"USE 19200BPS NOT 9600!!  USE 19200BPS NOT 9600!!  USE 19200BPS NOT 9600!!  USE 19200BPS NOT 9600!!  USE 19200BPS NOT 9600!!  ",$a,$d,$a,$d,0
 
 _diagRomTxt::
 	dc.b	12,27,"[0m",27,"[40m",27,"[37m"

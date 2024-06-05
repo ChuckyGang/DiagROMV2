@@ -53,7 +53,6 @@ Initcode:                                                      ; OK we have RAM.
        btst   #31,d0
        beq    .noserialtimeout
        move.b #1,NoSerial(a6)                                  ; We had timeouts on serial, so lets disable serialport
-	PAUSE
 .noserialtimeout:
        btst   #30,d0
        beq    .noromadrerr
@@ -70,6 +69,9 @@ Initcode:                                                      ; OK we have RAM.
        btst   #21,d0
        beq    .notenoughchip
        move.b #1,NotEnoughChip(a6)                             ; Mark we had not enough chipmem at boot
+	   move.l	#0,ChipStart(a6)								; As we did not have enough ram.  clear "found" ram
+	   move.l	#0,ChipEnd(a6)
+
 .notenoughchip:
        btst   #20,d0
        beq    .scannedfastmem

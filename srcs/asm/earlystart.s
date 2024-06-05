@@ -746,6 +746,7 @@ done:
 	move.l	d0,(a6)			; write that value into where a1 points to.
 	move.l	#"CRAP",4(a6)		; Write crapdata in the bus! this is to make sure buffers have wrong data if no memory and read next time just reads "whatever was on the bus"
 	nop
+	nop
 	nop					; just do some nops.. to take some time.
 	move.l	(a6),d1			; load value where a6 points to d1
 
@@ -983,26 +984,45 @@ Adrcheck:					; Check for addresserrors
 
 DumpSerial9600:
 	move.l	a7,d7
-	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
-	bne	nomore
 	move.w	#$4000,$dff09a
 	move.w	#373,$dff032			; Set the speed of the serialport (115200BPS)
-	bra	bpsset
-
-DumpSerial:
-	move.l	a7,d7
-	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
-	bne	nomore
-	move.w	#$4000,$dff09a
-	move.w	#INITBAUD,$dff032			; Set the speed of the serialport (115200BPS)
-bpsset:
 	move.b	#$4f,$bfd000			; Set DTR high
 	move.w	#$0801,$dff09a
 	move.w	#$0801,$dff09c
 	clr.l	d7				; Clear d7
 .loop:
 	cmp.b	#0,(a0)			; end of string?
-	beq	nomore			; yes
+	beq	.nomore			; yes
+.wait:
+	cmp.w	#30000,d7			; have we timed out?
+	beq	.timedout
+	add.w	#1,d7				; Add 1 to timeout conter
+	btst	#5,$dff018			; check if byte is transmitted
+	beq.s	.wait				; if not, wait some more.
+.timedout:
+	move.w	#$0100,d7			; Set data for serial out
+	move.b	(a0)+,d7
+	move.w	d7,$dff030
+	move.w	#$0001,$dff09c		; turn off the TBE bit
+	clr.w	d7				; Clear timeout
+	bra.s	.loop
+.nomore:
+	jmp	(a5)
+
+
+DumpSerial:
+	move.l	a7,d7
+	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
+	bne	.nomore
+	move.w	#$4000,$dff09a
+	move.w	#INITBAUD,$dff032			; Set the speed of the serialport (115200BPS)
+	move.b	#$4f,$bfd000			; Set DTR high
+	move.w	#$0801,$dff09a
+	move.w	#$0801,$dff09c
+	clr.l	d7				; Clear d7
+.loop:
+	cmp.b	#0,(a0)			; end of string?
+	beq	.nomore			; yes
 .wait:
 	cmp.w	#30000,d7			; have we timed out?
 	beq	.timeout
@@ -1028,8 +1048,8 @@ bpsset:
 	move.l	a7,d7
 	bset	#31,d7				; Ser bit 31 to tell we had too many serial timeouts
 	move.l	d7,a7
-	bra	nomore			
-nomore:
+	bra	.nomore			
+.nomore:
 	jmp	(a5)
 
 
@@ -1158,8 +1178,11 @@ detectmem:
 	move.l	a1,d3
 	KPRINTLONG
 	KPRINTC _blockfound2txt
+	sub.l	#1,d3
 	move.l	d3,d0
 	KPRINTLONG
+	move.l	a2,a3
+	move.l	d2,a2
 .done:
 	jmp	(a6)				; Jump back
 .noramfound:
