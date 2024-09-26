@@ -19,7 +19,7 @@ DiskTest:
 
 DiskdriveTest:
 	move.l	#12980,d0			; Size of a track
-	jsr	GetChip				; get chipmemaddress for this block
+	jsr	GetChip			; get chipmemaddress for this block
 	cmp.l	#0,d0
 	beq	.exit
 	move.l	d0,trackbuff(a6)

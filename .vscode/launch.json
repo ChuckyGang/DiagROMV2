@@ -3,5 +3,34 @@
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
-    "configurations": [make]
+    "configurations": [
+        {
+            "type": "amiga-assembly",
+            "request": "launch",
+            "name": "WinUAE Launch",
+            "noDebug": true,
+            "program": "${workspaceFolder}/uae/dh0/myprogram",
+            "remoteProgram": "SYS:myprogram",
+            "emulatorType": "winuae",
+            "emulatorArgs": [
+                "-s",
+                "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
+            ],
+            "preLaunchTask": "amigaassembly: build"
+        },
+        {
+            "type": "amiga-assembly",
+            "request": "launch",
+            "name": "WinUAE Debug",
+            "stopOnEntry": false,
+            "program": "${workspaceFolder}/uae/dh0/myprogram",
+            "remoteProgram": "SYS:myprogram",
+            "emulatorType": "winuae",
+            "emulatorArgs": [
+                "-s",
+                "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
+            ],
+            "preLaunchTask": "amigaassembly: build"
+        },
+        make]
 }

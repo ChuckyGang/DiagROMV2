@@ -19,7 +19,9 @@ RomMenuCopper::
 		dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000
 		dc.l	$fffffffe	;End of copperlist
 EndRomMenuCopper::
-MenuBplPntPos::		EQU	MenuBplPnt-RomMenuCopper
+MenuBplPntPos::	EQU	MenuBplPnt-RomMenuCopper
+
+
 EndRomMenuCopperSize::	EQU	EndRomMenuCopper-RomMenuCopper
 EndRomEcsCopperSize::	EQU	EndRomEcsCopper-RomEcsCopper
 EndRomEcsCopper2Size::	EQU	EndRomEcsCopper2-RomEcsCopper2
@@ -105,8 +107,7 @@ ROMAudioWaves::
 EndROMAudioWaves::
 
 Wavesize:: equ EndROMAudioWaves-ROMAudioWaves
-_mempattern::
-	dc.l	$AAAAAAAA,$55555555,$5555aaaa,$aaaa5555,$ffffffff,0
+_mempattern::	dc.l	$0000ffff,$ffff0000,$ff00ff00,$00ff00ff,$AAAAAAAA,$55555555,$5555aaaa,$aaaa5555,$ffffffff,0
 
 SerSpeeds::		; list of Baudrates (3579545/BPS)+1
 	dc.l	0,1492,373,187,94,30,0,0
@@ -219,7 +220,7 @@ MemtestText::
 MemtestMenu1::
        dc.b	"1 - Test detected chipmem",0
 MemtestMenu2::
-       dc.b	"2 - Extended chipmemtest",0
+       dc.b	"2 - Extended chipmemtest (MIGHT crash on older amigas)",0
 MemtestMenu3::
        dc.b	"3 - Test detected fastmem",0
 MemtestMenu4::
@@ -416,6 +417,8 @@ Ansi::
 	dc.b	27,"[",0
 AnsiNull::
 	dc.b	27,"[0m",27,"[40m",27,"[37m",0
+ClearScrn::
+	dc.b	27,"[2J",0
 Black::
 	dc.b	27,"[30m",0
 
@@ -1686,7 +1689,7 @@ AboutTxt::
 	dc.b	2,"About DiagROM",0
 AboutTxt2::
 	dc.b	$a,$a,"Coding by: John 'Chucky' Hertell",$a,$a
-	dc.b	"Small code-example help from Stephen Leary, HighPuff",$a,$a
+	dc.b	"Small code-example help from Stephen Leary, HighPuff, Erique",$a,$a
 	dc.b	"          IMPORTANT ABOUT THIS TOOL! also: http://www.diagrom.com",$a,$a
 	dc.b	"It is delivered AS-IS! No Warranty!  Mail suggestions to chucky@thegang.nu",$a,$a
 	dc.b	"This is a tool for people with technical know-how of the Amiga system and it",$a
@@ -1700,7 +1703,7 @@ AboutTxt2::
 	dc.b	"short while (or it will be misstaken as stuck and will be ignored)",$a,$a
 	dc.b	"Mouseport 1: Left mouse, Disable screen output, if fastmem found use it",$a
 	dc.b	"             Right mouse, Instead of using end of mem as work, use start",$a,$a
-	dc.b	"Serial output HIGHLY recomended: 115200 BPS, 8N1, No handshaking used!",$a,$a
+	dc.b	"Serial output HIGHLY recomended: 19200 BPS, 8N1, No handshaking used!",$a,$a
 	dc.b	"Press any key or button!",0
 
 
@@ -1823,6 +1826,36 @@ NOT::
 DETECTEDTxt::
 	dc.b	" DETECTED",0
 
+StartupflagsTxt::
+	dc.b	$a,$a,"---- Setting up startupflags depending detections during startup",$a,$a,0
+StuckBootTxt::
+	dc.b	"Stuck at boot and being disabled",$a,0
+SerOutDisTxt::
+	dc.b	"Serial out is disabled",$a,0
+RomAdrErrTxt::
+	dc.b	"ROM Adressing errors during boot",$a,0
+BitChipErrTxt::
+	dc.b	"Biterrors in chipmem during boot",$a,0
+ChipAdrErrTxt::
+	dc.b	"Addressserrors in chipmem during boot",$a,0
+ChipNATxt::
+	dc.b	"Not enough Chipmem during boot",$a,0
+FastBootTxt::
+	dc.b	"Fastmemscanning done during boot",$a,0
+FastBootFoundTxt::
+	dc.b	"Fastmem found during early init",$a,0
+NoDrawDoneTxt::
+	dc.b	"No Printing on screen (NoDraw) being done",$a,0
+StuckMouseTxt::
+	dc.b	"Mousebuttons Stuck",$a,0
+NoMemAt400Txt::
+	dc.b	"We had memory at $400 making IRQ, CPU Detection etc more reliable",$a,0
+OVLErrorTxt::
+	dc.b	"OVL Error, meaning ROM is mirrored to $0 making chipmem at romsize not available there",$a,0
+RevWorkorderTxt::
+	dc.b	"Reverse workorder enabled (using beginning of block instead of ending)",$a,0
+StartupFlagsDoneTxt::
+	dc.b	$a,"---- Startupflags done",$a,$a,0
 EVEN
 
 

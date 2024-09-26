@@ -16,7 +16,6 @@ AutoConfig:
 	lea	NewLineTxt,a0
 	jsr	Print
 	jsr	ClearBuffer
-
 	lea	AnyKeyMouseTxt,a0
 	move.l	#3,d1
 	jsr	Print
@@ -69,7 +68,7 @@ er_Flags		rs.b	1	;Flags
 er_Reserved03		rs.b	1	;Must be zero ($ff inverted)
 er_Manufacturer 	rs.w	1	;Unique ID,ASSIGNED BY COMMODORE-AMIGA!
 er_SerialNumber 	rs.l	1	;Available for use by manufacturer
-er_InitDiagVec		rs.w	1	;Offset to optional "DiagArea" structure
+er_InitDiagVec	rs.w	1	;Offset to optional "DiagArea" structure
 er_Reserved0c		rs.b	1
 er_Reserved0d		rs.b	1
 er_Reserved0e		rs.b	1
@@ -78,8 +77,8 @@ ExpansionRom_SIZEOF	rs.b	0
 
 			rsreset
 ec_Interrupt		rs.b	1	;Optional interrupt control register
-ec_Z3_HighBase		rs.b	1	;Zorro III   : Bits 24-31 of config address
-ec_BaseAddress		rs.b	1	;Zorro II/III: Bits 16-23 of config address
+ec_Z3_HighBase	rs.b	1	;Zorro III   : Bits 24-31 of config address
+ec_BaseAddress	rs.b	1	;Zorro II/III: Bits 16-23 of config address
 ec_Shutup		rs.b	1	;The system writes here to shut up a board
 ec_Reserved14		rs.b	1
 ec_Reserved15		rs.b	1
@@ -101,7 +100,6 @@ DoAutoconfig:
 	move.w	#$4000,AutoConfZ3(a6)	; Set defaultvalues for different cardtypes
 	move.b	#$20,AutoConfZ2Ram(a6)
 	move.b	#$e9,AutoConfZ2IO(a6)
-
 	lea	AutoConfZ2Txt,a0
 	move.l	#6,d1
 	jsr	Print

@@ -6,9 +6,10 @@
        xdef   playsize
 	xdef	SetMenuCopper
 	xdef	RealLoopbacktest
-	
+
 Initcode:                                                      ; OK we have RAM. we can actually work some with real coding no weird JMP to registers etc.
-                                                               ; So lets start to actually handle the stuff we stored during bootup and do a proper init.
+	KPRINTC	StartupflagsTxt
+	                                                            ; So lets start to actually handle the stuff we stored during bootup and do a proper init.
                                                                ; First lets fins out if we had a stuck mousebutton. so we can ignore them in the future.
 	move.l startupflags(a6),d0					; lets do a check what mode to start with by taking status of mousebuttons at p
 	
@@ -28,94 +29,118 @@ Initcode:                                                      ; OK we have RAM.
  	btst	#5,d3
 	beq	.NOP1LMB
 	move.b	#1,STUCKP1LMB(a6)
+	KPRINTC	_InitP1LMBtxt	
+	KPRINTC	StuckBootTxt	
+
 .NOP1LMB:
 	btst	#4,d3
 	beq	.NOP2LMB
 	move.b	#1,STUCKP2LMB(a6)
+	KPRINTC	_InitP2LMBtxt
+	KPRINTC	StuckBootTxt
 .NOP2LMB:
 	btst	#3,d3
 	beq	.NOP1RMB
 	move.b	#1,STUCKP1RMB(a6)
+	KPRINTC	_InitP1RMBtxt
+	KPRINTC	StuckBootTxt
 .NOP1RMB:
 	btst	#2,d3
 	beq	.NOP2RMB
 	move.b	#1,STUCKP2RMB(a6)
+	KPRINTC	_InitP2RMBtxt
+	KPRINTC	StuckBootTxt
 .NOP2RMB:
-       btst	#1,d3
+    btst	#1,d3
 	beq	.NOP1MMB
 	move.b	#1,STUCKP1MMB(a6)
+	KPRINTC	_InitP1MMBtxt
+	KPRINTC	StuckBootTxt
 .NOP1MMB:
 	btst	#0,d3
 	beq	.NOP2MMB
 	move.b	#1,STUCKP2MMB(a6)
+	KPRINTC	_InitP2MMBtxt
+	KPRINTC	StuckBootTxt
 .NOP2MMB:
                                                                ; OK lets handle other flags!
-       btst   #31,d0
-       beq    .noserialtimeout
-       move.b #1,NoSerial(a6)                                  ; We had timeouts on serial, so lets disable serialport
+    btst   #31,d0
+    beq    .noserialtimeout
+    move.b #1,NoSerial(a6)              	                    ; We had timeouts on serial, so lets disable serialport
+	KPRINTC	SerOutDisTxt
 .noserialtimeout:
-       btst   #30,d0
-       beq    .noromadrerr
-       move.b #1,RomAdrErr(a6)                                 ; We had errors at ROM Address scan.
+    btst   #30,d0
+    beq    .noromadrerr
+    move.b #1,RomAdrErr(a6)                                 ; We had errors at ROM Address scan.
+	KPRINTC	RomAdrErrTxt
 .noromadrerr:
-       btst   #23,d0
-       beq    .nochipbiterr
-       move.b #1,ChipBitErr(a6)                                ; Mark we had biterrors in chipmem at boot
+    btst   #23,d0
+    beq    .nochipbiterr
+	move.b #1,ChipBitErr(a6)                                ; Mark we had biterrors in chipmem at boot
+	KPRINTC BitChipErrTxt
 .nochipbiterr:
-       btst   #22,d0
-       beq    .nochipadrerr
-       move.b #1,ChipAdrErr(a6)                                ; Mark we had addresserrors in chipmem at boot
+    btst   #22,d0
+    beq    .nochipadrerr
+    move.b #1,ChipAdrErr(a6)                                ; Mark we had addresserrors in chipmem at boot
+	KPRINTC ChipAdrErrTxt
 .nochipadrerr:
-       btst   #21,d0
-       beq    .notenoughchip
-       move.b #1,NotEnoughChip(a6)                             ; Mark we had not enough chipmem at boot
-	   move.l	#0,ChipStart(a6)								; As we did not have enough ram.  clear "found" ram
-	   move.l	#0,ChipEnd(a6)
-
+    btst   #21,d0
+    beq    .notenoughchip
+    move.b #1,NotEnoughChip(a6)                             ; Mark we had not enough chipmem at boot
+	move.l	#0,ChipStart(a6)								; As we did not have enough ram.  clear "found" ram
+	move.l	#0,ChipEnd(a6)
+	KPRINTC	ChipNATxt
 .notenoughchip:
-       btst   #20,d0
-       beq    .scannedfastmem
-       move.b #1,ScanFastMem(a6)                               ; Mark we did scan for fastmem at boot
+    btst   #20,d0
+    beq    .scannedfastmem
+    move.b #1,ScanFastMem(a6)                               ; Mark we did scan for fastmem at boot
+	KPRINTC	FastBootTxt
 .scannedfastmem:
-       btst   #13,d0
-       beq    .nofastboot
-       move.b #1,FastFound(a6)                                 ; Mark we did find fastmem at boot
+    btst   #13,d0
+    beq    .nofastboot
+    move.b #1,FastFound(a6)                                 ; Mark we did find fastmem at boot
+	KPRINTC	FastBootFoundTxt
 .nofastboot:
-       btst   #12,d0
-       beq    .nonodraw
-       move.b #1,NoDraw(a6)                                    ; Set "NoDraw" mode, nothing drawn on screen
+    btst   #12,d0
+    beq    .nonodraw
+    move.b #1,NoDraw(a6)                                    ; Set "NoDraw" mode, nothing drawn on screen
+	KPRINTC NoDrawDoneTxt
 .nonodraw:
-       btst   #11,d0
-       beq    .nostuck
-       move.b #1,StuckMouse(a6)                                ; Ser we had stuck mousebuttons
+    btst   #11,d0
+    beq    .nostuck
+    move.b #1,StuckMouse(a6)                                ; Set we had stuck mousebuttons
+	;KPRINTC StuckMouseTxt
 .nostuck:
-       btst   #10,d0
-       beq    .nomem400
-       move.b #1,MemAt400                                      ; Set we had memory at $400
+    btst   #10,d0
+    beq    .nomem400
+    move.b #1,MemAt400                                      ; Set we had memory at $400
+	KPRINTC	NoMemAt400Txt
 .nomem400:
-       btst   #9,d0
-       beq    .noovlerr
-       move.b #1,OVLErr(a6)                                    ; Set we had OVL Errors
+    btst   #9,d0
+    beq    .noovlerr
+    move.b #1,OVLErr(a6)                                    ; Set we had OVL Errors
+	KPRINTC	OVLErrorTxt
 .noovlerr:
-       btst   #8,d0
-       beq    .noreverse
-       move.b #1,WorkOrder(a6)
+    btst   #8,d0
+    beq    .noreverse
+    move.b #1,WorkOrder(a6)
+	KPRINTC RevWorkorderTxt
 .noreverse:
-       move.l ChipStart(a6),d0
-       cmp.l  #$400,d0                                         ; if we have 400 as startaddress we have skipped one K. so lets "fix" that
-       bne    .not400
-       clr.l  d0
+    move.l ChipStart(a6),d0
+    cmp.l  #$400,d0                                         ; if we have 400 as startaddress we have skipped one K. so lets "fix" that
+    bne    .not400
+    clr.l  d0
 .not400:
-       move.l ChipEnd(a6),d1
-       add.l  #1,d1
-       sub.l  d0,d1
-       move.l d1,TotalChip(a6)
-       cmp.b  #1,NotEnoughChip(a6)                             ; if we did not have enough chipmem skip this part
-       beq    .nochip
-       cmp.b  #1,WorkOrder(a6)                                 ; Check if we had a reversed workorder      
-       beq    .reversed
-       move.l ChipStart(a6),d0
-       move.l d0,GetChipAddr(a6)
+    move.l ChipEnd(a6),d1
+    add.l  #1,d1
+    sub.l  d0,d1
+    move.l d1,TotalChip(a6)
+    cmp.b  #1,NotEnoughChip(a6)                             ; if we did not have enough chipmem skip this part
+    beq    .nochip
+    cmp.b  #1,WorkOrder(a6)                                 ; Check if we had a reversed workorder      
+    beq    .reversed
+    move.l ChipStart(a6),d0
+    move.l d0,GetChipAddr(a6)
 	move.l	a6,d0
 	sub.l	#16,d0
 	move.l	d0,ChipUnreservedAddr(a6)				; Store end of usable free chipmem workspace
@@ -123,15 +148,16 @@ Initcode:                                                      ; OK we have RAM.
 	sub.l	d1,d0
 	and.l  #$fffffffe,d0
 	move.l	d0,ChipUnreserved(a6)				; Store size of free chipmem workspace
-       bra    .nochip                                          ; ok wrong name but same address anyway.
+    bra    .nochip                                          ; ok wrong name but same address anyway.
 .reversed:
-       move.l ChipEnd(a6),d0
+    move.l ChipEnd(a6),d0
 	and.l  #$fffffffe,d0
 	move.l	d0,ChipUnreservedAddr(a6)				; Store end of usable free chipmem workspace
 	move.l ChipStart(a6),d1
 	sub.l	d1,d0
 	move.l	d0,ChipUnreserved(a6)
 .nochip:
+	KPRINTC	StartupFlagsDoneTxt
 	jsr    GetHWReg
 
        move.l a6,BaseStart(a6)
@@ -489,6 +515,7 @@ InitStuff:
        move.l a6,a1
        add.l  #Bpl1Ptr,a1
 	move.l	MenuCopper(a6),a0
+
 	add.l	#MenuBplPntPos,a0
        move.l a0,a4
 	bsr	FixBitplane

@@ -111,7 +111,7 @@ SendSerial:
 .loop:
 	move.b	(a0)+,d0
 	cmp.b	#0,d0				; end of string?
-	beq	.nomore				; yes
+	beq	.nomore			; yes
 	bsr	rs232_out
 	bra.s	.loop
 .nomore:
@@ -143,7 +143,7 @@ rs232_out:
 	move.w	#$0100,d1
 	move.b	d0,d1
 	move.w	d1,$dff030			; send it to serial
-	move.w	#$0001,$dff09c			; turn off the TBE bit
+	move.w	#$0001,$dff09c		; turn off the TBE bit
 	POP
 	rts
 .noserial:
@@ -153,9 +153,9 @@ rs232_out:
 Print:						; Prints a string
 	PUSH					; INDATA:
 	clr.l	d7				; Clear d7
-	cmp.b	#2,(a0)				; Check if first byte in string is a 2, then we will center it.
+	cmp.b	#2,(a0)			; Check if first byte in string is a 2, then we will center it.
 	beq	.center
-.print:						; A0 = string to print, nullterminated
+.print:					; A0 = string to print, nullterminated
 						; D1 = Color
 	clr.l	d0
 	move.b	(a0)+,d0
@@ -202,7 +202,7 @@ Print:						; Prints a string
 	sub.b	#1,d7				; Subtract with 1 so loop gets correct number of spaces.
 
 .spaceloop:
-	move.b	#" ",d0				; make sure a space is printed
+	move.b	#" ",d0			; make sure a space is printed
 	move.l	d5,d1
 	bsr	PrintChar			; Print it
 	dbf	d7,.spaceloop			; loop it.
@@ -212,7 +212,7 @@ Print:						; Prints a string
 	move.l	d5,d1				; Restore d1 (color)
 	bra	.print
 	
-	PrintChar:					; Puts a char on screen and add X, Y variables depending on char etc.
+	PrintChar:				; Puts a char on screen and add X, Y variables depending on char etc.
 	; INDATA: (Longwords expected)
 	;	D0 = Char
 	;	D1 = Color
@@ -332,7 +332,8 @@ ClearScreen:
 .no:
 	lea	AnsiNull,a0
 	bsr	SendSerial
-
+	lea	ClearScrn,a0
+	bsr	SendSerial
 	move.l	#12,d0
 	bsr	rs232_out
 	lea	AnsiNull,a0
@@ -344,7 +345,7 @@ ClearScreen:
 	POP
 	rts
 	
-SetPos:						; Set cursor at wanted position on screen
+SetPos:					; Set cursor at wanted position on screen
 	; Indata:
 	; d0 = xpos
 	; d1 = ypos
@@ -359,7 +360,7 @@ SetPos:						; Set cursor at wanted position on screen
 	bsr	SendSerial
 	bsr	oldbindec			;convert d0 to decimal string (x pos)
 	bsr	SendSerial			;and send result to serialport
-	move.l	#";",d0				;load d0 with ;
+	move.l	#";",d0			;load d0 with ;
 	bsr	rs232_out
 	move.l	d2,d0
 	add.l	#1,d0
@@ -396,12 +397,12 @@ PutChar:
 	sub.b	#32,d0				; Subtract 32 from the char as " " is the first char in the Font.
 	clr.l	d4				; if d4 if 0. no invert of char
 	cmp.b	#8,d1
-	blt	.Normal				; Normal color. do not invert
+	blt	.Normal			; Normal color. do not invert
 	move.b	#1,d4
 	sub.b	#8,d1
 .Normal:
 
-	mulu	#640,d3				; Multiply Y with 640 to get a correct Y pos on screen
+	mulu	#640,d3			; Multiply Y with 640 to get a correct Y pos on screen
 	add.w	d2,d3				; Add X pos to the d3. D3 now contains how much to add to bitplane to print
 
 	move.l	Bpl1Ptr(a6),a0		; load A0 with address of BPL1
@@ -476,7 +477,7 @@ ScrollScreen:
 	move.l	Bpl2Ptr(a6),a1		; load A1 with address of BPL2
 	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
 	move.l	BPLSIZE(a6),d0		; How much data is one screen
-	sub.l	#640,d0				; Subtract 8 pixels
+	sub.l	#640,d0			; Subtract 8 pixels
 	divu	#4,d0				; Divide by 4 to get longwords.
 .loop:
 	move.l	640(a0),(a0)+
@@ -505,14 +506,14 @@ ReadSerial:					; Read serialport, and if anything there store it in the buffer
 	move.w	$dff018,d5
 	move.b	OldSerial(a6),d6
 	cmp.b	d5,d6				; is there a change from last scan?
-	bne	.serial				; yes. so. well handle it as a new char.
+	bne	.serial			; yes. so. well handle it as a new char.
 	btst	#14,d5				; Buffer full, we have a new char
 	beq	.exit
 
 .serial:
 	move.b	#1,SerData(a6)
 	move.b	d5,OldSerial(a6)
-	move.w	#$0800,$dff09c			; Turn off RBF bit
+	move.w	#$0800,$dff09c		; Turn off RBF bit
 	move.w	#$0800,$dff09c
 	move.b	#1,BUTTON(a6)
 
@@ -605,36 +606,36 @@ RomChecksum:
 
 ;------------------------------------------------------------------------------------------
 
-DetectCPU:				; Detects CPU, FPU etc.
+DetectCPU:					; Detects CPU, FPU etc.
 ; Code more or less from romanworkshop.blutu.pl/menu/amiasm.htm
 ; IB!  a5 Contains address to instruction after branch to here. so it can exit there
 ; if not correct cpu
 
-	move.l	#"TEST",$700		; Put "TEST" into $700
-	clr.l	PCRReg(a6)		; Clear PCRReg value
-	clr.b	CPU060Rev(a6)		; Clear 060 CPU Rev value
-	clr.b	MMU(a6)		; Clear the MMU Flag
-	clr.b	ADR24BIT(a6)		; Clear the 24Bit addressmode flag
-	cmp.l	#"TEST",$700		; Check if $700 is "TEST" if not.  we assume having memoroissues at lower chipmem.
-		; so CPU detection will just fail and crash.  put 680x0 as string of cpu.
+	move.l	#"TEST",$700			; Put "TEST" into $700
+	clr.l	PCRReg(a6)			; Clear PCRReg value
+	clr.b	CPU060Rev(a6)			; Clear 060 CPU Rev value
+	clr.b	MMU(a6)			; Clear the MMU Flag
+	clr.b	ADR24BIT(a6)			; Clear the 24Bit addressmode flag
+	cmp.l	#"TEST",$700			; Check if $700 is "TEST" if not.  we assume having memoroissues at lower chipmem.
+						; so CPU detection will just fail and crash.  put 680x0 as string of cpu.
 	bne	.nochip
-	clr.l	$700			; Clear $700
+	clr.l	$700				; Clear $700
 
-	move.l	#"24AD",$4000700	; Write "24AD" to highmem $700
-	cmp.l	#"24AD",$700		; IF memory is readable at $700 instead. we are using a cpu with 24 bit address.
+	move.l	#"24AD",$4000700		; Write "24AD" to highmem $700
+	cmp.l	#"24AD",$700			; IF memory is readable at $700 instead. we are using a cpu with 24 bit address.
 	bne	.no24bit
 	move.b	#1,ADR24BIT(a6)
 .no24bit:
-	moveq	#$0,d1			; Set CPU detected.  begin with "0" as 68000
-	move.l	#.notabove68k,$10	; Set illegal instruction to this
-	movec	VBR,d3			; Supported by 010+	dc.l	$4e7a3801		;movec VBR,d3	- move VBR to d3
+	moveq	#$0,d1				; Set CPU detected.  begin with "0" as 68000
+	move.l	#.notabove68k,$10		; Set illegal instruction to this
+	movec	VBR,d3				; Supported by 010+	dc.l	$4e7a3801		;movec VBR,d3	- move VBR to d3
 	moveq	#$10,d2
 	move.l	d2,a1
 	add.l	d3,a1
 	move.l	(a1),d2			; take a backup of current value
 	lea	.notabove68k,a0
 	move.l	a0,(a1)
-	moveq	#$1,d1			; Set 68010
+	moveq	#$1,d1				; Set 68010
 	moveq	#$10,d2
 	move.l	d2,a1
 	add.l	d3,a1
@@ -648,28 +649,28 @@ DetectCPU:				; Detects CPU, FPU etc.
 	lea	.above010,a0
 	move.l	a0,(a2)
 	move.l	a7,a3
-	movec	CACR,d1		;dc.l	$4e7a1002		;movec CACR,d1	; 020-060?
-	moveq	#$2,d1			; Set 68020
+	movec	CACR,d1			;dc.l	$4e7a1002		;movec CACR,d1	; 020-060?
+	moveq	#$2,d1				; Set 68020
 	movec	ITT0,d1			; Supported in 040-060
-	moveq	#$4,d1			; Set 68040
-	movec	pcr,d1			;dc.l	$4e7a1808		; movec pcr,dq	; Supported by 060
-	move.l	d1,PCRReg(a6)		; Store the value for future use
+	moveq	#$4,d1				; Set 68040
+	movec	pcr,d1				;dc.l	$4e7a1808		; movec pcr,dq	; Supported by 060
+	move.l	d1,PCRReg(a6)			; Store the value for future use
 	move.l	d1,d7
-	moveq	#$5,d1			; Set 68060
-		; OK We have 060, this cpu have some nice features, like the PCR register that shows its config.
-		; and we just read it.. so lets.. use it
+	moveq	#$5,d1				; Set 68060
+						; OK We have 060, this cpu have some nice features, like the PCR register that shows its config.
+						; and we just read it.. so lets.. use it
 	movec	PCR,d4
 	bclr	#1,d4
-	movec	d4,PCR			; Make sure FPU is enabled
+	movec	d4,PCR				; Make sure FPU is enabled
 	and.l	#$0000ff00,d7
 	asr.l	#8,d7
-	move.b	d7,CPU060Rev(a6)	; Store the 060 Revisionnumber
+	move.b	d7,CPU060Rev(a6)		; Store the 060 Revisionnumber
 	movec	PCR,d4
 	swap	d4
 	cmp.l	#$0440,d4
 	bne	.novamp
-					; Ohnooez..  someone is running this on a fake cpu..  a "080"
-	moveq	#$6,d1			; Set 68080  YUKK  or well   68FAIL as it is no real stuff...   
+						; Ohnooez..  someone is running this on a fake cpu..  a "080"
+	moveq	#$6,d1				; Set 68080  YUKK  or well   68FAIL as it is no real stuff...   
 .novamp:
 .above010:
 	move.l	d2,(a1)
@@ -679,11 +680,11 @@ DetectCPU:				; Detects CPU, FPU etc.
 	move.l	#BusError,$8
 	move.l	#IllegalError,$10
 	move.l	#UnimplInst,$2c
-	move.b	d1,CPUGen(a6)		; Store generation of CPU
+	move.b	d1,CPUGen(a6)			; Store generation of CPU
 	cmp.b	#3,d1
-	blt	.lower020		; check if we have 020 or lower then skip next instruction
-	clr.b	ADR24BIT(a6)		; Clear the 24Bit addressmode flag
-		; as some blizzards seem to screw up my 24 bit adr. detection
+	blt	.lower020			; check if we have 020 or lower then skip next instruction
+	clr.b	ADR24BIT(a6)			; Clear the 24Bit addressmode flag
+						; as some blizzards seem to screw up my 24 bit adr. detection
 .lower020:
 	move.l	#0,d1
 	move.l	#.chkfpu,$10
@@ -693,28 +694,28 @@ DetectCPU:				; Detects CPU, FPU etc.
 	lea	.nofpu,a0
 	move.l	a0,(a1)
 	move.l	a7,a2
-	cmp.b	#0,CPUGen(a6)		; Check if we had 68000
-	beq	.nofpu			; YUP!.  we had
+	cmp.b	#0,CPUGen(a6)			; Check if we had 68000
+	beq	.nofpu				; YUP!.  we had
 	move.l	d2,(a1)
-	dc.l	$4e7a3801		; movec VBR,d3	(crash on 68k)
+	dc.l	$4e7a3801			; movec VBR,d3	(crash on 68k)
 	add.l	d3,a1
 	move.l	(a1),d2
 	move.l	a0,(a1)
-	dc.l	$f201583a		; ftst.b,d1
-	dc.w	$f327			; FSAVE
+	dc.l	$f201583a			; ftst.b,d1
+	dc.w	$f327				; FSAVE
 .chkfpu:
 	move.l	a2,d3
 	sub.l	a7,d3
-	moveq	#1,d1			; Set 68881
+	moveq	#1,d1				; Set 68881
 	cmp.b	#$1c,d3
 	beq	.nofpu
-	moveq	#2,d1			; Set 68882
+	moveq	#2,d1				; Set 68882
 	cmp.b	#$3c,d3
 	beq	.nofpu
-	moveq	#3,d1			; Set 68040
+	moveq	#3,d1				; Set 68040
 	cmp.b	#4,d3
 	beq	.nofpu
-	moveq	#4,d1			; Set 68060
+	moveq	#4,d1				; Set 68060
 	move.l	d2,(a1)
 .nofpu:
 	move.l	d1,FPU(a6)
@@ -723,72 +724,72 @@ DetectCPU:				; Detects CPU, FPU etc.
 	mulu	#6,d1
 	add.l	d1,a0
 	move.l	a0,FPUPointer(a6)
-	move.l	#BusError,$8		; This time to a routine that can present more data.
+	move.l	#BusError,$8			; This time to a routine that can present more data.
 	move.l	#IllegalError,$10
 	move.l	#UnimplInst,$2c
 .mmutest:
-	move.b	#4,MMU(a6)		; Lets set a fake value of "MMU Detected"
-					; Lets skipthat MMU detection,  it is buggy (now even removed!)
-	move.l	#BusError,$8		; This time to a routine that can present more data.
+	move.b	#4,MMU(a6)			; Lets set a fake value of "MMU Detected"
+						; Lets skipthat MMU detection,  it is buggy (now even removed!)
+	move.l	#BusError,$8			; This time to a routine that can present more data.
 	move.l	#IllegalError,$10
 	move.l	#UnimplInst,$2c
-	move.l	#Trap,$80		; Restored all exceptions etc touched here
+	move.l	#Trap,$80			; Restored all exceptions etc touched here
 	clr.l	d1
-	move.b	CPUGen(a6),d1		; Get CPU Gen from memory, lets find out the real string
-	cmp.b	#1,d1			; Check if we had 010
-	ble	.cpudone		; if equal or lover than. skip the rest
-	cmp.b	#2,d1			; Check if we have a 020
-	bne	.no020
-	cmp.b	#0,ADR24BIT(a6)	; check if we have 24bit adr mode
+	move.b	CPUGen(a6),d1			; Get CPU Gen from memory, lets find out the real string
+	cmp.b	#1,d1				; Check if we had 010
+	ble	.cpudone			; if equal or lover than. skip the rest
+	cmp.b	#2,d1				; Check if we have a 020
+	bne	.no020	
+	cmp.b	#0,ADR24BIT(a6)		; check if we have 24bit adr mode
 	beq	.full020
-	move.b	#2,d1			; Set 68EC20
+	move.b	#2,d1				; Set 68EC20
 	bra	.cpudone
 .full020:
-	move.b	#3,d1			; Set 68020
+	move.b	#3,d1				; Set 68020
 	bra	.cpudone
 .no020:
-	cmp.b	#3,d1			; Check if we have a 030
+	cmp.b	#3,d1				; Check if we have a 030
 	bne	.no030
-	cmp.b	#0,MMU(a6)		; Check if we have a MMU
+	cmp.b	#0,MMU(a6)			; Check if we have a MMU
 	bne	.full030
-	move.b	#4,d1			; Set 68EC30
+	move.b	#4,d1				; Set 68EC30
 	bra	.cpudone	
 .full030:
-	move.b	#5,d1			; Set 68030
+	move.b	#5,d1				; Set 68030
 	bra	.cpudone
 .no030:
-	cmp.b	#4,d1			; Check if we have a 040
+	cmp.b	#4,d1				; Check if we have a 040
 	bne	.no040
-	cmp.b	#0,MMU(a6)		; Check if we have a MMU
+	cmp.b	#0,MMU(a6)			; Check if we have a MMU
 	bne	.mmu040
-	move.b	#6,d1			; no mmu, so no FPu so set 68EC40
+	move.b	#6,d1				; no mmu, so no FPu so set 68EC40
 	bra	.cpudone
 .mmu040:
-	cmp.b	#0,FPU(a6)		; Check if we have a FPU
+	cmp.b	#0,FPU(a6)			; Check if we have a FPU
 	bne	.full040
-	move.b	#7,d1			; Set 68LC40
+	move.b	#7,d1				; Set 68LC40
 	bra	.cpudone
 .full040:
-	move.b	#8,d1			; Set 68040
+	move.b	#8,d1				; Set 68040
 	bra	.cpudone
 .no040:
-	cmp.b	#5,d1			; Check if we have a 060
+	cmp.b	#5,d1				; Check if we have a 060
 	bne	.no060
 	cmp.b	#0,MMU(a6)
 	bne	.mmu060yes
-	move.b	#9,d1			; no mmu no fpu so set 68EC60
+	move.b	#9,d1				; no mmu no fpu so set 68EC60
 	bra	.cpudone
 .mmu060yes:
 	cmp.b	#0,FPU(a6)
 	bne	.full060
-	move.b	#10,d1			; Set 68LC60
-	cmp.b	#3,CPU060Rev(a6)	; Check if we had rev 3.
+	move.b	#10,d1				; Set 68LC60
+	cmp.b	#3,CPU060Rev(a6)		; Check if we had rev 3.
 	bne.s	.noEC
-	move.b	#9,d1			; set 68EC60
+	move.b	#9,d1				; set 68EC60
 .noEC
 	bra	.cpudone
 .full060:
-	move.b	#11,d1			; set 68060
+	move.b	#11,d1				; set 68060
 	bra	.cpudone
 .no060:					;DQFUQ?  ok something went nuts we did not have ANY CPU?
 	cmp.b	#6,d1
@@ -796,27 +797,27 @@ DetectCPU:				; Detects CPU, FPU etc.
 	move.b	#12,d1
 	bra	.cpudone
 .novampcrap:
-	move.b	#13,d1			;So set 68???
+	move.b	#13,d1				;So set 68???
 .cpudone:
 	;	move.l	#0,d1
-	move.b	d1,CPU(a6)		; Store CPU model
+	move.b	d1,CPU(a6)			; Store CPU model
 	lea	CPUString,a0
-	mulu	#7,d1			; Multiply with 7 to point at correct part of string
+	mulu	#7,d1				; Multiply with 7 to point at correct part of string
 	add.l	d1,a0
 	move.l	a0,CPUPointer(a6)
 	jmp	(a5)
 .cpu3:
 	cmp.b	#2,d1
 	bne.w	.notabove68k
-	dc.w	$f02f,$6200,$fffe	;Pmove I-PSR 
-	moveq	#$3,d1			; Set 68030
+	dc.w	$f02f,$6200,$fffe		;Pmove I-PSR 
+	moveq	#$3,d1				; Set 68030
 	bra	.notabove68k
 .nochip:
 	move.b	#0,FPU(a6)
 	move.b	#0,MMU(a6)
 	move.b	#0,CPUGen(a6)
 	clr.l	d1
-	move.b	#13,d1			; set 68060
+	move.b	#13,d1				; set 68060
 	bra	.cpudone
 ;------------------------------------------------------------------------------------------
 
@@ -958,7 +959,7 @@ bindec:		movem.l	d1-d5/a1,-(sp)
 		moveq	#0,d5
 
 		lea.l	b2dString+12(a6),a0
-		movem.l	d1-d3,-(a0)		; Clear String buffer
+		movem.l	d1-d3,-(a0)	; Clear String buffer
 
 		neg.l	d0			; D0.L ! D0.L = 0?
 		bne	.notZero		; If NOT True, Move on...
@@ -968,7 +969,7 @@ bindec:		movem.l	d1-d5/a1,-(sp)
 		
 .notZero:	neg.l	d0			; Restore D0.L
 
-	IF b2dNegative				; Is b2dNegative True?
+	IF b2dNegative			; Is b2dNegative True?
 
 		move.l	d0,d1			; D1.L = D0.L
 		swap	d1			; Swap Upper Word with Lower Word
@@ -995,7 +996,7 @@ bindec:		movem.l	d1-d5/a1,-(sp)
 		; Line up the 5x Bytes
 
 		lea.l	b2dTemp(a6),a1	; A1.L = b2dTemp Ptr
-		move.b	d5,(a1)			; b2dTemp = d5.xx.xx.xx.xx
+		move.b	d5,(a1)		; b2dTemp = d5.xx.xx.xx.xx
 		move.b	d4,1(a1)		; b2dTemp = d5.d4.xx.xx.xx
 		move.b	d3,2(a1)		; b2dTemp = d5.d4.d3.xx.xx
 		move.b	d2,3(a1)		; b2dTemp = d5.d4.d3.d2.xx
@@ -1004,7 +1005,7 @@ bindec:		movem.l	d1-d5/a1,-(sp)
 
 		; Convert Nibble to Byte
 		
-		moveq	#5-1,d5			; 5 bytes (10 Bibbles) to check
+		moveq	#5-1,d5		; 5 bytes (10 Bibbles) to check
 .dec2ASCII:	move.b	(a1)+,d1		; D1.W = 00xy
 		ror.w	#4,d1			; D1.W = y00x
 		move.b	d1,(a0)+		; Save ASCII
@@ -1019,12 +1020,12 @@ bindec:		movem.l	d1-d5/a1,-(sp)
 		; Find where the numbers start and trim it...
 
 		moveq	#10-1,d5		; 10 Bytes total to check
-.trimZeros:	move.b	(a0),d0			; Move byte to D0.B
+.trimZeros:	move.b	(a0),d0		; Move byte to D0.B
 		bne.s	.trimSkip		; Not Zero? Exit loop
 		add.l	#1,a0			; Next Character Byte
 		dbf	d5,.trimZeros		; Loop
 .trimSkip:	move.b	(a0)+,d0		; Move Number to D0.B
-		add.b	#$30,d0			; Add ASCII Offset to D0.B
+		add.b	#$30,d0		; Add ASCII Offset to D0.B
 		move.b	d0,(a1)+		; Move to buffer
 		dbf	d5,.trimSkip		; Loop
 
@@ -1037,7 +1038,7 @@ bindec:		movem.l	d1-d5/a1,-(sp)
 .b2dExit:	movem.l	(sp)+,d1-d5/a1
 		rts
 
-binhex:						; Converts a binary number to hex
+binhex:					; Converts a binary number to hex
 	; INDATA:
 	;	D0 = binary nymber
 	; OUTDATA:
@@ -1256,7 +1257,7 @@ DebugScreen:					; This dumps out registers..
 	jsr	Print
 	lea	DebugIRQPoint,a0
 	jsr	Print
-	move.l	(a5),d0				; Get where IRQ points to
+	move.l	(a5),d0			; Get where IRQ points to
 	move.l	d0,a4				; Store a copy of it in A4, to be able to print content
 	jsr	binhex
 	jsr	Print
@@ -1516,7 +1517,7 @@ GetSerial:					; Reads serialport and returns first char in buffer.
 	move.b	1(a5),(a5)+
 	dbf	d6,.loop
 	sub.b	#1,SerBufLen(a6)
-	move.b	#0,(a5)				; Clear the last byte in the buffer
+	move.b	#0,(a5)			; Clear the last byte in the buffer
 	POP
 	bset	#3,d0				; Mark that we had a serialevent
 	rts
@@ -1546,10 +1547,10 @@ ClearInput:
 GetMouseData:
 		; Get data from mouse.. ANY port.
 	move.w	$dff016,d1			; Read POTINP to d1
-	and.w	#$fe,d1				; mask out bit 0
+	and.w	#$fe,d1			; mask out bit 0
 	cmp.b	#0,d1				; ok  if d1 is 0 we should have a working paula as bit 1-7 always shold be 0
-			; but a bad paula can give random numbers. so DiagROM messes up presses etc.
-			; so DISABLE all paulachecks.
+						; but a bad paula can give random numbers. so DiagROM messes up presses etc.
+						; so DISABLE all paulachecks.
 	beq	.paulaok
 	move.b	#1,DISPAULA(a6)		; ok it was not 0.  so lets disable paulastuff
 .paulaok:
@@ -1601,7 +1602,7 @@ GetMouseData:
 	bset	#0,d4				; Set flag that we have mousemovements, d4 is temporary
 	move.b	#1,MOUSE(a6)
 	move.b	d0,OldMouseX(a6)		; Store current to old.
-			; OK , we have a movement, but what direction?
+						; OK , we have a movement, but what direction?
 	bsr	.GetMouseDir
 	cmp.b	#1,d1				; Check what direction
 	beq	.backX
@@ -1628,7 +1629,7 @@ GetMouseData:
 	bset	#0,d4				; Set flag that we have mousemovements, d4 is temporary
 	move.b	#1,MOUSE(a6)
 	move.b	d0,OldMouseY(a6)		; Store current to old.
-			; OK , we have a movement, but what direction?
+						; OK , we have a movement, but what direction?
 	bsr	.GetMouseDir
 	cmp.b	#1,d1				; Check what direction
 	beq	.backY
@@ -1788,7 +1789,7 @@ GetCharSerial:
 	POP
 	clr.l	d0
 	move.b	Serial(a6),d0			; Return what was in serial, if nothing it will be 0 (nothing happend)
-	cmp.b	#$1b,d0				; is it ESC? if so. we might be in ANSI mode.
+	cmp.b	#$1b,d0			; is it ESC? if so. we might be in ANSI mode.
 	beq	.ansion
 	cmp.b	#$d,d0				; is it a linefeed?
 	bne	.nolf
@@ -1818,15 +1819,15 @@ GetCharSerial:
 	beq	.pgup
 	cmp.b	#$36,d0
 	beq	.pgdown
-	cmp.b	#$41,d0				;UP
+	cmp.b	#$41,d0			;UP
 	beq	.up
-	cmp.b	#$42,d0				;DOWN
+	cmp.b	#$42,d0			;DOWN
 	beq	.down
-	cmp.b	#$43,d0				;RIGHT
+	cmp.b	#$43,d0			;RIGHT
 	beq	.right
-	cmp.b	#$44,d0				;LEFT
+	cmp.b	#$44,d0			;LEFT
 	beq	.left
-	cmp.b	#$36,d0				;possible pgdwn
+	cmp.b	#$36,d0			;possible pgdwn
 	beq	.ansimode36
 	cmp.b	#$35,d0
 	beq	.ansimode35			;possible pgup
@@ -1844,13 +1845,13 @@ GetCharSerial:
 	bra	.ansiexit
 .ansimode35on:
 	clr.b	SerAnsi35Flag(a6)
-	cmp.b	#$7e,d0				; we have pgup
+	cmp.b	#$7e,d0			; we have pgup
 	beq	.pgup
 	clr.b	SerAnsiFlag(a6)
 	rts
 .ansimode36on:
 	clr.b	SerAnsi36Flag(a6)
-	cmp.b	#$7e,d0				; we have pgdown
+	cmp.b	#$7e,d0			; we have pgdown
 	beq	.pgdown
 	clr.b	SerAnsiFlag(a6)
 	rts
@@ -1911,7 +1912,7 @@ GetCharKey:
 	cmp.b	#1,keynew(a6)			; Did we have a new keypress on the keyboard?
 	bne	.no				; no, do serialstuff instead
 	lea	keymap(a6),a0
-	move.l	(a0),a0				; Set wanted keymap.
+	move.l	(a0),a0			; Set wanted keymap.
 	bsr	ConvertKey			; Convert keyscan to actual ASCII
 	cmp.b	#0,skipnextkey(a6)		; Check if skipnextkey is set
 	bne	.skipnextkey
@@ -1951,7 +1952,7 @@ GetKey:
 	move.b	#1,keynew(a6)
 .nokey:
 	bset	#6,$bfee01			; Set handshakebit
-	sf.b	$bfec01				; Clear keyboardbuffer
+	sf.b	$bfec01			; Clear keyboardbuffer
 	bsr	WaitShort			; Wait a short while
 	Bsr	WaitShort
 	bsr	WaitShort
@@ -1985,7 +1986,7 @@ GetKey:
 	move.b	keystatus(a6),keyctrl(a6)
 	move.b	#0,key(a6)
 	bra	.keydone
-.shift:						; we have a happening on the SHIFT key
+.shift:					; we have a happening on the SHIFT key
 	cmp.b	#0,keycaps(a6)		; Check if caps is pressed
 	bne	.caps
 	move.b	#0,key(a6)
@@ -1998,7 +1999,7 @@ GetKey:
 	move.b	#0,key(a6)
 	bra	.keydone
 
-GetHex:						; Takes an ASCII and returns only valid chars for hex. (and backspace/enter)
+GetHex:					; Takes an ASCII and returns only valid chars for hex. (and backspace/enter)
 
 						; Input:
 						;	D0 = Char
@@ -2038,7 +2039,7 @@ GetHex:						; Takes an ASCII and returns only valid chars for hex. (and backspa
 	move.b	#0,d0
 	rts
 	
-GetDec:						; Takes an ASCII and returns only valid chars for dec. (and backspace/enter)
+GetDec:					; Takes an ASCII and returns only valid chars for dec. (and backspace/enter)
 	; Input:
 	;	D0 = Char
 
@@ -2141,7 +2142,7 @@ WaitLong:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have de
 	rts
 .raster:
 	cmp.b	#$90,$dff006
-	bne.s	.raster				; Wait for rasterline $90
+	bne.s	.raster			; Wait for rasterline $90
 	bsr	ReadSerial			; as we have no IRQs..  read serialport just in case
 .rasterloop:
 	cmp.b	#$8f,$dff006
@@ -2168,14 +2169,14 @@ GetMemory:					; Get memory from workmem.  Fastmem prio.
 	cmp.l	#0,d0
 	beq	.nofast
 	cmp.l	d6,d2				; Check if we had enough
-	blt	.nofast				; we did not have enough fast..
+	blt	.nofast			; we did not have enough fast..
 						; ok we had enough ram..
-	bra	.hadmem				; so go to "hadmem" to handle last part
+	bra	.hadmem			; so go to "hadmem" to handle last part
 .nofast:
 	cmp.l	#0,d3
-	beq	.nochip				; we had nochip! out of mem!
+	beq	.nochip			; we had nochip! out of mem!
 	cmp.l	d6,d5
-	blt	.nochip				; we had not enough chip!  out of mem!
+	blt	.nochip			; we had not enough chip!  out of mem!
 						; ok we had mem. to be lazy we copy over chipmem registers to where fastmem regs was
 	move.l	d3,d0
 	move.l	d4,d1				; Start and end is all we need
@@ -2282,7 +2283,7 @@ ToKB:						; Convert D0 to KB (divide by 1024)
 	rts
 
 
-Random:						;  out: d0 will contain a "random" number
+Random:					;  out: d0 will contain a "random" number
 	add.l	d3,d0
 	add.l	d4,d0
 	add.b	$dff006,d0
@@ -2316,8 +2317,8 @@ DeleteLine:					; Delete line D0 on screen, scrolls everything under it up one l
 	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
 	move.l	#31,d4				; Last line is 31
 	sub.l	d5,d4				; subtract number of lines to where we was
-	mulu	#640,d4				; calculate where in memory this is
-	mulu	#640,d5				; calulate where to start scroll
+	mulu	#640,d4			; calculate where in memory this is
+	mulu	#640,d5			; calulate where to start scroll
 	add.l	d5,a0
 	add.l	d5,a1
 	add.l	d5,a2
@@ -2346,33 +2347,33 @@ DeleteLine:					; Delete line D0 on screen, scrolls everything under it up one l
 	rts
 
 DetectMemory:
-					; D1 Total block of known working ram in 16K blocks (clear before first use)
-					; A0 first usable addr
-					; a1 First addr to scan
-					; a2 Addr to end
-					; a3 Addr to jump after done (as this does not use any stack
-					; only OK registers to use as write: (d1), d2,d3,d4,d5,d6,d7, a0,a1,a2,a5
+						; D1 Total block of known working ram in 16K blocks (clear before first use)
+						; A0 first usable addr
+						; a1 First addr to scan
+						; a2 Addr to end
+						; a3 Addr to jump after done (as this does not use any stack
+						; only OK registers to use as write: (d1), d2,d3,d4,d5,d6,d7, a0,a1,a2,a5
 
 
-					; D0 is a special "in" never to be modified but taken as a "random" generator for shadowcontrol
+						; D0 is a special "in" never to be modified but taken as a "random" generator for shadowcontrol
 
-					; OUT:	d1 = blocks of found mem
-					;	a0 = first usable address
-					;	a1 = last usable address
+						; OUT:	d1 = blocks of found mem
+						;	a0 = first usable address
+						;	a1 = last usable address
 	move.l	a1,d7
-	and.l	#$fffffffc,d7		; just strip so we always work in longword area (just to be sure)
+	and.l	#$fffffffc,d7			; just strip so we always work in longword area (just to be sure)
 	move.l	d7,a1
-	move.l	a3,d7			; Store jumpaddress in D7
-	lea	$0,a0			; clear a0
+	move.l	a3,d7				; Store jumpaddress in D7
+	lea	$0,a0				; clear a0
 .Detect:
 	lea	MEMCheckPattern,a3
 	move.l	(a1),d3			; Take a backup of content in memory to D3
 .loop:
-	cmp.l	a1,a2			; check if we tested all memory
-	blo	.wearedone		; we have, we are done!
-	move.l	(a3)+,d2		; Store value to test for in D2	
+	cmp.l	a1,a2				; check if we tested all memory
+	blo	.wearedone			; we have, we are done!
+	move.l	(a3)+,d2			; Store value to test for in D2	
 	move.l	d2,(a1)			; Store testvalue to a1
-	move.l	#"CRAP",4(a1)		; Just to put crap at databus. so if a stuck buffer reads what is last written will get crap
+	move.l	#"CRAP",4(a1)			; Just to put crap at databus. so if a stuck buffer reads what is last written will get crap
 	nop
 	nop
 	nop
@@ -2386,68 +2387,68 @@ DetectMemory:
 	move.l	(a1),d4			; read value from a1 to d4
 	move.l	(a1),d4			; read value from a1 to d4
 	move.l	(a1),d4			; read value from a1 to d4
-					; Reading several times.  as sometimes reading once will give the correct answer on bad areas.
-	cmp.l	d4,d2			; Compare values
+						; Reading several times.  as sometimes reading once will give the correct answer on bad areas.
+	cmp.l	d4,d2				; Compare values
 	bne	.failed			; ok failed, no working ram here.
-	cmp.l	#0,d2			; was value 0? ok end of list
-	bne	.loop			; if not, lets do this test again
-					; we had 0, we have working RAM
-	move.l	a1,a5			; OK lets see if this is actual CORRECT ram and now just a shadow.
+	cmp.l	#0,d2				; was value 0? ok end of list
+	bne	.loop				; if not, lets do this test again
+						; we had 0, we have working RAM
+	move.l	a1,a5				; OK lets see if this is actual CORRECT ram and now just a shadow.
 	move.l	a5,(a1)			; So we store the address we found in that location.
-	move.l	#32,d6			; ok we do test 31 bits
+	move.l	#32,d6				; ok we do test 31 bits
 	move.l	a5,d5
 .loopa:
 	cmp.l	#0,d6
-	beq	.done			; we went all to bit 0.. we are done I guess
+	beq	.done				; we went all to bit 0.. we are done I guess
 	sub.l	#1,d6
 	cmp.l	#0,d6
-	beq	.done			; we went all to bit 0.. we are done I guess	---------
-	btst	d6,d5			; scan until it isnt a 0
+	beq	.done				; we went all to bit 0.. we are done I guess	---------
+	btst	d6,d5				; scan until it isnt a 0
 	beq.s	.loopa
 .bitloop:
-	bclr	d6,d5			; ok. we are at that address, lets clear first bit of that address
+	bclr	d6,d5				; ok. we are at that address, lets clear first bit of that address
 	move.l	d5,a3
 	cmp.l	(a3),a5			; ok check if that address contains the address we detected, if so. we have a "shadow"
 	beq	.shadow
-	cmp.l	#0,a3			; it was 0, so we "assume" we got memory
+	cmp.l	#0,a3				; it was 0, so we "assume" we got memory
 	beq	.mem
-					; ok we didnt have a shadow here
-					; a5 will contain address if there was detected ram
+						; ok we didnt have a shadow here
+						; a5 will contain address if there was detected ram
 	sub.l	#1,d6
 	cmp.l	#4,d6
-	beq	.mem			; ok we was at 4 bits away..  we can be PRETTY sure we do not have a shadow here.  we found mem
+	beq	.mem				; ok we was at 4 bits away..  we can be PRETTY sure we do not have a shadow here.  we found mem
 	bra	.bitloop
 .mem:
 	move.l	d3,(a1)			; restore backup of data
 	cmp.l	(a1),d0			; check if value at a1 is the same as d0. this means we have a shadow on top and we have already tested
 	beq	.shadowdone			; this memory.  basically: we are done
-	cmp.l	#0,a0			; check if a0 was 0, if so, this is the first working address
+	cmp.l	#0,a0				; check if a0 was 0, if so, this is the first working address
 	bne	.wehadmem
-	move.l	a5,a0			; so a5 contained the address we found, copy it to a0
-	move.l	d7,16(a1)		; ok store d7 into what a1 points to.. to say that this is a block of mem)
+	move.l	a5,a0				; so a5 contained the address we found, copy it to a0
+	move.l	d7,16(a1)			; ok store d7 into what a1 points to.. to say that this is a block of mem)
 .wehadmem:
-	add.l	#4,d1			; OK we found mem, lets add 4 do d1(as old routine was 64K blocks  now 256.  being lazy)
+	add.l	#4,d1				; OK we found mem, lets add 4 do d1(as old routine was 64K blocks  now 256.  being lazy)
 	bra	.next
 .wearedone:
 	bra	.done
 .shadow:
-	TOGGLEPWRLED			; Flash with powerled doing this.. 
+	TOGGLEPWRLED				; Flash with powerled doing this.. 
 .failed:
 	move.l	d3,(a1)			; restore backup of data
-	cmp.l	#0,a0			; ok was a0 0? if so, we havent found memory that works yet, lets loop until all area is tested
+	cmp.l	#0,a0				; ok was a0 0? if so, we havent found memory that works yet, lets loop until all area is tested
 	bne	.done
 .next:
 	move.l	d0,(a1)			; put a note at the first found address. to mark this as already tagged
-	move.l	a0,4(a1)		; put a note of first block found
-	move.l	a1,8(a1)		; where this block was
-	move.l	d1,12(a1)		; total amount of 64k blocks found
-					; Strangly enough. this seems to also write onscreen at diagrom?
-	add.l	#256*1024,a1		; Add 256k for next block to test
+	move.l	a0,4(a1)			; put a note of first block found
+	move.l	a1,8(a1)			; where this block was
+	move.l	d1,12(a1)			; total amount of 64k blocks found
+						; Strangly enough. this seems to also write onscreen at diagrom?
+	add.l	#256*1024,a1			; Add 256k for next block to test
 	bra	.Detect
 .shadowdone:
-	TOGGLEPWRLED			; Flash with powerled doing this.. 
+	TOGGLEPWRLED				; Flash with powerled doing this.. 
 .done:
-	move.l	d7,a3			; Restore jumpaddress
+	move.l	d7,a3				; Restore jumpaddress
 	sub.l	#1,a1
 	jmp	(a3)
 
@@ -2493,17 +2494,17 @@ InputHexNum:					; Inputs a 32 bit hexnumber
 	cmp.b	#1,LMB(a6)
 	beq	.exit
 	bsr	WaitShort
-	jsr	GetChar				; Get a char from keyboard/serial
+	jsr	GetChar			; Get a char from keyboard/serial
 	bsr	WaitLong
-	cmp.b	#"x",d0				; did user press X?
+	cmp.b	#"x",d0			; did user press X?
 	beq	.xpressed
-	cmp.b	#$7f,d0				; did we have backspace from serial?
+	cmp.b	#$7f,d0			; did we have backspace from serial?
 	beq	.backspace
 .gethex:
 	jsr	GetHex				; Strip it to hexnumbers
 	cmp.b	#0,d0				; if returned value is 0, we had no keypress
 	beq	.no
-	cmp.b	#$1b,d0				; Was ESC pressed?
+	cmp.b	#$1b,d0			; Was ESC pressed?
 	beq	.exit				; if so, Exit
 	cmp.b	#$a,d0				; did user press enter?
 	beq	.enter				; if so, we are done
@@ -2566,7 +2567,7 @@ InputHexNum:					; Inputs a 32 bit hexnumber
 	move.b	(a5,d6),d0			; load char in string
 	cmp.b	#0,d0				; is it a null?
 	beq	.null
-	cmp.b	#" ",d0				; same with space
+	cmp.b	#" ",d0			; same with space
 	beq	.null
 	add.b	#1,d6				; nope, so lets add 1 to the counter
 	cmp.b	#8,d6				; Check if we actually DID have 8 chars, then no rotate of data is needed
@@ -2712,17 +2713,17 @@ InputDecNum:					; Inputs a 32 bit hexnumber
 	cmp.b	#1,LMB(a6)
 	beq	.exit
 	bsr	WaitShort
-	jsr	GetChar				; Get a char from keyboard/serial
+	jsr	GetChar			; Get a char from keyboard/serial
 	bsr	WaitLong
-	cmp.b	#"x",d0				; did user press X?
+	cmp.b	#"x",d0			; did user press X?
 	beq	.xpressed
-	cmp.b	#$7f,d0				; did we have backspace from serial?
+	cmp.b	#$7f,d0			; did we have backspace from serial?
 	beq	.backspace
 .getdec:
 	jsr	GetDec				; Strip it to hexnumbers
 	cmp.b	#0,d0				; if returned value is 0, we had no keypress
 	beq	.no
-	cmp.b	#$1b,d0				; Was ESC pressed?
+	cmp.b	#$1b,d0			; Was ESC pressed?
 	beq	.exit				; if so, Exit
 	cmp.b	#$a,d0				; did user press enter?
 	beq	.enter				; if so, we are done
@@ -2814,14 +2815,14 @@ hexbytetobin:
 	add.l	d1,d2				; add d1 to d2, d2 will now contain this byte in binary
 	rts
 .tobin:
-	cmp.b	#"A",d2				; Check if it is "A"
-	blt	.nochar				; Lower then A, this is not a char
+	cmp.b	#"A",d2			; Check if it is "A"
+	blt	.nochar			; Lower then A, this is not a char
 	sub.l	#7,d2				; ok we have a char, subtract 7
 .nochar:
-	sub.l	#$30,d2				; Subtract $30, converting it to binary.
+	sub.l	#$30,d2			; Subtract $30, converting it to binary.
 	rts
 
-decbin:						; Convert a decimal string to binary number
+decbin:					; Convert a decimal string to binary number
 						; IN:
 						;	A0 = String (NO SYNTAXCHECK!)
 						; OUT:
@@ -2834,7 +2835,7 @@ decbin:						; Convert a decimal string to binary number
 .loop:
 	sub.l	#1,d0				; Subtract 1 to the length
 	move.b	(a0,d0),d1			; get char from the string
-	sub.b	#"0",d1				; Subtract "0" to get the binary number
+	sub.b	#"0",d1			; Subtract "0" to get the binary number
 	mulu	d7,d1				; multiply with whats in d7 to d1 to get what to add in the result
 	add.l	d1,d2				; add it to d2
 	mulu	#10,d7				; multiply 10 do d7 to get next value to add for next char
@@ -2848,7 +2849,7 @@ decbin:						; Convert a decimal string to binary number
 MakePrintable:
 						; Makes the char in D0 printable. remove controlchars etc.
 	cmp.b	#" ",d0
-	ble	.lessthenspace			; is less then space.. make it space.
+	ble	.lessthenspace		; is less then space.. make it space.
 	rts
 .lessthenspace:
 	move.b	#" ",d0
@@ -2917,7 +2918,7 @@ DevPrint:
 	rts
 
 hextab:
-	dc.b	"0123456789ABCDEF"	; For bin->hex convertion
+	dc.b	"0123456789ABCDEF"		; For bin->hex convertion
 
 	EVEN
 EnglishKey::

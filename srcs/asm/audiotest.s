@@ -12,7 +12,6 @@ AudioMenu:
        bra	MainLoop
 
 AudioSimple:
-FAN:
        
        bsr	ClearScreen
        move.w	#0,MenuNumber(a6)
@@ -279,11 +278,11 @@ FAN:
        move.l	a6,a0
        cmp.b	#1,LMB(a6)		;Check if Left mousebutton was pressed
        bne	.nolmb			;if not skip
-       bsr	.volup
+       bsr	.voldown
 .nolmb:
        cmp.b	#1,RMB(a6)		;Check if Right mousebutton was pressed
        bne	.normb
-       bsr	.voldown
+       bsr	.volup
 .normb:
        move.w	#4,(a0)+
        move.l	#OFF,(a0)+

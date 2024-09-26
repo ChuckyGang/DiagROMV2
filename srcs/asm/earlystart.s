@@ -249,7 +249,7 @@ _begin:
 	KPRINTC _InitP2MMBtxt
 .pnop2mmb:
 	cmp.l	#0,d0
-	beq	.nopressed		; if no mouse was pressed skip next print
+	beq	.nopressed			; if no mouse was pressed skip next print
 
 .nopressed:
 
@@ -286,7 +286,7 @@ _romadrcheck:
 	cmp.l	#0,d3				; check if d3 was 0 if not.  we had an error and go to .err
 	bne.s	.err
 	KPRINTC _dottxt			; print a "."
-	bchg	#1,$bfe001
+	bchg	#1,$bfe001	
 	move.b	$dff006,$dff181
 	clr.l	d3				; clear d3
 	bra	.noerr				; do next
@@ -444,37 +444,37 @@ done:
 .enoughmem:
 	KPRINTC	_blockok
 
-	clr.l	d0					; Clear d0 that is a temporary statusregister
+	clr.l	d0				; Clear d0 that is a temporary statusregister
 
 ; We will print the result on the serialport later.
 
 ; OK lets check mousepresses again to tell what mode of operation to use.
-	btst	#6,$bfe001		; Check LMB port 1
-	bne	.NOP1LMB		; NOT pressed.. Skip to next
+	btst	#6,$bfe001			; Check LMB port 1
+	bne	.NOP1LMB			; NOT pressed.. Skip to next
 	bset	#19,d0
 .NOP1LMB:
-	btst	#7,$bfe001		; Check LMB port 2
+	btst	#7,$bfe001			; Check LMB port 2
 	bne	.NOP2LMB
 	bset	#18,d0
 .NOP2LMB:
-	btst	#10,$dff016		; Check RMB port 1
+	btst	#10,$dff016			; Check RMB port 1
 	bne	.NOP1RMB
 	bset	#17,d0
 .NOP1RMB:
-	btst	#14,$dff016		; Check RMB port 2
+	btst	#14,$dff016			; Check RMB port 2
 	bne	.NOP2RMB
 	bset	#16,d0
 .NOP2RMB:
-	btst	#8,$dff016		; Check MMB Port 1
+	btst	#8,$dff016			; Check MMB Port 1
 	bne	.NOP1MMB
-	bset	#15,d0			; MMB Port 1
+	bset	#15,d0				; MMB Port 1
 .NOP1MMB:
-	btst	#12,$dff016		; Check MMB Port 2
+	btst	#12,$dff016			; Check MMB Port 2
 	bne.s	.NOP2MMB
-	bset	#14,d0			; MMB Port 2
+	bset	#14,d0				; MMB Port 2
 .NOP2MMB:
 	move.l	a7,d6
-	or.l	d0,d6			; merge in the result into the A7 statusregister
+	or.l	d0,d6				; merge in the result into the A7 statusregister
 	move.l	d6,a7			
 	KPRINTC _PostInitmousetxt
 	btst	#19,d0
@@ -544,7 +544,7 @@ done:
 	KPRINTC _InitP2MMBtxt
 .pnop2mmb:
 	cmp.l	#0,d0
-	beq	.nopressed		; if no mouse was pressed skip next print
+	beq	.nopressed			; if no mouse was pressed skip next print
 .nopressed:
 	KPRINTC _newlinetxt	
 
@@ -553,7 +553,7 @@ done:
 ; Most of the initcode is done
 ;
 ;--------------------------------------------------------------------------------------------------------------------------------------
-	move.l	a7,d0							; lets do a check what mode to start with by taking status of mousebuttons at poweron
+	move.l	a7,d0				; lets do a check what mode to start with by taking status of mousebuttons at poweron
 	move.l	d0,d1
 	move.l	d0,d2
 	and.l	#%00111111000000000000000000000000,d1		; mask out bits from poweron
@@ -562,14 +562,14 @@ done:
 	asr.l	#8,d1
 	asr.l	#8,d1
 	asr.l	#8,d2
-	asr.l	#6,d2							; rotate bits to "start" of register
-	eor.l	d1,d2							; d2 now will contain what bits was NOT stuck
+	asr.l	#6,d2				; rotate bits to "start" of register
+	eor.l	d1,d2				; d2 now will contain what bits was NOT stuck
 	move.l	d1,d3
-	eor.l	d2,d3							; d3 contains stuck bits.  so 0=no stuck
+	eor.l	d2,d3				; d3 contains stuck bits.  so 0=no stuck
 	cmp.b	#0,d3
 	bne	.nostuck
 	move.l	a7,d7
-	bset	#11,d7							; Set bit 11 to show we had stuck keys
+	bset	#11,d7				; Set bit 11 to show we had stuck keys
 	move.l	d7,a7
 .nostuck:
 	btst	#5,d2
@@ -577,13 +577,13 @@ done:
 	btst	#4,d2
 	bne	.LMB
 .LMBDONE:
-	move.l	a6,d3					; Make a backup of what was in A6 to D3 to save it as it contains data needed later
+	move.l	a6,d3				; Make a backup of what was in A6 to D3 to save it as it contains data needed later
 	move.l	a3,d0
 	sub.l	#RAMUsage,d0
 	and.l	#$fffffffc,d0			; Make sure is is even to a longword
 	move.l	d0,a6				; we MIGHT have a change of where baseaddress shold be so set it again
 
-	move.l	a7,d0							; lets do a check what mode to start with by taking status of mousebuttons at poweron
+	move.l	a7,d0				; lets do a check what mode to start with by taking status of mousebuttons at poweron
 	move.l	d0,d1
 	move.l	d0,d2
 	and.l	#%00111111000000000000000000000000,d1		; mask out bits from poweron
@@ -592,9 +592,9 @@ done:
 	asr.l	#8,d1
 	asr.l	#8,d1
 	asr.l	#8,d2
-	asr.l	#6,d2							; rotate bits to "start" of register
-	eor.l	d1,d2							; d2 now will contain what bits was NOT stuck
-							; rotate bits to "start" of register
+	asr.l	#6,d2				; rotate bits to "start" of register
+	eor.l	d1,d2				; d2 now will contain what bits was NOT stuck
+						; rotate bits to "start" of register
 	btst	#3,d2
 	bne	.RMB
 	btst	#2,d2
@@ -671,12 +671,13 @@ done:
 	move.l	d4,ChipStart(a6)		; and start of it
 	move.l	d6,ChipEnd(a6)
 
+
 .nofastatboot:
 	move.l	d1,startupflags(a6)		; Store startupflags as we used the A7 register for this. (we had an backup in D1)
 	move.l	a6,startblock(a6)		; Store where workblock starts
 	move.l	a1,endblock(a6)		; Store where the workblock ends
 
-	move.l	#STACKSIZE,stack_size(a6)		; store our stack size
+	move.l	#STACKSIZE,stack_size(a6)	; store our stack size
 	lea.l	GlobalVars_sizeof(a6),sp	; stack area starts right after global vars
 	adda.l	#32,sp				; add a SMALL buffer
 	KPRINTC _stacktxt
@@ -684,37 +685,37 @@ done:
 	and.l	#$fffffffe,d0
 	move.l	d0,sp				; Make sure this is at an even address
 	KPRINTLONG
-	move.l	sp,stack_mem(a6)			; store the address of the stack
+	move.l	sp,stack_mem(a6)		; store the address of the stack
 	move.l	stack_size(a6),d1
-	add.l	d1,sp					; add size to stack as it grows backwards.
+	add.l	d1,sp				; add size to stack as it grows backwards.
 	KPRINTC _stacksettxt
 	move.l	sp,d0
 	KPRINTLONG
 	move.l	a6,d0
 	add.l	#EndVar+4,d0
-	move.l	d0,EndVar(a6)				; Store the end of the variableblock
-	move.l	SP,d0					; As we just set the stack. bitplanes are after it!
-	add.l	#8,d0					; add a small buffer
-	move.l	d0,ChipmemBlock(a6)			; Store pointer to the chipmemblock
+	move.l	d0,EndVar(a6)			; Store the end of the variableblock
+	move.l	SP,d0				; As we just set the stack. bitplanes are after it!
+	add.l	#8,d0				; add a small buffer
+	move.l	d0,ChipmemBlock(a6)		; Store pointer to the chipmemblock
 	KPRINTC _chipblocktxt
 	KPRINTLONG
-	move.l	d0,BPL(a6)				; Store that pointer to BPL
+	move.l	d0,BPL(a6)			; Store that pointer to BPL
 	move.l	#Bpl1str,d1
 	move.l	#Bpl2str,d2
 	sub.l	d1,d2
 	sub.l	#4,d2
-	move.l	d2,BPLSIZE(a6)			; Store the size of a bitplane
+	move.l	d2,BPLSIZE(a6)		; Store the size of a bitplane
 	KPRINTC _starttxt
 
 	bra	Initcode
 
-	move.l	current_vhpos(a6),d1	; read back the vhpos
-	;lsr.w	#8,d0					; we want the lower vertical byte
+	move.l	current_vhpos(a6),d1		; read back the vhpos
+	;lsr.w	#8,d0				; we want the lower vertical byte
 	;bsr		_test_function	; d0 = $600dc0de 	
 
 
 	.error:
-	move.b	d0,$dff181				; color the background
+	move.b	d0,$dff181			; color the background
 	bra	.error
 
 .memcheck:					; IN:
@@ -744,7 +745,7 @@ done:
 	bge	.comparedone			; YUPP!
 	move.l	(a1)+,d0			; load first value into d0
 	move.l	d0,(a6)			; write that value into where a1 points to.
-	move.l	#"CRAP",4(a6)		; Write crapdata in the bus! this is to make sure buffers have wrong data if no memory and read next time just reads "whatever was on the bus"
+	move.l	#"CRAP",4(a6)			; Write crapdata in the bus! this is to make sure buffers have wrong data if no memory and read next time just reads "whatever was on the bus"
 	nop
 	nop
 	nop					; just do some nops.. to take some time.
@@ -1015,7 +1016,7 @@ DumpSerial:
 	btst	#31,d7				; Check if timeoutbit is set.. if so skip this
 	bne	.nomore
 	move.w	#$4000,$dff09a
-	move.w	#INITBAUD,$dff032			; Set the speed of the serialport (115200BPS)
+	move.w	#INITBAUD,$dff032		; Set the speed of the serialport (115200BPS)
 	move.b	#$4f,$bfd000			; Set DTR high
 	move.w	#$0801,$dff09a
 	move.w	#$0801,$dff09c
@@ -1138,6 +1139,14 @@ detectmem:
 	move.l	#"CRAP",4(a1)			; Write crapdata into memaddress next to that we check. just to make sure buffers etc put something else on the bus.
 						; (HELLO 3000 and AA3000+ I am talking to your weird behaviour)
 	nop
+	nop
+	move.l	4(a1),d0			; Crapread.. just to read stuff from buffers etc
+	move.l	#0,4(a1)
+	move.l	#"NAHH",4(a1)
+	move.l	#-1,4(a4)			; more crap data to write.. just to make sure the "real" data is not in any buffer etc
+	move.l	d3,d0
+	eor.l	#$ffffffff,d0
+	move.l	d0,4(a1)			; so before reading memory again. buffer should not contain exact opposite of what is expected.
 	nop
 	nop					; Just do some NOPs. "to be sure"
 	move.l	(a1),d0
@@ -1275,9 +1284,9 @@ ShowErr:
 	jmp	(a6)
 
 
-POSTBusError:				; Hardcoded pointers
-POSTAddressError:			; if something is wrong rom starts at $0
-POSTIllegalError:			; so this will actually be pointers to
+POSTBusError:					; Hardcoded pointers
+POSTAddressError:				; if something is wrong rom starts at $0
+POSTIllegalError:				; so this will actually be pointers to
 POSTDivByZero:				; traps.
 POSTChkInst:
 POSTTrapV:

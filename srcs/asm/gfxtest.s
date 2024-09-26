@@ -212,7 +212,7 @@ GFXTestRaster:
 GFXTestRGB:
 	jsr	ClearScreen
 	move.l	#257*40,d0					; Amount of memory needed for one bitplan
-	PAUSE
+	
 	add.l	#GFXColTestCopperSize,d0	; Add for size of copperlist
 	bsr	GetChip						; Get chipmem needed.
 	cmp.l	#2,d0						; Check if 2 or lower
@@ -257,7 +257,7 @@ GFXTestRGB:
 	move.b	d1,(a0)						; Replace first byte with the real row
 	add.l	#4,a0
 	move.w	#$0180,(a0)+
-	move.w	#$fff,(a0)+
+	move.w	#$444,(a0)+
 	move.w	#$0182,(a0)+
 	move.w	d2,d3
 	asl.w	#8,d3						; Make color red
@@ -502,7 +502,7 @@ DrawLine:
 	add.w	d4,d2
 	add.w	d4,d3
 	move.l	a1,d4			; Width in work register
-	mulu	d1,d4			;Y1 * byte per line
+	mulu	d1,d4			; Y1 * byte per line
 	moveq	#-$10,d5		; No leading characters $f0
 	and.w	d0,d5			; Bottom four bits masked from x1
 	lsr.w	#3,d5			; Reminder divided by 8
