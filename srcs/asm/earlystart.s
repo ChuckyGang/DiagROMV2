@@ -36,7 +36,8 @@ STACKSIZE:	EQU	8192						; Set the size of the stack
 	;	A BIG ThankYou to Erik Hemming for helping me with thie Visual Code setup allowing me to combine asm/c etc.
 	
 _start:
-		dc.b	"DIAG"
+		bsr.b	_exe
+		dc.w 	0
 		dc.l	_begin	
 		dc.l	POSTBusError				; Hardcoded pointers
 		dc.l	POSTAddressError			; if something is wrong rom starts at $0
@@ -47,6 +48,14 @@ _start:
 		dc.l	POSTPrivViol
 		dc.l	POSTTrace
 		dc.l	POSTUnimplInst
+
+DIAG	dc.b	"DIAG"
+
+_exe:
+		move.w	$dff006,$dff180
+		btst 	#6,$bfe001
+		bne.b  _exe
+		rts
 
 _strstart:
 		dc.b	"IHOL : :6U6U,A,B1U1U5767U,U,8181 1 0    "	; This string will make a readable text on each 32 bit
@@ -320,7 +329,7 @@ done:
 
 	KPRINTC	_releasemousetxt
 	KPRINTC	_checkovltxt
-	cmp.l	#"DIAG",$0			; Check if $0 contains "DIAG" if so, OVL is NOT working.
+	cmp.l	#"DIAG",DIAG-_start			; Check if $0 contains "DIAG" if so, OVL is NOT working.
 	bne	.ovlok
 	move.l	a7,d0
 	bset	#9,d0				; Set we had OVL Error
