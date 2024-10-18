@@ -2,7 +2,7 @@
 
 # SPDX-License-Identifier: MIT
 
-# python3 -m pip import libclang==16.0.6
+# python3 -m pip install libclang==16.0.6
 
 #
 # Converts C-structs to Amiga OS assembler structure defines.
