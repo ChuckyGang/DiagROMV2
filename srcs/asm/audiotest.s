@@ -12,7 +12,6 @@ AudioMenu:
        bra	MainLoop
 
 AudioSimple:
-       
        bsr	ClearScreen
        move.w	#0,MenuNumber(a6)
        move.b	#1,PrintMenuFlag(a6)
@@ -93,7 +92,7 @@ AudioSimple:
        cmp.b	#4,d0				; Check if we are on the line for volume
        bne.w	.novol
 .volume:
-       cmp.b	#0,AudioVolSelect(a6)		; Have volume been selected before?
+       cmp.b	#0,AudioVolSelect(a6)	; Have volume been selected before?
        bne	.yesselected
        move.b	#1,AudioVolSelect(a6)
        move.l	#0,d0
@@ -170,7 +169,7 @@ AudioSimple:
        move.b	(a2),d1
        asl.l	#2,d1
        lea.l	AudioName,a2
-       move.l	(a2,d1.w),(a1)+			; Write Stringpointer
+       move.l	(a2,d1.w),(a1)+		; Write Stringpointer
        bsr	CheckOnOff
        move.w	d0,(a1)+			; Write color
        move.l	d1,(a1)+			; Write Stringpointer
@@ -195,7 +194,7 @@ AudioSimple:
        move.b	AudSimpVol(a6),d7
        move.w	d7,$dff0a8			;volume
        lea	AudioLen,a2
-       move.w	(a2,d1),$dff0a4			;number of words
+       move.w	(a2,d1),$dff0a4		;number of words
        lea    AudioPer,a2
        move.w	(a2,d1),$dff0a6
        move.w	#$8201,$dff096
@@ -209,9 +208,9 @@ AudioSimple:
        move.b	AudSimpVol(a6),d7
        move.w	d7,$dff0b8			;volume
        lea	AudioLen,a2
-       move.w	(a2,d1),$dff0b4			;number of words
+       move.w	(a2,d1),$dff0b4		;number of words
        lea	AudioPer,a2
-       move.w	(a2,d1),$dff0b6			;frequency
+       move.w	(a2,d1),$dff0b6		;frequency
        move.w	#$8202,$dff096
        bra	.checkch3
 .noch2:
@@ -223,9 +222,9 @@ AudioSimple:
        move.b	AudSimpVol(a6),d7
        move.w	d7,$dff0c8			;volume
        lea	AudioLen,a2
-       move.w	(a2,d1),$dff0c4			;number of words
+       move.w	(a2,d1),$dff0c4		;number of words
        lea	AudioPer,a2
-       move.w	(a2,d1),$dff0c6			;frequency
+       move.w	(a2,d1),$dff0c6		;frequency
        move.w	#$8204,$dff096
        bra	.checkch4
 .noch3:
@@ -237,9 +236,9 @@ AudioSimple:
        move.b	AudSimpVol(a6),d7
        move.w	d7,$dff0d8			;volume
        lea	AudioLen,a2
-       move.w	(a2,d1),$dff0d4			;number of words
+       move.w	(a2,d1),$dff0d4		;number of words
        lea	AudioPer,a2
-       move.w	(a2,d1),$dff0d6			;frequency
+       move.w	(a2,d1),$dff0d6		;frequency
        move.w	#$8208,$dff096
        bra	.checkdone
 .noch4:
@@ -276,7 +275,7 @@ AudioSimple:
        bra	.loop
 .vol:
        move.l	a6,a0
-       cmp.b	#1,LMB(a6)		;Check if Left mousebutton was pressed
+       cmp.b	#1,LMB(a6)           ;Check if Left mousebutton was pressed
        bne	.nolmb			;if not skip
        bsr	.voldown
 .nolmb:

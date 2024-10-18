@@ -10,6 +10,7 @@
 	xdef	oldbindec
 	xdef	binhex
 	xdef	CopyMem
+	xdef	_Print
 	xdef	Print
 	xdef	PrintChar
 	xdef	PutChar
@@ -149,7 +150,7 @@ rs232_out:
 .noserial:
 	;PAUSE2
 	rts
-
+_Print:
 Print:						; Prints a string
 	PUSH					; INDATA:
 	clr.l	d7				; Clear d7

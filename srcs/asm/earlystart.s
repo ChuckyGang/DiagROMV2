@@ -343,6 +343,7 @@ done:
 	lea	$0,a6				; Start to detect ram at $0, as below that is cpu controlstuff only anyways.
 						; ACTUALLY detectroutine will change this to $400 as first k on a 68k is for CPU registers and stuff
 	lea	$0,a3				; Clear a3
+
 .chiploop:
 	lea	.memcheckdone,a4		; As we do not have a stack. mark where to jump to after memcheck is done
 	jmp	.memcheck			; Do the memorycheck, lets find some chipmem
@@ -393,6 +394,7 @@ done:
 	bge	.nochip			; if so we did not have enough of chipram
 
 	KPRINTC _notenoughtxt
+	move.l	a3,d2
 	asr.l	#8,d2
 	asr.l	#7,d2				; Divide next block by 64k
 	add.l	#1,d2				; add one!
@@ -744,18 +746,23 @@ done:
 	cmpa.l	#$200000,a6			; Have we reached the end of chipmem?
 	bge	.comparedone			; YUPP!
 	move.l	(a1)+,d0			; load first value into d0
-	move.l	d0,(a6)			; write that value into where a1 points to.
-	move.l	#"CRAP",4(a6)			; Write crapdata in the bus! this is to make sure buffers have wrong data if no memory and read next time just reads "whatever was on the bus"
+	move.l	d0,d1
+	eor.l	#$ffffffff,d1			; make d1 an exact opposite of what we just read
+	move.l	d1,(a6)			; Write a complete OPPOSITE what we will expect!
+	nop
+	nop
+	move.l	d0,(a6)
+	move.l	d1,4(a6)			; Write crapdata (exact opposite) on the bus! this is to make sure buffers have wrong data if no memory and read next time just reads "whatever was on the bus"
 	nop
 	nop
 	nop					; just do some nops.. to take some time.
 	move.l	(a6),d1			; load value where a6 points to d1
 
-;	cmpa.l	#18*1024,a6			; check to create an error
+;	cmpa.l	#0*1024,a6			; check to create an error
 ;	ble	.nott				; lines to be removed
-;	cmpa.l	#1024*1024,a6
+;	cmpa.l	#2048*1024,a6
 ;	bge	.nott
-
+;	eor.l	#$ffffffff,d1			; MAKE AN ERROR!  KUK!
 
 .nott:
 
@@ -772,6 +779,7 @@ done:
 	bne	.endblock
 	KPRINTC _newlinetxt			; We had an error, so print that
 	KPRINTC _addrtxt
+	bchg	#1,$bfe001
 	move.l	a7,d0
 	bset	#23,d0				; Set bit that we had biterrors in chipmem
 	move.l	d0,a7
@@ -811,6 +819,7 @@ done:
 	KPRINTC	_memoktxt
 	add.l	#1,d3				; Add 1 to found blocks
 	move.l	d3,d0
+	bchg	#1,$bfe001
 	DBINDEC
 	KPRINT
 	KPRINTC	_beginrowtxt
@@ -1150,6 +1159,7 @@ detectmem:
 	nop
 	nop					; Just do some NOPs. "to be sure"
 	move.l	(a1),d0
+
 	eor.l	d3,d0
 	or.l	d0,d5				; Add biterrors to d5
 
