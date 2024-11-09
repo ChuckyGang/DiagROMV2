@@ -52,10 +52,65 @@ _start:
 DIAG	dc.b	"DIAG"
 
 _exe:
-		move.w	$dff006,$dff180
-		btst 	#6,$bfe001
-		bne.b  _exe
-		rts
+	clr.l	d0
+	clr.l	d1
+	clr.l	d2
+	clr.l	d3
+	clr.l	d4
+	clr.l	d5
+	clr.l	d6
+	clr.l	d7
+	lea	0,a0
+	lea	$400,a2
+	lea	$1fffff,a3
+	lea	0,a4
+	lea	0,a5
+
+       lea    $100000,a6                  ; fake a Start for Diagrom
+       lea    $200000,a1                  ; Fake an end for chipmem
+	move.l	#0,startupflags(a6)		; Store startupflags as we used the A7 register for this. (we had an backup in D1)
+	move.l	a6,startblock(a6)		; Store where workblock starts
+	move.l	a1,endblock(a6)		; Store where the workblock ends
+
+	move.l	#STACKSIZE,stack_size(a6)	; store our stack size
+	lea.l	GlobalVars_sizeof(a6),sp	; stack area starts right after global vars
+	adda.l	#32,sp				; add a SMALL buffer
+	move.l	a6,a0
+	move.l	#GlobalVars_sizeof,d0
+.clrloop:
+	clr.b	(a0)+
+	dbf	d0,.clrloop
+	PAUSE2
+	;KPRINTC _stacktxt
+	move.l	sp,d0
+	and.l	#$fffffffe,d0
+	move.l	d0,sp				; Make sure this is at an even address
+	;KPRINTLONG
+	move.l	sp,stack_mem(a6)		; store the address of the stack
+	move.l	stack_size(a6),d1
+	add.l	d1,sp				; add size to stack as it grows backwards.
+	;KPRINTC _stacksettxt
+	move.l	sp,d0
+	;KPRINTLONG
+	move.l	a6,d0
+	add.l	#EndVar+4,d0
+	move.l	d0,EndVar(a6)			; Store the end of the variableblock
+	move.l	SP,d0				; As we just set the stack. bitplanes are after it!
+	add.l	#8,d0				; add a small buffer
+	move.l	d0,ChipmemBlock(a6)		; Store pointer to the chipmemblock
+	;KPRINTC _chipblocktxt
+	;KPRINTLONG
+	move.l	d0,BPL(a6)			; Store that pointer to BPL
+	move.l	#Bpl1str,d1
+	move.l	#Bpl2str,d2
+	sub.l	d1,d2
+	sub.l	#4,d2
+	move.l	d2,BPLSIZE(a6)		; Store the size of a bitplane
+	;KPRINTC _starttxt
+	PAUSE
+	bra	Initcode
+       rts
+
 
 _strstart:
 		dc.b	"IHOL : :6U6U,A,B1U1U5767U,U,8181 1 0    "	; This string will make a readable text on each 32 bit
@@ -717,7 +772,6 @@ done:
 	sub.l	#4,d2
 	move.l	d2,BPLSIZE(a6)		; Store the size of a bitplane
 	KPRINTC _starttxt
-
 	bra	Initcode
 
 	move.l	current_vhpos(a6),d1		; read back the vhpos

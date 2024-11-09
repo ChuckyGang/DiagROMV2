@@ -1,11 +1,12 @@
 
 #include "globalvars.h"
-
-__section(".text") void Print(__reg("a0") int *a, __reg("d1") int b);
-
+#include "generic.h"
 
 
-__section(".text") uint32_t test_function(__reg("a6") struct GlobalVars* globals)
+//void Print(__reg("a0") int *a, __reg("d1") int b);
+void Print(__reg("a0") int *string, __reg("d1") int color);
+
+uint32_t test_function(VARS)
 {
 	// fill out current vhpos
 	uint32_t* vhposr = (uint32_t*)0xdff004;

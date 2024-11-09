@@ -8,6 +8,7 @@
 	xdef	WaitShort
 	xdef	bindec
 	xdef	oldbindec
+	xdef	_binhex
 	xdef	binhex
 	xdef	CopyMem
 	xdef	_Print
@@ -24,6 +25,7 @@
 	xdef 	EnglishKey
 	xdef	EnglishKeyShifted
 	xdef	ClearBuffer
+	xdef	_GetInput
 	xdef	GetInput
 	xdef	DefaultVars
 	xdef	UnimplInst
@@ -58,6 +60,7 @@
 	xdef	DisableCache
 	xdef	SameRow
 	xdef	DevPrint
+	xdef	_PAUSE
 
 	; This contains the generic code for all general-purpose stuff
 GetHWReg:					; Dumps all readable HW registers to memory
@@ -85,6 +88,10 @@ GetHWReg:					; Dumps all readable HW registers to memory
 DefaultVars:					; Set defualtvalues
 	move.l	$400,CheckMemEditScreenAdr(a6)
 	move.b	#0,skipnextkey(a6)
+	rts
+
+_PAUSE:
+	PAUSE
 	rts
 
 Init_Serial:
@@ -1039,11 +1046,16 @@ bindec:		movem.l	d1-d5/a1,-(sp)
 .b2dExit:	movem.l	(sp)+,d1-d5/a1
 		rts
 
+_binhex:
+	bsr	binhex
+	move.l	a0,d0
+	rts
+
 binhex:					; Converts a binary number to hex
 	; INDATA:
 	;	D0 = binary nymber
 	; OUTDATA:
-	;	A0 = Pointer to "binhexoutput" contiaing the string
+	;	A0 = Pointer to "binhexoutput" containing the string
 	PUSH
 	lea	hextab,a1			; location of hexstring source
 	lea	binhexoutput(a6),a0
@@ -1448,7 +1460,7 @@ binstring:
 	POP
 	lea	binstringoutput(a6),a0
 	rts
-
+_GetInput:
 GetInput:
 						; Check inputsignals and return actions.
 						; in: none

@@ -5,6 +5,7 @@
        xdef   MainMenu
 	xdef	PrintStatus
 	xdef	UpdateStatus
+	xdef	_InitScreen
 	xdef	InitScreen
 	xdef	MainLoop
 	xdef	PrintMenu
@@ -14,8 +15,6 @@
 	xdef	SwapMode
 
 MainLoop:
-	bsr	_test_function
-	PAUSE
        move.l	#0,a0
        bsr	PrintMenu			; Print or update the menu
        bsr	GetInput			; Scan keyboard, mouse, buttons, serialport etc..
@@ -377,6 +376,7 @@ PrintMenu:
 	POP
 	rts
 
+_InitScreen:
 InitScreen:
 	bsr	ClearScreen
 	bsr	PrintStatus

@@ -516,6 +516,7 @@ TestBTOD:
 	rts
 
 IRQCIATest:
+	bsr	_IRQCIATestC
        bra    MainMenu
 
 

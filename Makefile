@@ -68,10 +68,10 @@ run_test: diagrom.rom
 	# Use 'socat pty,raw,echo=0,link=/tmp/virtual-serial-port -,raw,echo=0,crlf' to read serial
 	fs-uae --kickstart_file=diagrom.rom --console_debugger=1 --serial_port=/tmp/virtual-serial-port
 
-diagrom.adf: $(OUTDIR)/diagrom.exe
+diagrom.adf: $(OUTDIR)\diagrom.exe
 	$(CP) $< diagrom.exe
-	echo $@ > build/startup-sequence
-	xdftool -f $@.adf create + format diagrom + boot install + write diagrom.exe + makedir s + write build/startup-sequence s
+	echo diagrom.exe > build/startup-sequence
+	xdftool -f $@ create + format diagrom + boot install + write diagrom.exe + makedir s + write build/startup-sequence s
 
 run_test_disk: diagrom.adf
 	fs-uae --console_debugger=1 --serial_port=/tmp/virtual-serial-port --floppy_drive_0=$<
