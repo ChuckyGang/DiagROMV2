@@ -1,0 +1,16 @@
+{
+    "editor.rulers": [],
+    "editor.glyphMargin": false,
+    "[m68k]": {
+        "editor.rulers": []
+    },
+    "editor.tabSize": 7,
+    "makefile.launchConfigurations": [
+        {
+            "cwd": "c:\\Users\\John\\Documents\\Code\\GIT\\DiagROMV2\\build",
+            "binaryPath": "c:\\Users\\John\\Documents\\Code\\GIT\\DiagROMV2\\build\\checksum",
+            "binaryArgs": []
+        }
+    ],
+    "makefile.makefilePath": "Makefile"
+}

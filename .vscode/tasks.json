@@ -1,0 +1,9 @@
+{
+       "version": "2.0.0",
+       "tasks": [{
+           "label": "echotest",
+           "command": ".\\run.bat", // Could be any other shell command
+           "args": ["test"],
+           "type": "shell"
+       }]
+   }
