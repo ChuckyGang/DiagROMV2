@@ -6,6 +6,7 @@
 	xdef	Init_Serial
 	xdef	SendSerial
 	xdef	WaitShort
+	xdef	_bindec
 	xdef	bindec
 	xdef	oldbindec
 	xdef	_binhex
@@ -48,9 +49,11 @@
 	xdef	InputHexNum
 	xdef	StrLen
 	xdef	GetMouse
+	xdef	_hexbin
 	xdef	hexbin
 	xdef	InputDecNum
 	xdef	hexbytetobin
+	xdef	_decbin
 	xdef	decbin
 	xdef	GetChar
 	xdef	GetHex
@@ -957,7 +960,10 @@ b2dNegative	equ	0			; 0 = Only Positive numbers
 
 	; *********************************************
 
-
+_bindec:
+	bsr	bindec
+	move.l	a0,d0
+	rts
 bindec:		movem.l	d1-d5/a1,-(sp)
 
 		moveq	#0,d1			; Clear D1/2/3/4/5
@@ -2670,6 +2676,7 @@ GetMouse:
 	move.l	InputRegister(a6),d0
 	rts
 
+_hexbin:
 hexbin:						; Converts a longword to binary.
 						; NO ERRORCHECk WHATSOEVER!
 						; Input:
@@ -2677,6 +2684,7 @@ hexbin:						; Converts a longword to binary.
 						; Output:
 						;	D0 = binary number
 						;
+	PAUSE
 	PUSH
 	clr.l	d0				; Clear D0 that will contain the binary number
 	move.l	#3,d7				; Loop this 3 times.
@@ -2834,7 +2842,7 @@ hexbytetobin:
 .nochar:
 	sub.l	#$30,d2			; Subtract $30, converting it to binary.
 	rts
-
+_decbin:
 decbin:					; Convert a decimal string to binary number
 						; IN:
 						;	A0 = String (NO SYNTAXCHECK!)
