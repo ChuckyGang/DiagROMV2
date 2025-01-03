@@ -10,7 +10,7 @@ DATEOPS= +"%Y-%m-%d"
 CP := cp
 MD = mkdir -p $(1) > /dev/null
 endif
-NDK_INC := .\NDK3.2R4\Include_H\ 
+NDK_INC := ./NDK3.2R4/Include_H 
 AS := vasmm68k_mot 
 ASOPTS := -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I. -I$(OUTDIR)/srcs
 CC := vc
@@ -69,7 +69,7 @@ run_test: diagrom.rom
 	# Use 'socat pty,raw,echo=0,link=/tmp/virtual-serial-port -,raw,echo=0,crlf' to read serial
 	fs-uae --kickstart_file=diagrom.rom --console_debugger=1 --serial_port=/tmp/virtual-serial-port
 
-diagrom.adf: $(OUTDIR)\diagrom.exe
+diagrom.adf: $(OUTDIR)/diagrom.exe
 	$(CP) $< diagrom.exe
 	echo diagrom.exe > build/startup-sequence
 	xdftool -f $@ create + format diagrom + boot install + write diagrom.exe + makedir s + write build/startup-sequence s
