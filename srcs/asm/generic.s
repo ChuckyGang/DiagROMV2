@@ -4,6 +4,7 @@
        section "generic",code_p
 	xdef	GetHWReg
 	xdef	Init_Serial
+	xdef	_SendSerial
 	xdef	SendSerial
 	xdef	WaitShort
 	xdef	_bindec
@@ -30,6 +31,7 @@
 	xdef	GetInput
 	xdef	DefaultVars
 	xdef	UnimplInst
+	xdef	_binstring
 	xdef	binstring
 	xdef	BusError
 	xdef	WaitButton
@@ -113,6 +115,7 @@ Init_Serial:
 .noser:
 	rts
 
+_SendSerial:
 SendSerial:
 		; Indata a0=string to send to serialport
 		; nullterminated
@@ -223,7 +226,7 @@ Print:						; Prints a string
 	move.l	d5,d1				; Restore d1 (color)
 	bra	.print
 	
-	PrintChar:				; Puts a char on screen and add X, Y variables depending on char etc.
+PrintChar:				; Puts a char on screen and add X, Y variables depending on char etc.
 	; INDATA: (Longwords expected)
 	;	D0 = Char
 	;	D1 = Color
@@ -1442,6 +1445,11 @@ binhexword:
 	move.b	#"$",(a0)
 	rts
 		; Same as binhex but only for one byte.
+
+_binstring:
+	bsr	binstring
+	move.l	a0,d0
+	rts
 
 binstring:
 	; Converts a binary number (longword) to binary string

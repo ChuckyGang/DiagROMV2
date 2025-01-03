@@ -139,6 +139,11 @@ ExtSizePointer::
 
 SerText::
 	dc.l	BpsNone,Bps2400,Bps9600,Bps19200,Bps38400,Bps115200,BpsLoop,BpsNone
+	EVEN
+AgnusID::
+	dc.b 0,$10,$20,$30,$22,$31,$22,$32,$23,$33,255
+
+	EVEN
 
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------
 ;
@@ -240,11 +245,11 @@ MemtestMenu10::
        EVEN
 
 IRQCIAtestMenuItems::
-       dc.l	IRQCIATestText,IRQCIATestMenu1,IRQCIATestMenu2,IRQCIATestMenu3,IRQCIAtestMenu7,0,0
+       dc.l	IRQCIATestText,IRQCIATestMenu1,IRQCIATestMenu2,IRQCIATestMenu3,IRQCIATestMenu4,IRQCIAtestMenu7,0,0
 IRQCIAtestMenuCode::
-       dc.l	IRQCIAIRQTest,IRQCIACIATest,IRQCIATest,MainMenu
+       dc.l	IRQCIAIRQTest,IRQCIACIATest,IRQCIATest,IRQTestC,MainMenu
 IRQCIAtestMenuKey::
-       dc.b	"1","2","3","9",0
+       dc.b	"1","2","3","4","9",0
 IRQCIATestText::
        dc.b	2,"IRQ & CIA Tests",$a,$a,0
 IRQCIATestMenu1::
@@ -253,6 +258,8 @@ IRQCIATestMenu2::
        dc.b	"2 - Test CIAs",0
 IRQCIATestMenu3::
        dc.b	"3 - New Experimental Test CIAs",0
+IRQCIATestMenu4::
+       dc.b	"4 - New Experimental Test IRQ",0
 IRQCIAtestMenu7::
        dc.b	"9 - Mainmenu",0
        EVEN
@@ -1166,6 +1173,21 @@ NoLoopback::
        dc.b	" NOT DETECTED",$a,$d,0
 DetectRasterTxt::
        dc.b	"Detecting if we have a working raster: ",0
+AgnusesTxt::
+	dc.b	"8367/8371 PAL ",0
+	dc.b	"8361/8370 NTSC",0
+	dc.b	"8372 R4 PAL   ",0
+	dc.b	"8372 R4 NTSC  ",0
+	dc.b	"8372 R5 PAL   ",0
+	dc.b	"8372 R5 NTSC  ",0
+	dc.b	"8374 R2 PAL   ",0
+	dc.b	"8374 R2 NTSC  ",0
+	dc.b	"8374 R3 PAL   ",0
+	dc.b	"8374 R3 NTSC  ",0
+AgnusUnknTxt:
+	dc.b	"UNKNOWN",0
+DetectAgnusTxt::
+	dc.b	"Detecting agnuschip: ",0
 DETECTED::
        dc.b	27,"[32mDETECTED",27,"[0m",0
 SFAILED::
@@ -1827,35 +1849,35 @@ DETECTEDTxt::
 	dc.b	" DETECTED",0
 
 StartupflagsTxt::
-	dc.b	$a,$a,"---- Setting up startupflags depending detections during startup",$a,$a,0
+	dc.b	$a,$a,"---- Setting up startupflags depending detections during startup",$a,$d,0
 StuckBootTxt::
-	dc.b	"Stuck at boot and being disabled",$a,0
+	dc.b	"Stuck at boot and being disabled",$a,$d,0
 SerOutDisTxt::
-	dc.b	"Serial out is disabled",$a,0
+	dc.b	"Serial out is disabled",$a,$d,0
 RomAdrErrTxt::
-	dc.b	"ROM Adressing errors during boot",$a,0
+	dc.b	"ROM Adressing errors during boot",$a,$d,0
 BitChipErrTxt::
-	dc.b	"Biterrors in chipmem during boot",$a,0
+	dc.b	"Biterrors in chipmem during boot",$a,$d,0
 ChipAdrErrTxt::
-	dc.b	"Addressserrors in chipmem during boot",$a,0
+	dc.b	"Addressserrors in chipmem during boot",$a,$d,0
 ChipNATxt::
-	dc.b	"Not enough Chipmem during boot",$a,0
+	dc.b	"Not enough Chipmem during boot",$a,$d,0
 FastBootTxt::
-	dc.b	"Fastmemscanning done during boot",$a,0
+	dc.b	"Fastmemscanning done during boot",$a,$d,0
 FastBootFoundTxt::
-	dc.b	"Fastmem found during early init",$a,0
+	dc.b	"Fastmem found during early init",$a,$d,0
 NoDrawDoneTxt::
-	dc.b	"No Printing on screen (NoDraw) being done",$a,0
+	dc.b	"No Printing on screen (NoDraw) being done",$a,$d,0
 StuckMouseTxt::
-	dc.b	"Mousebuttons Stuck",$a,0
+	dc.b	"Mousebuttons Stuck",$a,$d,0
 NoMemAt400Txt::
-	dc.b	"We had memory at $400 making IRQ, CPU Detection etc more reliable",$a,0
+	dc.b	$a,"We had memory at $400 making IRQ, CPU Detection etc more reliable",$a,$d,0
 OVLErrorTxt::
-	dc.b	"OVL Error, meaning ROM is mirrored to $0 making chipmem at romsize not available there",$a,0
+	dc.b	"OVL Error, meaning ROM is mirrored to $0 making chipmem at romsize not available there",$a,$d,0
 RevWorkorderTxt::
-	dc.b	"Reverse workorder enabled (using beginning of block instead of ending)",$a,0
+	dc.b	"Reverse workorder enabled (using beginning of block instead of ending)",$a,$d,0
 StartupFlagsDoneTxt::
-	dc.b	$a,"---- Startupflags done",$a,$a,0
+	dc.b	$a,$d,"---- Startupflags done",$a,$a,0
 EVEN
 
 

@@ -143,12 +143,12 @@ typedef struct GlobalVars
 	uint32_t	RTCold;			// How RTC first longword was read
 	uint32_t	AutoConfBoards;		// how many boards are autoconfigured
 	uint32_t	AutoConfSize;			// Size of current board
+	uint32_t	Frames;			// Number of frames shown
 
 	uint16_t	CheckMemCancel;		// if not 0 we had to cancel test
 	uint16_t	MemDetected;			// If mem was detected
 	uint16_t	IRQLev7;			// If 0 not lev 7
 	uint16_t	IRQLevDone;
-	uint16_t	Frames;			// Number of frames shown
 	uint16_t	TickFrame;			// How many frames reached when CIA test was done
 
 	uint16_t	DMACONR;
@@ -338,6 +338,22 @@ typedef struct GlobalVars
 	uint8_t	AutoConfExit;			// If anything then 0, force exit of loop
 	uint8_t	AutoConfIllegal;		// if not 0, autoconfig was illegal force shutdown of card
 	uint8_t	AutoConfZorro;		// 0 = Z2, 1=Z3
+	uint8_t	IRQ1OK;			// If set to 1 IRQ is tested ok
+	uint8_t	IRQ2OK;
+	uint8_t	IRQ3OK;
+	uint8_t	IRQ4OK;
+	uint8_t	IRQ5OK;
+	uint8_t	IRQ6OK;
+	uint8_t	IRQ7OK;
+	uint8_t	IRQ1;				// If set to 1 IRQ is triggered
+	uint8_t	IRQ2;
+	uint8_t	IRQ3;
+	uint8_t	IRQ4;
+	uint8_t	IRQ5;
+	uint8_t	IRQ6;
+	uint8_t	IRQ7;
+	uint8_t	NTSC;				// Set to 1 if a NTSC machine
+	uint8_t	AGNUS;				// What Agnus/Alice chip is used
 
 
 	uint8_t	temp[10];

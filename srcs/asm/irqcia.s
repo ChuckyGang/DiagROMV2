@@ -7,6 +7,8 @@
        xdef   IRQCIATest
 	xdef	RTEcode
 	xdef	CIALevTst
+	xdef	_CIALevTst
+	xdef	IRQTestC
 
 CIATIME	EQU	174
 ;	equ	174			(10000ms / 1.3968255 for PAL)
@@ -49,6 +51,10 @@ IRQCIAIRQTest:
 	bsr	TestIRQ
 	move.w	#$7fff,$dff09c			; Disable all INTREQ
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
+	cmp.b	#0,d0
+	bne	.fail1
+	move.b	#1,IRQ1OK(a6)
+.fail1:
 	cmp.b	#2,d0
 	bne	.done1
 	bsr	WaitReleased
@@ -66,6 +72,10 @@ IRQCIAIRQTest:
 	bsr	TestIRQ
 	move.w	#$7fff,$dff09c			; Disable all INTREQ
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
+	cmp.b	#0,d0
+	bne	.fail2
+	move.b	#1,IRQ2OK(a6)
+.fail2:
 	cmp.b	#2,d0
 	beq	.done2
 	bsr	WaitReleased
@@ -83,6 +93,10 @@ IRQCIAIRQTest:
 	bsr	TestIRQ
 	move.w	#$7fff,$dff09c			; Disable all INTREQ
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
+	cmp.b	#0,d0
+	bne	.fail3
+	move.b	#1,IRQ3OK(a6)
+.fail3:
 	cmp.b	#2,d0
 	beq	.done3
 	bsr	WaitReleased
@@ -100,6 +114,10 @@ IRQCIAIRQTest:
 	bsr	TestIRQ
 	move.w	#$7fff,$dff09c			; Disable all INTREQ
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
+	cmp.b	#0,d0
+	bne	.fail4
+	move.b	#1,IRQ4OK(a6)
+.fail4:
 	cmp.b	#2,d0
 	beq	.done4
 	bsr	WaitReleased
@@ -117,6 +135,10 @@ IRQCIAIRQTest:
 	bsr	TestIRQ
 	move.w	#$7fff,$dff09c			; Disable all INTREQ
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
+	cmp.b	#0,d0
+	bne	.fail5
+	move.b	#1,IRQ5OK(a6)
+.fail5:
 	cmp.b	#2,d0
 	beq	.done5
 	bsr	WaitReleased
@@ -134,6 +156,10 @@ IRQCIAIRQTest:
 	bsr	TestIRQ
 	move.w	#$7fff,$dff09c			; Disable all INTREQ
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
+	cmp.b	#0,d0
+	bne	.fail6
+	move.b	#1,IRQ6OK(a6)
+.fail6:
 	cmp.b	#2,d0
 	beq	.done6
 	bsr	WaitReleased
@@ -149,6 +175,10 @@ IRQCIAIRQTest:
 	bsr	TestIRQ
 	move.w	#$7fff,$dff09c			; Disable all INTREQ
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
+	cmp.b	#0,d0
+	bne	.fail7
+	move.b	#1,IRQ7OK(a6)
+.fail7:
 	cmp.b	#2,d0
 	beq	.done7
 	bsr	WaitReleased
@@ -343,7 +373,9 @@ IRQCIACIATest:
 ;	bsr	Print
 ;	rts
 
+
 CIALevTst:
+_CIALevTst:
 	move.w	#$020,$dff09c			; Enable IRQ
 	move.w	#$020,$dff09c			; Enable IRQ
 	add.w	#1,Frames(a6)				; Add 1 to Frames so we can keep count of frames shown.
@@ -556,6 +588,11 @@ TestIRQ:				; Test if IRQ was triggered
 	bsr	Print
 	rts
 
+IRQTestC:
+	bsr	_IRQTestC
+	bra	MainMenu
+
+
 IRQLevTest:					; Small IRQ Rouine, all it does is to set IRQLevDone to 1
 	move.w	#$fff,$dff180
 	move.w	#1,IRQLevDone(a6)
@@ -563,6 +600,8 @@ IRQLevTest:					; Small IRQ Rouine, all it does is to set IRQLevDone to 1
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
 	rte
 
+
+_RTEcode::
 RTEcode:					; Just to have something to point IRQ to.. doing nothing
 	move.w	#$444,$dff180
 	rte

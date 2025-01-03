@@ -12,5 +12,8 @@
             "binaryArgs": []
         }
     ],
-    "makefile.makefilePath": "Makefile"
+    "makefile.makefilePath": "Makefile",
+    "files.associations": {
+        "type_traits": "cpp"
+    }
 }

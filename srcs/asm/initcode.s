@@ -29,6 +29,7 @@ Initcode:                                                      ; OK we have RAM.
  	btst	#5,d3
 	beq	.NOP1LMB
 	move.b	#1,STUCKP1LMB(a6)
+
 	KPRINTC	_InitP1LMBtxt	
 	KPRINTC	StuckBootTxt	
 
@@ -206,6 +207,32 @@ Initcode:                                                      ; OK we have RAM.
 .ser:
 
 	move.w	#$aaa,$dff180
+	lea	DetectAgnusTxt,a0
+	bsr	SendSerial
+	move.W	$dff004,d0
+	asr.l	#8,d0
+	move.b	d0,AGNUS(a6)		; Store the Agnuschip
+	lea	AgnusID,a0
+	clr.l	d1			; Clear counter
+.agnusloop:
+	move.b	(a0)+,d2
+	cmp.b	d0,d2
+	beq	.agnusfound
+	add.l	#1,d1
+	cmp.b	#255,d2
+	bne.s	.agnusloop
+	sub.l	#1,d1
+.agnusfound:
+	move.l	d1,d2
+	mulu	#15,d1			; Multiply with 15 to find correct string
+	lea	AgnusesTxt,a0
+	add.l	d1,a0
+	divu	#2,d2
+	swap	d2
+	move.b	d2,NTSC(a6)
+	bsr	SendSerial
+	lea	NewLineTxt,a0
+	bsr	SendSerial
        lea	DetectRasterTxt,a0
 	bsr	SendSerial
        move.b	$dff006,d0		; Load value of raster

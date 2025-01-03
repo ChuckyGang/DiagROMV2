@@ -2,6 +2,7 @@
        include "build/srcs/globalvars.i"
        section "mainmenu",code_p
        
+	xdef	_MainMenu
        xdef   MainMenu
 	xdef	PrintStatus
 	xdef	UpdateStatus
@@ -30,7 +31,7 @@ MainLoop:
        btst	#0,d0
        bra	MainLoop
               
-
+_MainMenu:
 MainMenu:
 	jsr	FilterON
 	bsr	ClearScreen			; Clear the screen
