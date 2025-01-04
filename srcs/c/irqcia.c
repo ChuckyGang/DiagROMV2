@@ -398,8 +398,9 @@ void IRQTestC(VARS)
        *(volatile APTR *) + 0x74 = IRQ5;
        *(volatile APTR *) + 0x78 = IRQ6;
        *(volatile APTR *) + 0x7c = IRQ7;
-       ciaa->ciaicr=0xff;
-       ciaa->ciaicr=0x7f;
+       // dummy read to clear out ICR before setting the ICR mask
+       uint32_t a = ciaa->ciaicr;
+       ciaa->ciaicr=(a >> 1) | 0x7f;
        custom->intreq = 0x7fff;
        custom->intena = 0xc00e;
        setSR(0x2004);
