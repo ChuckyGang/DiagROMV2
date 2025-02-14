@@ -490,7 +490,7 @@ SetPosNoSerial:					; Set cursor at wanted position on screen but not on serialp
 SetMenuCopper:
 	lea	InitCOP1LCH,a0
 	bsr	SendSerial
-	move.w #$20,$dff106
+	;move.w #$20,$dff106
 	move.l	MenuCopper(a6),d0
 	move.l	d0,$dff080			;Load new copperlist
 	lea	InitDONEtxt,a0

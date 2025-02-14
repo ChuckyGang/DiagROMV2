@@ -388,9 +388,9 @@ typedef struct Chipmemstuff
 	uint8_t	NULL;
 	uint32_t	End;
 	uint32_t	dummysprite;
-	uint32_t	MenuCopperList[40];		// Menucopperlist
-	uint32_t	ECSCopperList[67];		// Copperlist for ECS Test
-	uint32_t	ECSCopper2List[67];		// Copperlist for ECS2 Test
+	uint32_t	MenuCopperList[41];		// Menucopperlist
+	uint32_t	ECSCopperList[68];		// Copperlist for ECS Test
+	uint32_t	ECSCopper2List[68];		// Copperlist for ECS2 Test
 	uint8_t	ptplayroutine[4538];		// Space for Protracker replayroutine
 	uint8_t	AudioWaveData[247];		// Audiodata
 } Chipmemstuff;

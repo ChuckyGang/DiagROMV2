@@ -19,6 +19,7 @@ int readCIAAa();
 void IRQCIATestC(VARS)
 {
        int counter=0;
+
        struct CIA *ciaa = (struct CIA *)0xbfe001;
        struct CIA *ciab = (struct CIA *)0xbfd000;
        InitScreen();
@@ -33,6 +34,8 @@ void IRQCIATestC(VARS)
               }
 
        globals->Frames=0;
+       
+       custom->bplcon2=
        custom->color[0]=0xf0;
        custom->intena = 0x7fff;
        Log("irq: ",IRQCode);
@@ -373,7 +376,7 @@ void IRQTestC(VARS)
        struct CIA *ciaa = (struct CIA *)0xbfe001;
     int counter=0;
        InitScreen();
-              Print("\002IRQ Test\n",WHITE);
+              Print("\002IRQ Test modell ny!\n",WHITE);
               Print("\nTo start IRQ test press any key, ESC or Right Mousebutton to cancel",GREEN);
 
         do
@@ -389,7 +392,7 @@ void IRQTestC(VARS)
 
        ciaa->ciaicr=0xf;
        //ciaa->ciaicr=0x81
-       Print("\nTESTING\n",WHITE);
+       Print("\nSetting IRQ TEST\n",WHITE);
 
        *(volatile APTR *) + 0x64 = IRQ1;
        *(volatile APTR *) + 0x68 = IRQ2;
@@ -398,13 +401,17 @@ void IRQTestC(VARS)
        *(volatile APTR *) + 0x74 = IRQ5;
        *(volatile APTR *) + 0x78 = IRQ6;
        *(volatile APTR *) + 0x7c = IRQ7;
-       // dummy read to clear out ICR before setting the ICR mask
-       uint32_t a = ciaa->ciaicr;
-       ciaa->ciaicr=(a >> 1) | 0x7f;
-       custom->intreq = 0x7fff;
-       custom->intena = 0xc00e;
-       setSR(0x2004);
+       Print("\nIRQ Set\n",BLUE);
 
+       // dummy read to clear out ICR before setting the ICR mask
+
+       
+       //custom->intreq = 0x7fff;
+       //custom->intena = 0xc05e;
+
+        //  setSR(0x2000);
+        //         custom->intena = 0xefff;
+        //  PAUSEC();
       //custom->intreq=0xc001;
 
       // do
@@ -414,9 +421,45 @@ void IRQTestC(VARS)
 
 
 
-       custom->intreq=0x8004;
+       //custom->intreq=0x8004;
 
-       Print("\nDONE\n",GREEN);
+       //Print("\nDONE\n",GREEN);
+
+       //Log("IRQ1: ",globals->IRQ1);
+       //Log("IRQ2: ",globals->IRQ2);
+       //Log("IRQ3: ",globals->IRQ3);
+       //Log("IRQ4: ",globals->IRQ4);
+       //Log("IRQ5: ",globals->IRQ5);
+       //Log("IRQ6: ",globals->IRQ6);
+       //Log("IRQ7: ",globals->IRQ7);
+
+       //custom->intena = 0x8008;
+       //Log("IRQ1: ",globals->IRQ1);
+       //Log("IRQ2: ",globals->IRQ2);
+       //Log("IRQ3: ",globals->IRQ3);
+       //Log("IRQ4: ",globals->IRQ4);
+       //Log("IRQ5: ",globals->IRQ5);
+       //Log("IRQ6: ",globals->IRQ6);
+       //Log("IRQ7: ",globals->IRQ7);
+
+
+
+       //do
+       //{
+       //       custom->color[0]=custom->vhposr>>8;
+       //} while (TRUE);
+
+       // do
+       //{
+
+       //       GetInput();
+      // }
+       //      while(globals->BUTTON == 0);
+
+       Print("Trigg!",GREEN);
+
+         setSR(0x2000);
+                 custom->intena = 0xc07f;
 
        Log("IRQ1: ",globals->IRQ1);
        Log("IRQ2: ",globals->IRQ2);
@@ -425,92 +468,86 @@ void IRQTestC(VARS)
        Log("IRQ5: ",globals->IRQ5);
        Log("IRQ6: ",globals->IRQ6);
        Log("IRQ7: ",globals->IRQ7);
+       PAUSEC();
+       custom->intreq=0x8080;
 
-       custom->intena = 0x8008;
+       uint32_t a = ciaa->ciaicr;
+       ciaa->ciaicr=(a >> 1) | 0x7f;             // Enable IRQ 1, 2 and 3 only so far
 
-
-       do
-       {
-              custom->color[0]=custom->vhposr>>8;
-       } while (TRUE);
-
-
-          setSR(0x2004);
-   custom->intreq=0x8008;
         do
        {
 
               GetInput();
+              Print("  .  ",WHITE);
        }
              while(globals->BUTTON == 0);
+       custom->intreq=0x7fff;
+       custom->intena=0x7fff;
 }
 
 
 __interrupt void IRQ1(VARS)
 {
-       struct CIA *ciaa = (struct CIA *)0xbfe001;
        int cia = custom->intreqr;
-       Log("IRQ1:",custom->intenar);
-             // custom->intena = 0x70;
-       globals->IRQ1=1;
-       custom->intreq = 0x1;
-       static void setSR(__reg("d0") uint16_t v) = "\tmove\td0,sr\n";
-              custom->intena = cia;
-       //setSR(0x100);
+       Print("IRQ1",WHITE);
+       globals->IRQ1+=1;
+       custom->color[0]=0xfff;
 }
 
 __interrupt void IRQ2(VARS)
 {
-       struct CIA *ciaa = (struct CIA *)0xbfe001;
-       int cia = custom->intreqr;
-       ciaa->ciacra=0x0;
-       ciaa->ciacrb=0x8;
-       Log("IRQ2:",cia);
-       globals->IRQ2=1;
-       static void setSR(__reg("d0") uint16_t v) = "\tmove\td0,sr\n";
-
-       //custom->intena=0x7003;
-       //custom->intena=0x7003;
-       //custom->intreq = 0x7fff;
-       cia = cia&0x7fff;
-       Log("cia",cia);
-       custom->intena = cia;
+       int irq = custom->intreqr;
+       Print("IRQ2");
+       globals->IRQ2+=1;
+       custom->color[0]=0x400;
+       custom->intreq = irq&0x8;
+       irq = custom->intreqr;
+       Log("IRQ2",irq);
 }
 
 __interrupt void IRQ3(VARS)
 {
-       Log("IRQ3:",3);
-       custom->color[0]=0xff;
-      // custom->intena = 0x70;
-       globals->IRQ3=1;
-       custom->intreq = 0x70;
+       int irq = custom->intreqr;
+       custom->intreq = irq&0x70;
+       if(irq&0x20)                              // Check if it is a VBlank IRQ
+        {
+              //Log("VBlank",irq);
+        }
+       else
+       custom->color[0]=0xfff;
+       globals->IRQ3+=1;
+
+       int irq2 = custom->intreqr;
+       Log("IRQ3",irq2);
 }
 
 __interrupt void IRQ4(VARS)
 {
-       Log("IRQ4:",4);
-       custom->color[0]=0xff;
-      // custom->intena = 0x70;
-       globals->IRQ4=1;
-       custom->intreq = 0x70;
+       Print("IRQ4",WHITE);
+       int cia = custom->intreqr;
+       custom->color[0]=0xf44;
+       globals->IRQ4+=1;
+       //custom->intreq = cia;
 }
 
 __interrupt void IRQ5(VARS)
 {
-       Log("IRQ5:",5);
-       custom->color[0]=0xff;
-      // custom->intena = 0x70;
-       globals->IRQ5=1;
-       custom->intreq = 0x70;
+       //Print("IRQ5",WHITE);
+       int cia = custom->intreqr;
+       //Log("IRQ5:",cia&0x1800);
+       custom->color[0]=0xfff;
+       globals->IRQ5+=1;
+       custom->intreq = cia&1800;
+//       custom->adkcon = 0x7fff;
 }
 
 __interrupt void IRQ6(VARS)
 {
-       Log("IRQ6:",6);
-       custom->color[0]=0xff;
-      // custom->intena = 0x70;
-       globals->IRQ6=1;
-       custom->intreq = 0x70;
+       //Print("IRQ6",WHITE);
+       int cia = custom->intreqr;
+       custom->color[0]=0xf3f;
+       globals->IRQ6+=1;
+       //custom->intreq = cia;
 }
 
 __interrupt void IRQ7(VARS)
@@ -519,5 +556,5 @@ __interrupt void IRQ7(VARS)
        custom->color[0]=0xff;
       // custom->intena = 0x70;
        globals->IRQ7=1;
-       custom->intreq = 0x70;
+ //      custom->intreq = 0x70;
 }
