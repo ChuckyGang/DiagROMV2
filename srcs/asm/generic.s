@@ -1956,7 +1956,7 @@ GetCharKey:
 
 GetKey:			
 	PUSH					; Read keyboard
-	move.b	#$88,$bfed01
+;	move.b	#$88,$bfed01
 	bsr	WaitShort
 	bsr	WaitShort
 	bsr	WaitShort

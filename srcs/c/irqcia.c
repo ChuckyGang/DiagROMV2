@@ -390,6 +390,8 @@ void IRQTestC(VARS)
               if(globals->RMB==1)
                      return;
 
+       ciaa->ciaicr=0xff;
+       ciaa->ciaicr=0x7f;
        ciaa->ciaicr=0xf;
        //ciaa->ciaicr=0x81
        Print("\nSetting IRQ TEST\n",WHITE);
@@ -488,26 +490,32 @@ void IRQTestC(VARS)
 
 __interrupt void IRQ1(VARS)
 {
-       int cia = custom->intreqr;
-       Print("IRQ1",WHITE);
+       int irq = custom->intreqr;
+       custom->intreq = irq&0x3;
+       // Print("IRQ1",WHITE);
        globals->IRQ1+=1;
        custom->color[0]=0xfff;
 }
 
 __interrupt void IRQ2(VARS)
 {
+       struct CIA *ciaa = (struct CIA *)0xbfe001;
+       ciaa->ciaicr=0xff;
+       ciaa->ciaicr=0x7f;
+
        int irq = custom->intreqr;
        Print("IRQ2");
        globals->IRQ2+=1;
        custom->color[0]=0x400;
        custom->intreq = irq&0x8;
        irq = custom->intreqr;
-       Log("IRQ2",irq);
+       // Log("IRQ2",irq);
 }
 
 __interrupt void IRQ3(VARS)
 {
        int irq = custom->intreqr;
+       // Print("IRQ3");
        custom->intreq = irq&0x70;
        if(irq&0x20)                              // Check if it is a VBlank IRQ
         {
@@ -518,7 +526,7 @@ __interrupt void IRQ3(VARS)
        globals->IRQ3+=1;
 
        int irq2 = custom->intreqr;
-       Log("IRQ3",irq2);
+       // Log("IRQ3",irq2);
 }
 
 __interrupt void IRQ4(VARS)

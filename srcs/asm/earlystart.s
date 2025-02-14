@@ -162,8 +162,8 @@ _begin:
 	move.l	#POSTTrace,$24
 	move.l	#POSTUnimplInst,$28
 	move.l	#POSTUnimplInst,$2c
-	move.b	#$88,$bfed01
-	or.b	#$40,$bfee01		; For keyboard
+;	move.b	#$88,$bfed01
+;	or.b	#$40,$bfee01		; For keyboard
 
 	cmp.l	#"PPC!",d5		; Check if D5 is "PPC!" if so. we had been reset and should not reset again
 	beq	.wehadreset
