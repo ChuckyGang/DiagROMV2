@@ -495,7 +495,6 @@ SetMenuCopper:
 	move.l	d0,$dff080			;Load new copperlist
 	lea	InitDONEtxt,a0
 	bsr	SendSerial
-
 	lea	InitCOPJMP1,a0
 	bsr	SendSerial
 	move.w	$dff088,d0
@@ -504,7 +503,7 @@ SetMenuCopper:
 
 	lea	InitDMACON,a0
 	bsr	SendSerial
-	move.w	#$8380,$dff096
+	move.w	#$87e0,$dff096
 	lea	InitDONEtxt,a0
 	bsr	SendSerial
 
@@ -795,9 +794,10 @@ DetFastMem:
 	move.l	#7,d1
 	bsr	Print
 	POP
+	clr.l	d1			; clear amount of fastmem found
 	eor.l	#$01110000,d0
 	lea	$8000000,a1		; Detect cpuboard on A3000/4000
-	lea	$10000000,a2
+	lea	$17ffffff,a2
 	lea	.a3k4kcpudone,a3
 	bra	DetectMemory
 .a3k4kcpudone:

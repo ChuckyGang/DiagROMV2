@@ -62,6 +62,7 @@
 	xdef	MakePrintable
 	xdef	binstringbyte
 	xdef	EnableCache
+	xdef	_DisableCache
 	xdef	DisableCache
 	xdef	SameRow
 	xdef	DevPrint
@@ -2692,7 +2693,6 @@ hexbin:						; Converts a longword to binary.
 						; Output:
 						;	D0 = binary number
 						;
-	PAUSE
 	PUSH
 	clr.l	d0				; Clear D0 that will contain the binary number
 	move.l	#3,d7				; Loop this 3 times.
@@ -2916,6 +2916,7 @@ EnableCache:
 	POP
 	rts
 
+_DisableCache:
 DisableCache:
 	PUSH
 	move.l	#$0808,d1

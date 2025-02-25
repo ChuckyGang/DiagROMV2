@@ -376,7 +376,7 @@ void IRQTestC(VARS)
        struct CIA *ciaa = (struct CIA *)0xbfe001;
     int counter=0;
        InitScreen();
-              Print("\002IRQ Test modell ny!\n",WHITE);
+              Print("\002IRQ Test modell ny!!!!\n",WHITE);
               Print("\nTo start IRQ test press any key, ESC or Right Mousebutton to cancel",GREEN);
 
         do
@@ -460,21 +460,25 @@ void IRQTestC(VARS)
 
        Print("Trigg!",GREEN);
 
+       //DisableCache();
          setSR(0x2000);
-                 custom->intena = 0xc07f;
-
+                // custom->intena = 0xc07f;
+                custom->adkcon=0x7fff;
+                custom->intena = 0xe7ff;
        Log("IRQ1: ",globals->IRQ1);
        Log("IRQ2: ",globals->IRQ2);
        Log("IRQ3: ",globals->IRQ3);
        Log("IRQ4: ",globals->IRQ4);
        Log("IRQ5: ",globals->IRQ5);
        Log("IRQ6: ",globals->IRQ6);
-       Log("IRQ7: ",globals->IRQ7);
+       Log("IRQ7: ",globals->IRQ7); 
+
        PAUSEC();
-       custom->intreq=0x8080;
+       custom->intreq=0x8040;
+       custom->intreq=0x8040;
 
        uint32_t a = ciaa->ciaicr;
-       ciaa->ciaicr=(a >> 1) | 0x7f;             // Enable IRQ 1, 2 and 3 only so far
+       ciaa->ciaicr=(a >> 1) | 0xffff;             // Enable IRQ 1, 2 and 3 only so far
 
         do
        {
@@ -491,38 +495,44 @@ void IRQTestC(VARS)
 __interrupt void IRQ1(VARS)
 {
        int irq = custom->intreqr;
-       custom->intreq = irq&0x3;
-       // Print("IRQ1",WHITE);
+       custom->intreq = irq&0x7;
+       custom->intreq = irq&0x7;
+       //Print("IRQ1",WHITE);
        globals->IRQ1+=1;
-       custom->color[0]=0xfff;
+       custom->color[0]=0x555;
 }
 
 __interrupt void IRQ2(VARS)
 {
        struct CIA *ciaa = (struct CIA *)0xbfe001;
-       ciaa->ciaicr=0xff;
-       ciaa->ciaicr=0x7f;
-
        int irq = custom->intreqr;
-       Print("IRQ2");
+       ciaa->ciaicr=0x7f;
+       ciaa->ciaicr=0x81;
+       int icr = ciaa->ciaicr;
+       //Print("IRQ2",WHITE);
+       //Print(bindec(ciaa->ciaicr));
        globals->IRQ2+=1;
-       custom->color[0]=0x400;
-       custom->intreq = irq&0x8;
+       custom->color[0]=0x450;
+       //custom->intreq = irq&0x8;
+       //custom->intreq = irq&0x8;
        irq = custom->intreqr;
-       // Log("IRQ2",irq);
+       //Log("IRQ2",irq);
 }
 
 __interrupt void IRQ3(VARS)
 {
        int irq = custom->intreqr;
-       // Print("IRQ3");
+       //Print("IRQ3",WHITE);
+       custom->intreq = irq&0x70;
        custom->intreq = irq&0x70;
        if(irq&0x20)                              // Check if it is a VBlank IRQ
         {
               //Log("VBlank",irq);
+              Print("VBlank",RED);
+         //     custom->color[0]=0x044;
         }
        else
-       custom->color[0]=0xfff;
+       //custom->color[0]=0xfff;
        globals->IRQ3+=1;
 
        int irq2 = custom->intreqr;
@@ -532,28 +542,35 @@ __interrupt void IRQ3(VARS)
 __interrupt void IRQ4(VARS)
 {
        Print("IRQ4",WHITE);
-       int cia = custom->intreqr;
-       custom->color[0]=0xf44;
+       int irq = custom->intreqr;
+       custom->intreq = irq&0x780;
+       custom->intreq = irq&0x780;
+       //custom->color[0]=0xff4;
        globals->IRQ4+=1;
        //custom->intreq = cia;
 }
 
 __interrupt void IRQ5(VARS)
 {
-       //Print("IRQ5",WHITE);
-       int cia = custom->intreqr;
-       //Log("IRQ5:",cia&0x1800);
-       custom->color[0]=0xfff;
+       int irq = custom->intreqr;
+       Print("IRQ5",WHITE);
+       Print(binhex(irq));
+       Print(binhex(irq&1800));
+       Print(binhex(custom->adkconr));
+       Print("\n",WHITE);
+       //custom->color[0]=0x222;
        globals->IRQ5+=1;
-       custom->intreq = cia&1800;
+       custom->intreq = irq&1800;
+       custom->intreq = irq&1800;
 //       custom->adkcon = 0x7fff;
+//       custom->adkcon=0x7fff;
 }
 
 __interrupt void IRQ6(VARS)
 {
-       //Print("IRQ6",WHITE);
+       Print("IRQ6",WHITE);
        int cia = custom->intreqr;
-       custom->color[0]=0xf3f;
+       //custom->color[0]=0xf3f;
        globals->IRQ6+=1;
        //custom->intreq = cia;
 }

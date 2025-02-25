@@ -29,4 +29,5 @@ int setBit(int value, int bit);
 int clearBit(int value, int bit);
 int toggleBit(int value, int bit);
 void initIRQ3(int code);
+void DisableCache();
 //struct CIA ciaa, ciab;
