@@ -478,7 +478,7 @@ TestBTOD:
 	move.l	#CIALevTst,$6c			; Set up IRQ Level 3
 	move.w	#$c020,$dff09a			; Enable IRQ
 	move.w	#$c020,$dff09a			; Enable IRQ;
-;	move.w	$dff01c,$d7
+	move.w	$dff01c,$d7
 	bclr	#7,$bfdf00
 	move.b	#0,$bfda00
 	move.b	#0,$bfd900

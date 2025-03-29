@@ -37,7 +37,7 @@ STACKSIZE:	EQU	8192						; Set the size of the stack
 	
 _start:
 		bsr.b	_exe
-		dc.w 	0
+		dc.w 	"DG"
 		dc.l	_begin	
 		dc.l	POSTBusError				; Hardcoded pointers
 		dc.l	POSTAddressError			; if something is wrong rom starts at $0
@@ -80,7 +80,7 @@ _exe:
 .clrloop:
 	clr.b	(a0)+
 	dbf	d0,.clrloop
-	PAUSE2
+	;PAUSE2
 	;KPRINTC _stacktxt
 	move.l	sp,d0
 	and.l	#$fffffffe,d0
@@ -107,7 +107,7 @@ _exe:
 	sub.l	#4,d2
 	move.l	d2,BPLSIZE(a6)		; Store the size of a bitplane
 	;KPRINTC _starttxt
-	PAUSE
+	;PAUSE
 	bra	Initcode
        rts
 
@@ -425,6 +425,9 @@ done:
 	move.l	a7,d0
 	bset	#21,d0				; Set bit for not enough chipmem found
 	move.l	d0,a7
+;	move.l	a2,d0
+;	KPRINTLONG
+;	PAUSE
 	cmp.l	#0,a2				; IF A2 is 0 we did not find any fastmem
 	bne	.fastfound
 	bra	_chipfailed
@@ -803,6 +806,7 @@ done:
 	cmp.l	#$0,a6
 	beq	.noadrzero
 	move.l	#"SHDW",(a6)			; Write "SHDW" and see if it is readable at adr 0 then we have a shadow and we are out of chipmem
+	move.l	#"CRAP",4(a6)			; just to fill bus with crapdata
 	cmp.l	#"SHDW",$0
 	beq	.comparedone
 .noadrzero:
@@ -887,7 +891,6 @@ done:
 	KPRINT
 	KPRINTC	_beginrowtxt
 .donext:
-
 	cmpa.l	#$200000,a6			; Have we reached the end of chipmem?
 	bge	.comparedone			; YUPP!
 	add.l	#64*1024,a6			; Add 64k to next block to look for
@@ -1170,12 +1173,14 @@ checkiffastmem:
 	lea	.z2done,a6
 	bra	detectmem
 .z2done:
-
 	lea	$c00000,a1
 	lea	$c80000,a2
 	lea	.rangerdone,a6
 	bra	detectmem
 .rangerdone:
+	cmp.l	#-1,d2
+	bne	.foundmem
+	lea	$0,a2				; mark that we found NO fastmem
 	move.l	d4,a6				; Restore jumpbackpointer
 	jmp	(a6)
 
@@ -1288,6 +1293,7 @@ DumpBinDec:
 
 
 _chipfailed:
+	KPRINTC SystemHaltedTxt
 	clr.l	d4
 	clr.l	d5
 .failloop:

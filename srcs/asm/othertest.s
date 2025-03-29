@@ -679,7 +679,7 @@ SystemInfoTest:
        move.l	#3,d1
        jsr	Print
 
-       cmp.l	#"DIAG",$0
+       cmp.w	#"DG",$2
        bne	.no1114at0
        lea	YES,a0
        move.l	#1,d1
@@ -697,8 +697,7 @@ SystemInfoTest:
        lea	DebugROM2,a0
        move.l	#3,d1
        jsr	Print
-
-       cmp.l	#"DIAG",$f80000
+       cmp.w	#"DG",$f80002
        bne	.no1114atf8
        lea	YES,a0
        move.l	#2,d1

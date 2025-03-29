@@ -26,6 +26,7 @@
 	xdef	PrintCPU
 	xdef 	EnglishKey
 	xdef	EnglishKeyShifted
+	xdef	_ClearBuffer
 	xdef	ClearBuffer
 	xdef	_GetInput
 	xdef	GetInput
@@ -51,6 +52,7 @@
 	xdef	InputHexNum
 	xdef	StrLen
 	xdef	GetMouse
+	xdef	_GetSerial
 	xdef	_hexbin
 	xdef	hexbin
 	xdef	InputDecNum
@@ -1349,6 +1351,7 @@ DebugScreen:					; This dumps out registers..
 	POP
 	rts
 
+_ClearBuffer:
 ClearBuffer:
 	move.l	#20,d7
 .loop
@@ -1525,6 +1528,7 @@ GetInput:
 	move.l	InputRegister(a6),d0
 	rts
 
+_GetSerial:
 GetSerial:					; Reads serialport and returns first char in buffer.
 	cmp.w	#0,SerialSpeed(a6)		; if serialport is disabled.  skip all serial stuff
 	beq	.exit

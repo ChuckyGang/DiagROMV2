@@ -1124,9 +1124,9 @@ DebugADR::
 DebugPWR::
 	dc.b	$a,"Poweronflags: ",0
 DebugROM::
-	dc.b	"Is 'DIAG' readable at addr $0 (ROM still at $0): ",0
+	dc.b	"Is 'DG' readable at addr $2 (ROM still at $0): ",0
 DebugROM2::	
-	dc.b	"Is 'DIAG' readable at addr $f80000 (Real ROM addr): ",0
+	dc.b	"Is 'DG' readable at addr $f80002 (Real ROM addr): ",0
 DebugROM3::
 	dc.b	$a,"Is $1111 readable at addr $f00000 (expansion ROM addr): ",0
 YES::
@@ -1196,6 +1196,8 @@ NewLineTxt::
        dc.b	$a,$d,0
 DetChipTxt::
        dc.b	"Detected Chipmem: ",0
+SystemHaltedTxt::
+	dc.b	$a,$d,$a,$d,27,"[31m --  ERROR  --  NO MEMORY FOUND SYSTEM HALTED - CANNOT CONTINUE!",0
 KB::
        dc.b	"kB",0
 DetMBFastTxt::
@@ -1279,11 +1281,10 @@ MinusDTxt::
 	dc.b	" - $",0
 IfSoldTxt::
 	;12345678901234567890123456789012345678901234567890123456789012345678901234567890
-	;dc.b	$a,$a,"IF This ROM is sold, if above 10eur+hardware cost 25% MUST be donated to",$a
-	;dc.b	"an LEGITIMATE charity of some kind, like curing cancer for example... ",$a
-	;dc.b	"If you paid more than 10Eur + Hardware + Shipping, please ask what charity you",$a
-	;dc.b	"have supported!!!      This software is fully open source and free to use.",$a
-	dc.b	$a,$a,"NOT TO BE SOLD AS THIS IS A VERY EARLY VERSION CLASSED AS UNSTABLE",$a,$a
+	dc.b	$a,$a,"IF This ROM is sold, if above 10eur+hardware cost 25% MUST be donated to",$a
+	dc.b	"an LEGITIMATE charity of some kind, like curing cancer for example... ",$a
+	dc.b	"If you paid more than 10Eur + Hardware + Shipping, please ask what charity you",$a
+	dc.b	"have supported!!!   This software is free to use. With source for VIEWING ONLY!",$a
 	dc.b	"Please report ANY issues. Testresults cannot be guaranteed at this moment",$a,$a
 	dc.b	"Go to www.diagrom.com or http://github.com/ChuckyGang/DiagROM2 for information",$a,$a,0
 

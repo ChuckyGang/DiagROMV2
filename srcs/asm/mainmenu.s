@@ -33,6 +33,7 @@ MainLoop:
               
 _MainMenu:
 MainMenu:
+	jsr	ClearBuffer
 	jsr	FilterON
 	bsr	ClearScreen			; Clear the screen
 	bsr	PrintStatus			; Print the statusline
@@ -44,6 +45,7 @@ MainMenu:
 	move.l	#0,MenuVariable(a6)
 	move.w	#0,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
+	jsr	ClearBuffer
 	bra	MainLoop
 
 Exit:

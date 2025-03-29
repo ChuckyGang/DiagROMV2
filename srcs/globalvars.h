@@ -352,6 +352,7 @@ typedef struct GlobalVars
 	uint8_t	IRQ5;
 	uint8_t	IRQ6;
 	uint8_t	IRQ7;
+	uint8_t	ICR;
 	uint8_t	NTSC;				// Set to 1 if a NTSC machine
 	uint8_t	AGNUS;				// What Agnus/Alice chip is used
 
@@ -362,9 +363,6 @@ typedef struct GlobalVars
 	uint8_t	keypressed[2];
 	uint8_t	keypressedshifted[2];
 	uint8_t	SerBuf[256];			// Serialbuffer
-	uint8_t	b2dString[12];		// Stringbuffer for bindec
-	uint8_t	b2dTemp[8];			// Tempbuffer for bindec
-	uint8_t	binhexoutput[10];		// Buffer for binhex
 	uint8_t	bindecoutput[14];		// Output of old bin->dec routine still used
 	uint8_t	binstringoutput[33];
 	uint16_t	NULL2;				// need to be before ModStatData
@@ -374,6 +372,10 @@ typedef struct GlobalVars
 	uint8_t	JunkBuffer[256];		// A small crapbuffer
 	uint8_t	RTCString[14];		// Block of RTC Data
 	uint8_t	AutoConfBuffer[20];		// Autoconfigbuffer
+	uint16_t	NULL3;
+	uint8_t	b2dString[12];		// Stringbuffer for bindec
+	uint8_t	binhexoutput[10];		// Buffer for binhex
+	uint8_t	b2dTemp[8];			// Tempbuffer for bindec
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

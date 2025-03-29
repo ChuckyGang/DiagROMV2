@@ -261,11 +261,11 @@ Initcode:                                                      ; OK we have RAM.
 
 	lea	DetChipTxt,a0
 	bsr	SendSerial
-
 	move.l	TotalChip(a6),d0
 	asr.l	#8,d0
 	asr.l	#2,d0
 	bsr	bindec
+
 	bsr	SendSerial
 
 	lea	KB,a0
