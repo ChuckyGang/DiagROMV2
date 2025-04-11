@@ -605,3 +605,165 @@ _RTEcode::
 RTEcode:					; Just to have something to point IRQ to.. doing nothing
 	move.w	#$444,$dff180
 	rte
+
+_StartTOD::
+StartTOD:
+    moveq.l #0,d0
+    bclr.b  #7,$bfef01  ; set TOD
+    move.b  d0,$bfea01  ; set TOD-hi
+    move.b  d0,$bfe901  ; set TOD-mid
+    move.b  d0,$bfe801  ; set TOD-lo
+    rts
+
+_StartECLK::
+StartECLK:
+ ;   #
+ ;   # Start CIAB ECLK (32bit, ~100 mins wrap)
+ ;   #
+    move.b  #$00,$bfde00    ; cra
+    move.b  #$00,$bfdf00    ; crb
+    move.b  #$ff,$bfd400    ; talo
+    move.b  #$ff,$bfd500    ; tahi
+    move.b  #$ff,$bfd600    ; tblo
+    move.b  #$ff,$bfd700    ; tbhi
+    move.b  #$51,$bfdf00    ; start counting timerA underflows
+    move.b  #$11,$bfde00    ; start counting eclk ticks
+    rts
+
+_read_eclk::
+read_eclk
+    movem.l    d1-d5,-(sp)
+    ; read eclk 709/716 kHz (32bit counter; wraps in ~100 min)
+eclk_retry
+    move.b    $bfdd00,d5    ; icr (clear)
+    move.b    $bfd700,d0    ; tbhi
+    move.b    $bfd600,d1    ; tblo
+    move.b    $bfd500,d2    ; tahi
+    move.b    $bfd400,d3    ; talo
+    move.b    $bfd500,d4    ; tahi again
+    move.b    $bfdd00,d5    ; icr (check)
+    btst    #0,d5        ; ta underflowed?
+    bne.b    eclk_retry
+    cmp.b    d4,d2        ; talo byte wrapped?
+    beq.b    eclk_ok
+    move.b    d4,d2        ; update tahi
+    move.b    #$ff,d3        ; reset talo
+eclk_ok:
+    lsl.w    #8,d0
+    lsl.w    #8,d2
+    move.b    d1,d0
+    move.b    d3,d2
+    swap    d0
+    move.w    d2,d0
+    not.l    d0
+    movem.l    (sp)+,d1-d5
+    rts
+
+    global read_tod
+read_tod
+    ; read tod 50/60 Hz (24bit counter; wraps in >3 days)
+  moveq.l #0,d0
+    move.b  $bfea01,d0
+    lsl.w   #8,d0
+    move.b  $bfe901,d0
+    lsl.l   #8,d0
+    move.b  $bfe801,d0
+    rts
+
+_get_eclk_freq::
+    ; 1. ECLK is 1/10th of 7M (by GARY). 7M is derived from the system 28M (in AGNUS).
+    ; 2. A PAL machine uses a 28M crystal clock equal to 28.37516 MHz, while NTSC uses 28.63636 MHz.
+    ; 3. This means a PAL ECLK equals 709.379 kHz and an NTSC ECLK is 715.909 kHz
+    ; 4. Earlier AGNUS versions had specific versions for PAL and NTSC.
+    ; 5. Hires AGNUS (8372+ FAT-HR) are generic versions for both PAL/NTSC.
+    ; 6. The AGNUS version is set in the upper byte of VPOSR ($dff004).
+    ; 7. Values $20 or $30 indicate a hires AGNUS connected to a PAL/NTSC crystal.
+    ; 8. For newer (hires) AGNUS versions we can trust the NTSC bit ($10) to mean an NTSC clock.
+    ; 9. For older versions we read the VPOSR/VHPOSR ($dff0004/006), looking for lines beyond the NTSC range (525/2).
+
+    move.b    $dff004,d0
+    btst    #5,d0        ; $20
+    bne.b    eclk_hr
+
+; $DFF004 VPOSR
+;    Bit   15 14 13 12 11 10 09 08  07 06 05 04 03  02 01 00
+;    Use  LOF I6 I5 I4 I3 I2 I1 I0 LOL -- -- -- -- V10 V9 V8
+
+; $DFF006 VHPOSR
+;    Bit   15 14 13 12 11 10 09 08  07 06 05 04 03 02 01 00
+;    Use   V7 V6 V5 V4 V3 V2 V1 V0  H7 H6 H5 H4 H3 H2 H1 H0
+
+
+eclk_hpos1
+    bsr.b    eclk_vpos
+    cmp.w    #140,d0            ; ~ mid-frame
+    blt.b    eclk_hpos1
+
+eclk_hpos2
+    bsr.b    eclk_vpos
+    cmp.w    #280,d0            ; beyond NTSC
+    bgt.b    eclk_pal
+    cmp.w    #70,d0            ; ~ top-of-frame
+    blt    eclk_ntsc
+    bra.b    eclk_hpos2
+
+eclk_vpos
+    move.l    $dff004,d0
+    lsr.l    #8,d0
+    and.w    #$7ff,d0
+    rts
+
+eclk_hr    btst    #4,d0
+    beq.b    eclk_pal
+eclk_ntsc
+    move.l    #715909,d0
+    rts
+eclk_pal
+    move.l    #709379,d0
+    rts
+
+
+
+_get_tod_freq::
+    movem.l d1-d4,-(sp)
+    bsr     read_tod
+    move.l  d0,d1
+wait_tod
+    bsr     read_tod
+    cmp.l   d0,d1
+    beq.b   wait_tod
+    move.l  d0,d1
+    bsr     read_eclk
+    move.l  d0,d2
+    move.w	#50,d3
+loopfreq:
+wait_tod2
+    bsr     read_tod
+    cmp.l   d0,d1
+    beq.b   wait_tod2
+    bsr     read_eclk
+    sub.l   d2,d0
+
+; PAL/NTSC ECLKs at 60Hz
+; 715909 / 60 = 11931.82
+; 709379 / 60 = 11822.98
+
+; PAL/NTSC ECLKs at 50Hz
+; 715909 / 50 = 14318.18
+; 709379 / 50 = 14187.58
+
+; => below ~12k == 60Hz
+;    above ~14k == 50Hz
+	dbf d3,loopfreq
+	add.l	d0,d4
+	bra tod_done
+    cmp.w   #13000,d0
+    blt.b   tod_ntsc
+    moveq.l #50,d0
+    bra.b   tod_done
+tod_ntsc
+    moveq.l #60,d0
+tod_done
+	move.l	d4,d0
+    movem.l (sp)+,d1-d4
+    rts

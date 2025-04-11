@@ -45,22 +45,9 @@ void IRQCIATestC(VARS)
               Print("Test might be unreliable\n",GREEN);
               }
 
-              int eclk=readECLK();
-              Print("Eclk: ",CYAN);
-              Print(bindec(eclk),GREEN);
-
-           //   readECLK();
-
-              Print("\n\n Testing EVEN CIA: ",GREEN);
-
-              eclk=readECLK();
-              Print("Eclk: ",CYAN);
-              Print(bindec(eclk),GREEN);
-
       globals->Frames=0;
 
        custom->color[0]=0xf0;
-       custom->intena = 0x7fff;
 
        *(volatile APTR *) + 0x68 = IRQ2;
        *(volatile APTR *) + 0x6c = IRQCode;
@@ -73,8 +60,12 @@ void IRQCIATestC(VARS)
 
        custom->intena = 0xc000+IR2+IR3+IR6;
        custom->intena = 0xc000+IR2+IR3+IR6;
-       //polledcia();
        setSR(0x2000);                           // ; Start IRQ
+
+       polledcia();
+
+       //polledcia();
+
        do
        {
 
@@ -95,20 +86,52 @@ void IRQCIATestC(VARS)
              ClearBuffer();
 }
 
+
+void eclkcia(VARS)
+{
+                     //int eclk=readECLK();
+
+                     StartECLK();
+                     int eclk= read_eclk();
+                     int eclk2=0;
+                     eclk2= get_eclk_freq();
+                     Print("\nEclk: ",CYAN);
+                     Print(bindec(eclk),GREEN);
+                     Print("\nEclkfreq: ",CYAN);
+                     Print(bindec(eclk2),GREEN);
+       
+                  //   readECLK();
+       
+                  eclk= read_eclk();
+                  Print("\nEclk: ",CYAN);
+                  Print(bindec(eclk),GREEN);
+       
+                     Print("\n\n Testing EVEN CIA: ",GREEN);
+       
+                     eclk=readECLK();
+                     Print("Eclk: ",CYAN);
+                     Print(bindec(eclk),GREEN);
+       
+                     StartTOD();
+                     eclk=get_tod_freq();
+                     Print("\n\ntod freq: ",CYAN);
+                     Print(bindec(eclk),GREEN);
+}
+
 void polledcia(VARS)
 {
        int counter=0;
        struct CIA *ciaa = (struct CIA *)0xbfe001;
        struct CIA *ciab = (struct CIA *)0xbfd000;
        globals->Frames++;
-       Print("\nTOD is:  ",BLUE);
-
-       ciab->ciatodhi=0;
-       ciab->ciatodmid=0;
-       ciab->ciatodlow=0;          // Clear CIA, meaning also start the timer
-
-       Print(binhex(readTOD()),WHITE);
-       Print("\nCIAA Timer A:",GREEN);
+       Print("\nTOD is:  ",CYAN);
+       ciaa->ciatodhi=0;
+       ciaa->ciatodmid=0;
+       ciaa->ciatodlow=0;          // Clear CIA, meaning also start the timer
+       Print(binhex(readTODA()),WHITE);
+       
+       Print("\n\n Testing EVEN CIA\n",WHITE);
+       Print("\n\nCIAA Timer A:",GREEN);
        ciaa->ciacra=CIACRAF_START|CIACRAF_SPMODE|CIACRAF_LOAD;
        ciaa->ciaicr = 0x7e;
        ciaa->ciaicr = 0x81;
@@ -120,9 +143,9 @@ void polledcia(VARS)
               ciaa->ciatahi=0x1b; //00                   //     time to wait
               do
               {
-                     custom->color[0]=0;
+                     custom->color[0]=0xf0f;
                      timeout++;
-                     if(timeout>450000) 
+                     if(timeout>850000) 
                      {
                             timeout=0;
                             Print("NO ICR Triggered, FAILED",RED);
@@ -142,14 +165,11 @@ void polledcia(VARS)
 
       ciaa->ciacra=!CIACRAF_START|!CIACRAF_SPMODE|!CIACRAF_LOAD;
 
-       Print("\nTOD is:  ",BLUE);
-       Print(binhex(readTOD()),WHITE);
-       Print("\nNumber of frames: ",WHITE);
-       Print(bindec(globals->Frames),WHITE);
-       Print("\n CIAA Timer B",CYAN);
+      Print("\nCIAA Timer B:",GREEN);
 
        failed=0;
        timeout=0;
+       Print(bindec(timeout),GREEN);
        ciaa->ciacrb=CIACRBF_START|CIACRBF_LOAD;
        for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer B
        {
@@ -157,12 +177,12 @@ void polledcia(VARS)
               ciaa->ciatbhi=0x1b; //00                   //     time to wait
               do
               {
-                     custom->color[0]=0;
-                     timeout++;
-                     if(timeout>450000) 
+                     custom->color[0]=0xff3;
+                     timeout++
+                     if(timeout>1850000) 
                      {
                             timeout=0;
-                            Print("NO ICR Triggered, FAILED",RED);
+                            Print("NO!! ICR Triggered, FAILED",RED);
                             failed=1;
                             break;
                      }
@@ -181,15 +201,11 @@ void polledcia(VARS)
 
        //PAUSEC();
 
-       Print("\nTOD is:  ",BLUE);
-       Print(binhex(readTOD()),WHITE);
-       Print("\nNumber of frames: ",WHITE);
+       Print("\n\nNumber of frames: ",WHITE);
        Print(bindec(globals->Frames),WHITE);
-
-
        Log("Counter: ",counter);
        Print("\nTOD is:  ",BLUE);
-       Print(binhex(readTOD()),WHITE);
+       Print(binhex(readTODA()),WHITE);
        Print("\nIRQ2: ",WHITE);
        Print(bindec(globals->IRQ2),GREEN);
 
@@ -203,9 +219,6 @@ void polledcia(VARS)
       Print(binhex(readTOD()),WHITE);
       Print("\nNumber of frames: ",WHITE);
       Print(bindec(globals->Frames),WHITE);
-      Print("\nIRQ6: ",WHITE);
-      Print(bindec(globals->IRQ6),GREEN);
-
 
       Print("\nCIAB Timer A:",GREEN);
       failed=0;
@@ -213,7 +226,10 @@ void polledcia(VARS)
       ciab->ciacrb=!CIACRBF_START|!CIACRBF_LOAD;
       ciab->ciaicr = 0x7e;
       //ciab->ciaicr = 0x82;   // to be fixed later. this will initiate a internal IRQ6.. 
-      
+     
+      ciab->ciaicr = 0x7e;
+      ciab->ciaicr = 0x81;
+
       ciab->ciacra=CIACRAF_START|CIACRAF_SPMODE|CIACRAF_LOAD;
       for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer A
       {
@@ -223,7 +239,7 @@ void polledcia(VARS)
              {
                     custom->color[0]=0;
                     timeout++;
-                    if(timeout>450000) 
+                    if(timeout>850000) 
                     {
                            timeout=0;
                            Print("NO ICR Triggered, FAILED",RED);
@@ -243,11 +259,7 @@ void polledcia(VARS)
 
      ciab->ciacra=!CIACRAF_START|!CIACRAF_SPMODE|!CIACRAF_LOAD;
 
-      Print("\nTOD is:  ",BLUE);
-      Print(binhex(readTOD()),WHITE);
-      Print("\nNumber of frames: ",WHITE);
-      Print(bindec(globals->Frames),WHITE);
-      Print("\n CIAB Timer B",CYAN);
+      Print("\nCIAB Timer B:",GREEN);
 
       failed=0;
       timeout=0;
@@ -260,7 +272,7 @@ void polledcia(VARS)
              {
                     custom->color[0]=0;
                     timeout++;
-                    if(timeout>450000) 
+                    if(timeout>850000) 
                     {
                            timeout=0;
                            Print("NO ICR Triggered, FAILED",RED);
@@ -284,7 +296,8 @@ void polledcia(VARS)
       Print(binhex(readTOD()),WHITE);
       Print("\nNumber of frames: ",WHITE);
       Print(bindec(globals->Frames),WHITE);
-
+      Print("\nIRQ6: ",WHITE);
+      Print(bindec(globals->IRQ6),GREEN);
 }
 
 void crapcode(VARS)
@@ -409,6 +422,15 @@ int readTOD()
 
 }
 
+int readTODA()
+{
+       struct CIA *ciaa = (struct CIA *)0xbfe001;
+       //struct CIA *ciab = (struct CIA *)0xbfd000;
+       return (ciaa->ciatodhi<<16)|(ciaa->ciatodmid<<8)|ciaa->ciatodlow;
+
+}
+
+
 int readCIAAa()
 {
        struct CIA *ciaa = (struct CIA *)0xbfe001;
@@ -483,7 +505,7 @@ int readECLK()
 //    not.l    d0
 //    movem.l    (sp)+,d1-d5
 //    rts
-
+       return tahi<<16+tbhi;
 //       read_eclk
 //           movem.l    d1-d5,-(sp)
 //    ; read eclk 709/716 kHz (32bit counter; wraps in ~100 min)
@@ -665,6 +687,7 @@ void IRQTestC(VARS)
        setSR(0x2000);
        custom->adkcon=0x7fff;
        custom->intena = 0xc000+IR1+IR2+IR3+IR4+IR5+IR6;
+       globals->IRQ3OK=0;
 
        triggerIRQ(1,0x4);
        triggerIRQ(2,0x8);
@@ -725,7 +748,12 @@ void triggerIRQ(VARS, int num, int mask)
          } while (!(Frames>40) && (globals->IRQLevDone==0));
                   Print(" Triggered IRQ: ",WHITE);
          Print(bindec(globals->IRQLevDone),GREEN);
-         if(globals->IRQLevDone!=num)
+         if(num==3)
+         {
+              globals->IRQ3OK=1;
+         }
+
+              if(globals->IRQLevDone!=num)
          {
               Print("   -   ERROR",RED);
          }

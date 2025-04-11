@@ -32,4 +32,10 @@ int toggleBit(int value, int bit);
 void initIRQ3(int code);
 void DisableCache();
 void GetSerial();
+
+void StartECLK();
+int read_eclk();
+int get_eclk_freq();
+int get_tod_freq();
+void StartTOD();
 //struct CIA ciaa, ciab;
