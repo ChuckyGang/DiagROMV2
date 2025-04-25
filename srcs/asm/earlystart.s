@@ -9,7 +9,9 @@
 
 rom_base:	equ $f80000	
 RAMUsage: EQU GlobalVars_sizeof+STACKSIZE+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
-INITBAUD: EQU 183			; Init baudrate  115200
+
+;INITBAUD: EQU 183			; Init baudrate  115200
+INITBAUD: EQU 373			; Init baudrate  9600
 
 		xdef RAMUsage
 		xdef INITBAUD
@@ -887,6 +889,7 @@ done:
 	add.l	#1,d3				; Add 1 to found blocks
 	move.l	d3,d0
 	bchg	#1,$bfe001
+	move.w d0,$dff180
 	DBINDEC
 	KPRINT
 	KPRINTC	_beginrowtxt

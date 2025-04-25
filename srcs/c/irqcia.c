@@ -3,6 +3,8 @@
 #include "generic.h"
 #include <hardware/cia.h>
 
+// YES I know this is a messy file..  I am just screwing around with ideas and tests now..
+// will be more tidy when I know how I want shit
 
 static void setSR(__reg("d0") uint16_t v) = "\tmove\td0,sr\n";
 void IRQCode();
@@ -101,7 +103,7 @@ void eclkcia(VARS)
                      Print(bindec(eclk2),GREEN);
        
                   //   readECLK();
-       
+
                   eclk= read_eclk();
                   Print("\nEclk: ",CYAN);
                   Print(bindec(eclk),GREEN);
@@ -125,6 +127,8 @@ void polledcia(VARS)
        struct CIA *ciab = (struct CIA *)0xbfd000;
        globals->Frames++;
        Print("\nTOD is:  ",CYAN);
+       globals->IRQ2=0;
+       globals->IRQ6=0;
        ciaa->ciatodhi=0;
        ciaa->ciatodmid=0;
        ciaa->ciatodlow=0;          // Clear CIA, meaning also start the timer
@@ -135,6 +139,7 @@ void polledcia(VARS)
        ciaa->ciacra=CIACRAF_START|CIACRAF_SPMODE|CIACRAF_LOAD;
        ciaa->ciaicr = 0x7e;
        ciaa->ciaicr = 0x81;
+       BYTE ciadone;
        int timeout=0;
        int failed=0;
        for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer A
@@ -143,17 +148,18 @@ void polledcia(VARS)
               ciaa->ciatahi=0x1b; //00                   //     time to wait
               do
               {
-                     custom->color[0]=0xf0f;
                      timeout++;
-                     if(timeout>850000) 
+                     custom->color[1]=timeout;
+                     if(timeout>1850000) 
                      {
                             timeout=0;
                             Print("NO ICR Triggered, FAILED",RED);
                             failed=1;
                             break;
                      }
-              } while (ciaa->ciaicr==0);
-                     custom->color[0]=0xfff;
+                     ciadone = (ciaa->ciaicr&1)==0;
+              } while (ciadone);
+                     custom->color[0]=0x335;
                      counter++;
                      timeout=0;
                      if(failed==1)
@@ -177,17 +183,19 @@ void polledcia(VARS)
               ciaa->ciatbhi=0x1b; //00                   //     time to wait
               do
               {
-                     custom->color[0]=0xff3;
                      timeout++
                      if(timeout>1850000) 
                      {
+                            custom->color[0]=0xff3;
                             timeout=0;
                             Print("NO!! ICR Triggered, FAILED",RED);
                             failed=1;
                             break;
+
                      }
-              } while (ciaa->ciaicr==0);
-                     custom->color[0]=0xfff;
+                     ciadone = (ciaa->ciaicr&2)==0;
+              } while (ciadone);
+                     custom->color[0]=0x440;
                      counter++;
                      timeout=0;
                      if(failed==1)
@@ -239,14 +247,16 @@ void polledcia(VARS)
              {
                     custom->color[0]=0;
                     timeout++;
-                    if(timeout>850000) 
+                    if(timeout>150000) 
                     {
                            timeout=0;
+                           custom->color[0]=0xff3;
                            Print("NO ICR Triggered, FAILED",RED);
                            failed=1;
                            break;
                     }
-             } while (ciab->ciaicr==0);
+                    ciadone = (ciab->ciaicr&1)==0;
+             } while (ciadone);
                     custom->color[0]=0xfff;
                     counter++;
                     timeout=0;
@@ -264,6 +274,7 @@ void polledcia(VARS)
       failed=0;
       timeout=0;
       ciab->ciacrb=CIACRBF_START|CIACRBF_LOAD;
+
       for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer B
       {
              ciab->ciatblo=0xb5; //ae
@@ -272,14 +283,17 @@ void polledcia(VARS)
              {
                     custom->color[0]=0;
                     timeout++;
-                    if(timeout>850000) 
+                    if(timeout>50000) 
                     {
                            timeout=0;
+                           custom->color[0]=0xff3;
                            Print("NO ICR Triggered, FAILED",RED);
                            failed=1;
                            break;
                     }
-             } while (ciab->ciaicr==0);
+                    ciadone = (ciab->ciaicr&2)==0;
+             } while (ciadone);
+
                     custom->color[0]=0xfff;
                     counter++;
                     timeout=0;

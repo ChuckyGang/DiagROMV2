@@ -180,7 +180,7 @@ Initcode:                                                      ; OK we have RAM.
 	cmp.b	#0,d6			; Check if we had any return, if so we have a loopbackadapter installed.
 	beq	.noloopback
 
-	move.w	#6,SerialSpeed(a6)	; Set serialspeed to 5 ,(same as 0 but mark loopbackadapter)
+	move.w	#3,SerialSpeed(a6)	; Set serialspeed to 5 (baudrate),(same as 0 but mark loopbackadapter)
 	move.b	#1,LoopB(a6)
 
        KPRINTC       DDETECTED
@@ -194,12 +194,12 @@ Initcode:                                                      ; OK we have RAM.
 	beq	.noser
 	cmp.b	#1,LoopB(a6)		; Check if loopbackadapter was attacjhed
 	beq	.noserloop		; in that case, no serial output
-	move.w	#3,SerialSpeed(a6)	; Set speed 3 (38400)
+	move.w	#2,SerialSpeed(a6)	; Set speed 3 (38400)
 	bsr	Init_Serial
 	bra	.ser
 
 .noserloop:
-	move.w	#6,SerialSpeed(a6)	; Set serialspeed to 6 ,(same as 0 but mark loopbackadapter)
+	move.w	#2,SerialSpeed(a6)	; Set serialspeed to 6 ,(same as 0 but mark loopbackadapter)
 	move.b	#1,NoSerial(a6)
 	bra	.ser
 .noser:

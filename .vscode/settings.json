@@ -15,5 +15,6 @@
     "makefile.makefilePath": "Makefile",
     "files.associations": {
         "type_traits": "cpp"
-    }
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }
