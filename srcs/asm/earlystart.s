@@ -137,6 +137,33 @@ _strstop:
 ; ******************************************************************************************************************
 	
 _begin:
+
+	echo "DEBUG: ",DEBUG
+	ifne DEBUG		; Debugmode. if flag is set lets fake stuff for a quicker startup
+		echo "DEBUG MODE! SKIPPING DETECTION AND WILL JUST 'JOLO' settings"
+	;	Giving just some data that should be there if there was 2MB Chip etc.
+
+	move.l	#$cd6,d0
+	move.l	#$0,d1
+	move.l	#$0,d2
+	move.l	#-1,d3
+	move.l	#$4d6,d4
+	move.l	#$1fffff,d5
+	move.l	#$4d6,d6
+	move.l	#$cd6,d7
+	lea	$fa2f65,a0
+	lea	$200000,a1
+	lea	$400,a2
+	lea	$1fffff,a3
+	lea	$f80744,a4
+	lea	$f80a82,a5
+	lea	$1ebd00,a6
+	lea	$cd6,a7
+	jmp	done
+	endc
+
+
+
 	move.b	#$ff,$bfe200
 	move.b	#$ff,$bfe300
 	move.b	#0,$bfe001		; Clear register.
@@ -376,6 +403,9 @@ _romadrcheck:
 	bra	.cont
 
 done:
+	ifne	DEBUG				; if we are in DEBUG mode. lets jump in the code
+	jmp	.debugjump
+	endc
 	move.l	a7,d1
 	add.b	$dff007,d1			; we just create some kind of "random data"
 	add.b	$dff006,d1			; by altering last byte of a7. adding data that MIGHT be random to eachother
@@ -624,6 +654,7 @@ done:
 ; Most of the initcode is done
 ;
 ;--------------------------------------------------------------------------------------------------------------------------------------
+
 	move.l	a7,d0				; lets do a check what mode to start with by taking status of mousebuttons at poweron
 	move.l	d0,d1
 	move.l	d0,d2
@@ -717,8 +748,14 @@ done:
 	bra	.RMBDONE
 
 .nomouse:					; A6 should now contain first usable block of RAM.
+	ifne	DEBUG				; IF debugmode. lets fake some data
+.debugjump:
+	endc
+	PAUSE
+
 	move.w	#$fff,$dff180			; Set to bright white screen
 	move.l	d3,d4				; Make a copy of d3 (start of chipmem) to d4
+
 	KPRINTC _clearworktxt
 	move.l	#RAMUsage,d0
 	move.l	d0,d7
