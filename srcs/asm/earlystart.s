@@ -237,7 +237,6 @@ _begin:
 	lea	$0,a6
 	lea	$0,SP			; Set the stack. BUT!!! do not use it yet. we need to check memory first! so meanwhile we use it as a dirty status register
 
-	KPRINT9600 _use19200bps
 	KPRINTC _diagRomTxt		; Print some text
 
 ; some writes to check some logicanalyzer shit at start.  just ignore :)  so addresslines and datalines steps up one bit at a time at startup
@@ -345,7 +344,6 @@ _begin:
 	beq	.nopressed			; if no mouse was pressed skip next print
 
 .nopressed:
-
 	move.w	#$200,$dff100			; This is needed or we will not see any colour changes on screen
 	move.w	#0,$dff110			; This aswell!
 
@@ -751,7 +749,6 @@ done:
 	ifne	DEBUG				; IF debugmode. lets fake some data
 .debugjump:
 	endc
-	PAUSE
 
 	move.w	#$fff,$dff180			; Set to bright white screen
 	move.l	d3,d4				; Make a copy of d3 (start of chipmem) to d4
@@ -784,8 +781,8 @@ done:
 	move.l	d1,startupflags(a6)		; Store startupflags as we used the A7 register for this. (we had an backup in D1)
 	move.l	a6,startblock(a6)		; Store where workblock starts
 	move.l	a1,endblock(a6)		; Store where the workblock ends
-
 	move.l	#STACKSIZE,stack_size(a6)	; store our stack size
+	move.l	#STACKSIZE,d0
 	lea.l	GlobalVars_sizeof(a6),sp	; stack area starts right after global vars
 	adda.l	#32,sp				; add a SMALL buffer
 	KPRINTC _stacktxt
