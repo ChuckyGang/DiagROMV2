@@ -110,16 +110,15 @@ void polledcia(VARS)
        BYTE ciadone;
        int timeout=0;
        int failed=0;
-              globals->Frames=0;
-       for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer A
+       globals->Frames=0;
+       do
        {
               ciaa->ciatalo=0xb5; //ae
               ciaa->ciatahi=0x1b; //00                   //     time to wait
+              timeout = globals->Frames;
               do
               {
-                     timeout++;
-                     custom->color[1]=timeout;
-                     if(timeout>2850000) 
+                     if(globals->Frames>timeout+30) 
                      {
                             timeout=0;
                             Print("NO ICR Triggered, FAILED",RED);
@@ -130,13 +129,37 @@ void polledcia(VARS)
               } while (ciadone);
                      custom->color[0]=0x335;
                      counter++;
-                     timeout=0;
-                     if(failed==1)
-                     {
-                            break;
-                     }
-       }
-       //while (!(Frames>40) && (globals->IRQLevDone==0));
+                     (*(volatile unsigned char *)0xbfe001) ^=(1<<1);
+       } while (globals->Frames<200);
+       Print(bindec(counter),GREEN);
+       
+
+//       for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer A
+//       {
+//              ciaa->ciatalo=0xb5; //ae
+//              ciaa->ciatahi=0x1b; //00                   //     time to wait
+//              do
+//              {
+//                     timeout++;
+//                     custom->color[1]=timeout;
+//                     if(timeout>2850000) 
+//                     {
+//                            timeout=0;
+//                            Print("NO ICR Triggered, FAILED",RED);
+//                            failed=1;
+//                            break;
+//                     }
+//                     ciadone = (ciaa->ciaicr&1)==0;
+//              } while (ciadone);
+//                     custom->color[0]=0x335;
+//                     counter++;
+//                     timeout=0;
+//                     if(failed==1)
+//                     {
+//                            break;
+//                     }
+//       }
+//       //while (!(Frames>40) && (globals->IRQLevDone==0));
 
 //      ciaa->ciacra=!CIACRAF_START|!CIACRAF_SPMODE|!CIACRAF_LOAD;
 
