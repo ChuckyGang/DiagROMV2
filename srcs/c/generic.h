@@ -9,6 +9,7 @@
 #define WHITE 7
 #include <hardware/custom.h>
 #define custom ((struct Custom*)0xdff000)
+#define TOGGLEPWR (*(volatile unsigned char *)0xbfe001) ^=(1<<1);
 //#define ciaa ((struct Ciaa*)0xbfe001)
 //#define ciab ((struct Ciab*)0xbfe001)
 //#define PAUSE while( (*(unsigned char*)0xbfe001) & (1<<6) ) *(unsigned short*)(0xdff180) =  *(unsigned short*)(0xdff006); while( !( (*(unsigned char*)0xbfe001) & (1<<6) ));

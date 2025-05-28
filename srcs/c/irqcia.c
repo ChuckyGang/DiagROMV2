@@ -60,10 +60,6 @@ void IRQCIATestC(VARS)
        Print("\nIRQ2 HITS: ",WHITE);
        Print(bindec(globals->IRQ2),GREEN);
 
-       custom->intena = 0xc000+IR2+IR3+IR6;
-       custom->intena = 0xc000+IR2+IR3+IR6;
-       setSR(0x2000);                           // ; Start IRQ
-
        polledcia();
 
        //polledcia();
@@ -105,34 +101,48 @@ void polledcia(VARS)
        Print("\n\n Testing EVEN CIA\n",WHITE);
        Print("\n\nCIAA Timer A:",GREEN);
        ciaa->ciacra=CIACRAF_START|CIACRAF_SPMODE|CIACRAF_LOAD;
-       ciaa->ciaicr = 0x7e;
-       ciaa->ciaicr = 0x81;
+       //ciaa->ciaicr = 0x7e;
+       //ciaa->ciaicr = 0x81;
        BYTE ciadone;
        int timeout=0;
        int failed=0;
+       TOGGLEPWR;
+       custom->intena = 0xc000+IR3;
+       custom->intena = 0xc000+IR3;
+       setSR(0x2000);                           // ; Start IRQ
        globals->Frames=0;
        do
        {
-              ciaa->ciatalo=0xb5; //ae
-              ciaa->ciatahi=0x1b; //00                   //     time to wait
+              ciaa->ciatalo=0xa0; //ae
+              ciaa->ciatahi=0x10; //00                   //     time to wait
               timeout = globals->Frames;
               do
               {
-                     if(globals->Frames>timeout+30) 
+                     if(globals->Frames>timeout+10) 
                      {
                             timeout=0;
                             Print("NO ICR Triggered, FAILED",RED);
                             failed=1;
                             break;
                      }
+                     if(globals->Frames>120)
+                     {
+                            Print("BREAK",RED);
+                            failed=1;
+                            break;
+                     }
                      ciadone = (ciaa->ciaicr&1)==0;
-              } while (ciadone);
+       } while (ciadone);
+                                                               //} while (!(failed)&&ciadone);
                      custom->color[0]=0x335;
                      counter++;
-                     (*(volatile unsigned char *)0xbfe001) ^=(1<<1);
-       } while (globals->Frames<200);
+       } while (globals->Frames<=200);
+                                                                 //} while (!(failed)&&(globals->Frames<200));
        Print(bindec(counter),GREEN);
-       
+
+
+
+       PAUSEC();
 
 //       for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer A
 //       {
@@ -171,8 +181,8 @@ void polledcia(VARS)
        ciaa->ciacrb=CIACRBF_START|CIACRBF_LOAD;
        for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer B
        {
-              ciaa->ciatblo=0xb5; //ae
-              ciaa->ciatbhi=0x1b; //00                   //     time to wait
+              ciaa->ciatblo=0xa0; //ae
+              ciaa->ciatbhi=0x00; //00                   //     time to wait
               do
               {
                      timeout++;
@@ -194,6 +204,7 @@ void polledcia(VARS)
                      {
                             break;
                      }
+                     Print(".",WHITE);
        }
        ciaa->ciacrb=!CIACRBF_START|!CIACRBF_LOAD;
 
@@ -509,16 +520,11 @@ __interrupt void IRQCode(VARS)
        custom->intreq = irq&0x70;
        custom->intreq = irq&0x70;
        if(irq&0x20)                              // Check if it is a VBlank IRQ
-        {
-          // PAUSEC();
-           globals->Frames++;
-       }
-       else
        {
+              globals->Frames++;
+       }
        globals->IRQLevDone=3;
        globals->IRQ3+=1;
-       }
-       int irq2 = custom->intreqr;
 }
 
 
@@ -681,7 +687,7 @@ __interrupt void IRQ3(VARS)
        globals->IRQLevDone=3;
        globals->IRQ3+=1;
        }
-       int irq2 = custom->intreqr;
+      // int irq2 = custom->intreqr;
 }
 
 __interrupt void IRQ4(VARS)
