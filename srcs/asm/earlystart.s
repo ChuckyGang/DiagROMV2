@@ -16,7 +16,7 @@ INITBAUD: EQU 373			; Init baudrate  9600
 		xdef RAMUsage
 		xdef INITBAUD
 		xdef rom_base
-STACKSIZE:	EQU	8192						; Set the size of the stack
+STACKSIZE:	EQU	16384						; Set the size of the stack
 
 	;	This is where it all starts
 	;	I use 7 as Tab size  as it fits better for asm..
@@ -749,6 +749,8 @@ done:
 	ifne	DEBUG				; IF debugmode. lets fake some data
 .debugjump:
 	endc
+
+	move.l	a6,$0				; Store pointer to base at $0  store later at VBR aswell
 
 	move.w	#$fff,$dff180			; Set to bright white screen
 	move.l	d3,d4				; Make a copy of d3 (start of chipmem) to d4

@@ -2,7 +2,6 @@
 #include "globalvars.h"
 #include "generic.h"
 #include <hardware/cia.h>
-
 // YES I know this is a messy file..  I am just screwing around with ideas and tests now..
 // will be more tidy when I know how I want shit
 
@@ -96,8 +95,7 @@ void polledcia(VARS)
        ciaa->ciatodhi=0;
        ciaa->ciatodmid=0;
        ciaa->ciatodlow=0;          // Clear CIA, meaning also start the timer
-       Print(binhex(readTODA()),WHITE);
-       
+       Print(binhex(readTODA()),WHITE);     
        Print("\n\n Testing EVEN CIA\n",WHITE);
        Print("\n\nCIAA Timer A:",GREEN);
        ciaa->ciacra=CIACRAF_START|CIACRAF_SPMODE|CIACRAF_LOAD;
@@ -113,6 +111,7 @@ void polledcia(VARS)
        globals->Frames=0;
        do
        {
+              register struct GlobalVars* globals __asm("a6");
               ciaa->ciatalo=0xa0; //ae
               ciaa->ciatahi=0x10; //00                   //     time to wait
               timeout = globals->Frames;
@@ -127,22 +126,19 @@ void polledcia(VARS)
                      }
                      if(globals->Frames>120)
                      {
-                            Print("BREAK",RED);
+                           Print("BREAK",RED);
                             failed=1;
                             break;
                      }
                      ciadone = (ciaa->ciaicr&1)==0;
        } while (ciadone);
-                                                               //} while (!(failed)&&ciadone);
-                     custom->color[0]=0x335;
+                        custom->color[0]=0x335;
                      counter++;
-       } while (globals->Frames<=200);
+              } while (globals->Frames<=122);
                                                                  //} while (!(failed)&&(globals->Frames<200));
-       Print(bindec(counter),GREEN);
+   //    Print(bindec(counter),GREEN);
 
-
-
-       PAUSEC();
+   PAUSEC();
 
 //       for(int a=0;a<200;a++)                                  // Do aloop 200 times with a wait via CIA timer A
 //       {
@@ -514,8 +510,9 @@ void crap(VARS)
 
 */
 }
-__interrupt void IRQCode(VARS)
+__interrupt void IRQCode()
 {
+       GlobalVars* globals = *((GlobalVars**)0x0);
        int irq = custom->intreqr;
        custom->intreq = irq&0x70;
        custom->intreq = irq&0x70;
