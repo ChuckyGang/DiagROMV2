@@ -2,10 +2,6 @@
 #include "globalvars.h"
 #include "generic.h"
 
-
-//void Print(__reg("a0") int *a, __reg("d1") int b);
-void Print(__reg("a0") int *string, __reg("d1") int color);
-
 uint32_t test_function(VARS)
 {
 	// fill out current vhpos

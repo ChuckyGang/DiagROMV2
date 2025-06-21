@@ -1,5 +1,5 @@
 #pragma once
-#define VARS __reg("a6") struct GlobalVars* globals
+#define VARS volatile struct GlobalVars* globals __asm("a6")      // use this when transitioning from ASM to C, or from IRQs
 #define RED 1
 #define GREEN 2
 #define YELLOW 3
@@ -8,21 +8,21 @@
 #define CYAN 6
 #define WHITE 7
 #include <hardware/custom.h>
-#define custom ((struct Custom*)0xdff000)
+#define custom ((volatile struct Custom*)0xdff000)
 #define TOGGLEPWR (*(volatile unsigned char *)0xbfe001) ^=(1<<1);
 //#define ciaa ((struct Ciaa*)0xbfe001)
 //#define ciab ((struct Ciab*)0xbfe001)
 //#define PAUSE while( (*(unsigned char*)0xbfe001) & (1<<6) ) *(unsigned short*)(0xdff180) =  *(unsigned short*)(0xdff006); while( !( (*(unsigned char*)0xbfe001) & (1<<6) ));
 
-void Print(__reg("a0") char *string, __reg("d1") int color);
+void Print(char *string __asm("a0"), int color __asm("d1"));
 void InitScreen();
 void GetInput();
-char* binhex(__reg("d0") int value);
-char* binstring(__reg("d0") int value);
-int hexbin(__reg("a0") char *string);
-char* bindec(__reg("d0") char value);
-int decbin(__reg("a0") char *string);
-void SendSerial(__reg("a0") char *string);
+char* binhex(int value __asm("d0"));
+char* binstring(int value __asm("d0"));
+int hexbin(char *string __asm("a0"));
+char* bindec(char value __asm("d0"));
+int decbin(char *string __asm("a0"));
+void SendSerial(char *string __asm("a0"));
 //void Log(char *string);
 void CIALevTst();
 void RTEcode();
@@ -40,3 +40,6 @@ int get_eclk_freq();
 int get_tod_freq();
 void StartTOD();
 //struct CIA ciaa, ciab;
+
+void PAUSEC();
+void Log(char *string,int value);

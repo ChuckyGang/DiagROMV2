@@ -5,18 +5,31 @@
 // YES I know this is a messy file..  I am just screwing around with ideas and tests now..
 // will be more tidy when I know how I want shit
 
-static void setSR(__reg("d0") uint16_t v) = "\tmove\td0,sr\n";
-void IRQCode();
-void IRQCode2();
-void IRQ1();
-void IRQ2();
-void IRQ3();
-void IRQ4();
-void IRQ5();
-void IRQ6();
-void IRQ7();
-int readCIAA();
-int readCIAAa();
+static void setSR(uint16_t sr __asm("d0"))
+{
+       asm volatile (
+              "move	%0,sr\n"
+              :
+              : "d" (sr)
+              : "cc"
+              );
+}
+
+int readTOD()
+{
+//       struct CIA *ciaa = (struct CIA *)0xbfe001;
+       struct CIA *ciab = (struct CIA *)0xbfd000;
+       return (ciab->ciatodhi<<16)|(ciab->ciatodmid<<8)|ciab->ciatodlow;
+
+}
+
+int readTODA()
+{
+       struct CIA *ciaa = (struct CIA *)0xbfe001;
+       //struct CIA *ciab = (struct CIA *)0xbfd000;
+       return (ciaa->ciatodhi<<16)|(ciaa->ciatodmid<<8)|ciaa->ciatodlow;
+
+}
 
        #define IR1 0x7
        #define IR2 0x8
@@ -24,65 +37,6 @@ int readCIAAa();
        #define IR4 0x780
        #define IR5 0x1800
        #define IR6 0x2000
-
-void IRQCIATestC(VARS)
-{
-       InitScreen();
-       struct CIA *ciaa = (struct CIA *)0xbfe001;
-       struct CIA *ciab = (struct CIA *)0xbfd000;
-
-       ciab->ciatbhi=0;
-       ciab->ciatblo=0;
-       ciab->ciatahi=0;
-       ciab->ciatalo=0;
-
-              Print("\002CIA Test\n",WHITE);
-              Print("This test requires IRQ3 to work. Is it tested: ",GREEN);
-       if(globals->IRQ3OK == 1)
-              Print("YES\n",GREEN);
-              else
-              {
-                     Print("NO ",RED);
-                     Print("Test might be unreliable\n",GREEN);
-              }
-       Print("\002This is during DEV and output will make NO sense whatsoever to people!\n",CYAN);
-       Print("\002BUT DO PLEASE SEND ME SCREENSHOTS OF YOUR MACHINE WITH MACHINESPEC\n",CYAN);
-       Print("\002WHAT MACHINE. WHAT OSC. PAL/NSTC ETC\n",CYAN);
-       globals->Frames=0;
-       custom->color[0]=0xf0;
-
-       *(volatile APTR *) + 0x68 = IRQ2;
-       *(volatile APTR *) + 0x6c = IRQCode;
-       *(volatile APTR *) + 0x78 = IRQ6;
-
-       //globals->Frames=50;
-       Print("\nIRQ2 HITS: ",WHITE);
-       Print(bindec(globals->IRQ2),GREEN);
-
-       polledcia();
-
-       //polledcia();
-
-       do
-       {
-
-              GetInput();
-       }
-             while(globals->BUTTON == 0);
-
-             custom->intreq=0x7fff;
-             custom->intena=0x7fff;
-      
-             *(volatile APTR *) + 0x64 = RTEcode;
-             *(volatile APTR *) + 0x68 = RTEcode;
-             *(volatile APTR *) + 0x6c = RTEcode;
-             *(volatile APTR *) + 0x70 = RTEcode;
-             *(volatile APTR *) + 0x74 = RTEcode;
-             *(volatile APTR *) + 0x78 = RTEcode;
-             *(volatile APTR *) + 0x7c = RTEcode;
-             ClearBuffer();
-}
-
 
 void polledcia(VARS)
 {
@@ -111,7 +65,6 @@ void polledcia(VARS)
        globals->Frames=0;
        do
        {
-              register struct GlobalVars* globals __asm("a6");
               ciaa->ciatalo=0xa0; //ae
               ciaa->ciatahi=0x10; //00                   //     time to wait
               timeout = globals->Frames;
@@ -317,7 +270,7 @@ void crapcode(VARS)
        struct CIA *ciab = (struct CIA *)0xbfd000;
 
 
-       return 0;
+       return;
 
        //       char cia=ciaa->ciacra;
        //       cia=cia&&0xc0;
@@ -424,21 +377,6 @@ void crapcode(VARS)
        //custom->intena = 0x7fff;
        //setSR(0);
 }
-int readTOD()
-{
-//       struct CIA *ciaa = (struct CIA *)0xbfe001;
-       struct CIA *ciab = (struct CIA *)0xbfd000;
-       return (ciab->ciatodhi<<16)|(ciab->ciatodmid<<8)|ciab->ciatodlow;
-
-}
-
-int readTODA()
-{
-       struct CIA *ciaa = (struct CIA *)0xbfe001;
-       //struct CIA *ciab = (struct CIA *)0xbfd000;
-       return (ciaa->ciatodhi<<16)|(ciaa->ciatodmid<<8)|ciaa->ciatodlow;
-
-}
 
 void crap(VARS)
 {
@@ -510,9 +448,8 @@ void crap(VARS)
 
 */
 }
-__interrupt void IRQCode()
+__interrupt void IRQCode(VARS)
 {
-       GlobalVars* globals = *((GlobalVars**)0x0);
        int irq = custom->intreqr;
        custom->intreq = irq&0x70;
        custom->intreq = irq&0x70;
@@ -541,70 +478,7 @@ __interrupt void IRQCode2(VARS)
        ciab->ciaicr = 0x7f;
 }
 
-void IRQTestC(VARS)
-{
-       static void setSR(__reg("d0") uint16_t v) = "\tmove\td0,sr\n";
-       struct CIA *ciaa = (struct CIA *)0xbfe001;
-    int counter=0;
-       InitScreen();
-              Print("\002IRQ Test EXPERIMENTAL Written in C\n",WHITE);
-              Print("\nTo start IRQ test press any key, ESC or Right Mousebutton to cancel",GREEN);
 
-        do
-       {
-
-              GetInput();
-       }
-             while(globals->BUTTON == 0);
-              if(globals->GetCharData==0x1b)
-                     return;
-              if(globals->RMB==1)
-                     return;
-       Print("\nSetting IRQ TEST\n",WHITE);
-
-       *(volatile APTR *) + 0x64 = IRQ1;
-       *(volatile APTR *) + 0x68 = IRQ2;
-       *(volatile APTR *) + 0x6c = IRQ3;
-       *(volatile APTR *) + 0x70 = IRQ4;
-       *(volatile APTR *) + 0x74 = IRQ5;
-       *(volatile APTR *) + 0x78 = IRQ6;
-       *(volatile APTR *) + 0x7c = IRQ7;
-       setSR(0x2000);
-       custom->adkcon=0x7fff;
-       custom->intena = 0xc000+IR1+IR2+IR3+IR4+IR5+IR6;
-       globals->IRQ3OK=0;
-
-       triggerIRQ(1,0x4);
-       triggerIRQ(2,0x8);
-       triggerIRQ(3,0x40);
-       triggerIRQ(4,0x780);
-       triggerIRQ(5,0x1000);
-       triggerIRQ(6,0x2000);
-
-       Print("\n\nPress any button to exit",CYAN);
-
-       ClearBuffer();
-
-       do
-       {
-
-              GetInput();
-       }
-             while(globals->BUTTON == 0);
-
-       custom->intreq=0x7fff;
-       custom->intena=0x7fff;
-
-       *(volatile APTR *) + 0x64 = RTEcode;
-       *(volatile APTR *) + 0x68 = RTEcode;
-       *(volatile APTR *) + 0x6c = RTEcode;
-       *(volatile APTR *) + 0x70 = RTEcode;
-       *(volatile APTR *) + 0x74 = RTEcode;
-       *(volatile APTR *) + 0x78 = RTEcode;
-       *(volatile APTR *) + 0x7c = RTEcode;
-    //   ClearBuffer();
-    //   PAUSEC();
-}
 
 void triggerIRQ(VARS, int num, int mask)
 {
@@ -615,12 +489,13 @@ void triggerIRQ(VARS, int num, int mask)
        globals->IRQ4=0;
        globals->IRQ5=0;
        globals->IRQ6=0;
-       globals->IRQLevDone=0;       
+       // globals->IRQLevDone=0;       
        custom->intreq=0x8000+mask;
        custom->intreq=0x8000+mask;
        Print("\nTrigger IRQ: ",WHITE);
        Print(bindec(num),GREEN);
        int Frames=0;
+       volatile uint16_t* irqlevdone = &globals->IRQLevDone;
       do
        {
               do
@@ -630,7 +505,7 @@ void triggerIRQ(VARS, int num, int mask)
               {
               } while (custom->vhposr>>8!=0x41);
               Frames++;
-         } while (!(Frames>40) && (globals->IRQLevDone==0));
+         } while (!(Frames>40) && (*irqlevdone==0));
                   Print(" Triggered IRQ: ",WHITE);
          Print(bindec(globals->IRQLevDone),GREEN);
          if(num==3)
@@ -722,4 +597,126 @@ __interrupt void IRQ7(VARS)
 {
         custom->color[0]=0xff;
        globals->IRQ7=1;
+}
+
+void IRQTestC(VARS)
+{
+       struct CIA *ciaa = (struct CIA *)0xbfe001;
+    int counter=0;
+       InitScreen();
+              Print("\002IRQ Test EXPERIMENTAL Written in C\n",WHITE);
+              Print("\nTo start IRQ test press any key, ESC or Right Mousebutton to cancel",GREEN);
+
+        do
+       {
+
+              GetInput();
+       }
+             while(globals->BUTTON == 0);
+              if(globals->GetCharData==0x1b)
+                     return;
+              if(globals->RMB==1)
+                     return;
+       Print("\nSetting IRQ TEST\n",WHITE);
+
+       *(volatile APTR *) + 0x64 = IRQ1;
+       *(volatile APTR *) + 0x68 = IRQ2;
+       *(volatile APTR *) + 0x6c = IRQ3;
+       *(volatile APTR *) + 0x70 = IRQ4;
+       *(volatile APTR *) + 0x74 = IRQ5;
+       *(volatile APTR *) + 0x78 = IRQ6;
+       *(volatile APTR *) + 0x7c = IRQ7;
+       setSR(0x2000);
+       custom->adkcon=0x7fff;
+       custom->intena = 0xc000+IR1+IR2+IR3+IR4+IR5+IR6;
+       globals->IRQ3OK=0;
+
+       triggerIRQ(globals,1,0x4);
+       triggerIRQ(globals,2,0x8);
+       triggerIRQ(globals,3,0x40);
+       triggerIRQ(globals,4,0x780);
+       triggerIRQ(globals,5,0x1000);
+       triggerIRQ(globals,6,0x2000);
+
+       Print("\n\nPress any button to exit",CYAN);
+
+       ClearBuffer();
+
+       do
+       {
+
+              GetInput();
+       }
+             while(globals->BUTTON == 0);
+
+       custom->intreq=0x7fff;
+       custom->intena=0x7fff;
+
+       *(volatile APTR *) + 0x64 = RTEcode;
+       *(volatile APTR *) + 0x68 = RTEcode;
+       *(volatile APTR *) + 0x6c = RTEcode;
+       *(volatile APTR *) + 0x70 = RTEcode;
+       *(volatile APTR *) + 0x74 = RTEcode;
+       *(volatile APTR *) + 0x78 = RTEcode;
+       *(volatile APTR *) + 0x7c = RTEcode;
+    //   ClearBuffer();
+    //   PAUSEC();
+}
+
+void IRQCIATestC(VARS)
+{
+       InitScreen();
+       struct CIA *ciaa = (struct CIA *)0xbfe001;
+       struct CIA *ciab = (struct CIA *)0xbfd000;
+
+       ciab->ciatbhi=0;
+       ciab->ciatblo=0;
+       ciab->ciatahi=0;
+       ciab->ciatalo=0;
+
+              Print("\002CIA Test\n",WHITE);
+              Print("This test requires IRQ3 to work. Is it tested: ",GREEN);
+       if(globals->IRQ3OK == 1)
+              Print("YES\n",GREEN);
+              else
+              {
+                     Print("NO ",RED);
+                     Print("Test might be unreliable\n",GREEN);
+              }
+       Print("\002This is during DEV and output will make NO sense whatsoever to people!\n",CYAN);
+       Print("\002BUT DO PLEASE SEND ME SCREENSHOTS OF YOUR MACHINE WITH MACHINESPEC\n",CYAN);
+       Print("\002WHAT MACHINE. WHAT OSC. PAL/NSTC ETC\n",CYAN);
+       globals->Frames=0;
+       custom->color[0]=0xf0;
+
+       *(volatile APTR *) + 0x68 = IRQ2;
+       *(volatile APTR *) + 0x6c = IRQCode;
+       *(volatile APTR *) + 0x78 = IRQ6;
+
+       //globals->Frames=50;
+       Print("\nIRQ2 HITS: ",WHITE);
+       Print(bindec(globals->IRQ2),GREEN);
+
+       polledcia(globals);
+
+       //polledcia();
+
+       do
+       {
+
+              GetInput();
+       }
+             while(globals->BUTTON == 0);
+
+             custom->intreq=0x7fff;
+             custom->intena=0x7fff;
+      
+             *(volatile APTR *) + 0x64 = RTEcode;
+             *(volatile APTR *) + 0x68 = RTEcode;
+             *(volatile APTR *) + 0x6c = RTEcode;
+             *(volatile APTR *) + 0x70 = RTEcode;
+             *(volatile APTR *) + 0x74 = RTEcode;
+             *(volatile APTR *) + 0x78 = RTEcode;
+             *(volatile APTR *) + 0x7c = RTEcode;
+             ClearBuffer();
 }

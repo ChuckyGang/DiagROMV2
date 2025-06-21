@@ -2,8 +2,6 @@
 #include <stdbool.h>
 #include <hardware/cia.h>
 
-void PAUSEC();
-
 static inline bool LMB_is_down()
 {
     volatile struct CIA* ciaa = (struct CIA*)0xbfe001;
@@ -44,7 +42,7 @@ int setBit(int value, int bit)
 
 int clearBit(int value, int bit)
 {
-    return((value & (~(1 << (bit-1))));
+    return((value & (~(1 << (bit-1)))));
 }
 
 int toggleBit(int value, int bit)

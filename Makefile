@@ -10,14 +10,15 @@ DATEOPS= +"%Y-%m-%d"
 CP := cp
 MD = mkdir -p $(1) > /dev/null
 endif
-NDK_INC := ./NDK3.2R4/Include_H 
+NDK_INC := ./ndk/Include_H 
 AS := vasmm68k_mot 
 ASOPTS := -DDEBUG=0 -quiet -m68851 -m68882 -m68020up -no-opt -Fhunk -I. -I$(OUTDIR)/srcs
-CC := vc
-CFLAGS := -DDEBUG=2 +aos68k -cpu=68000 -c99 -O2 -size -I$(NDK_INC) -I. -Isrcs
+CC := /opt/amiga/bin/m68k-amigaos-gcc
+CFLAGS := -DDEBUG=2 -mcpu=68000 -O2 -g -mregparm=4 -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
 $(info NDK is $(NDK_INC))
-LN := vlink 
+LN := /opt/amiga/bin/m68k-amigaos-gcc
 #LNFLAGS := -t -M
+OC := /opt/amiga/bin/m68k-amigaos-objcopy
 
 SRCS =$(wildcard srcs/**/*.c) $(wildcard srcs/**/*.s)
 OBJS =$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.c=.o)))
@@ -35,11 +36,14 @@ all: diagrom.rom $(OUTDIR)/diagrom.exe
 diagrom.rom: $(OUTDIR)/diagrom_nosum.bin $(OUTDIR)/checksum
 	$(OUTDIR)//checksum $< $@
 
-$(OUTDIR)/diagrom_nosum.bin: $(OBJS)
-	$(LN) -x -Bstatic -Cvbcc -s -b rawbin1 -T srcs/link.txt $(OBJS) -o $@ $(LNFLAGS)
+$(OUTDIR)/diagrom_nosum.exe: $(OBJS)
+	$(LN) -nostartfiles -nostdlib -Wl,-Map,$@.txt -T srcs/link.txt $(OBJS) -o $@ $(LNFLAGS)
+
+$(OUTDIR)/%.bin: $(OUTDIR)/%.exe
+	$(OC) -O binary $< $@
 
 $(OUTDIR)/diagrom.exe: $(OBJS)
-	$(LN) -x -Bstatic -Cvbcc -s -b amigahunk -T srcs/link.txt $(OBJS) -o $@ $(LNFLAGS)
+	$(LN) -nostartfiles -nostdlib -Wl,-Map,$@.txt -T srcs/link_exe.txt $(OBJS) -o $@ $(LNFLAGS)
 
 $(OUTDIR)/%.o: %.s
 	$(AS) $(ASOPTS) $< -o $@
