@@ -1,0 +1,19 @@
+{
+    "editor.rulers": [],
+    "editor.glyphMargin": false,
+    "[m68k]": {
+        "editor.rulers": []
+    },
+    "editor.tabSize": 7,
+    "makefile.makefilePath": "Makefile",
+    "files.associations": {
+        "type_traits": "cpp",
+        "custom.h": "c"
+    },
+    "C_Cpp.errorSquiggles": "disabled",
+    "github.copilot.enable": {
+        "*": false,
+        "plaintext": false,
+        "markdown": false
+    }
+}

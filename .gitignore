@@ -1,0 +1,12 @@
+*.o
+*~
+*.rom
+*.exe
+*.adf
+*.bin
+diagrom_nosum.bin
+/build
+/vbcc
+/ndk
+/NDK3.2R4
+CLAUDE.md

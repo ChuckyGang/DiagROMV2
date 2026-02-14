@@ -1,0 +1,11 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "command": "make",
+            "name": "Build",
+            "request": "launch",
+            "type": "node-terminal"
+        }
+    ]
+}

@@ -1,0 +1,40 @@
+KICKSTART_ADDR = 0x0f80000;      /* Kickstart address */
+KICKSTART_SIZE = 0x0080000;      /* 512kB */
+MEMORY
+{
+  rom (rx) : ORIGIN = KICKSTART_ADDR, LENGTH = KICKSTART_SIZE
+}
+SECTIONS
+{
+  .text :
+  {
+    *(startup)
+    *(initstartup)
+    *(CODE)
+    *(generic)
+    *(mainmenu)
+    *(audiotest)
+    *(memtest)
+    *(irqcia)
+    *(gfxtest)
+    *(porttest)
+    *(disktest)
+    *(othertest)
+    *(keyboardtest)
+    *(autoconfig)
+    *(terriblefire)
+    *(.text)
+    *(module)
+    *(gfx)
+    *(data)
+    *(.copperlist)
+    *(.romEcsLowResCopper)
+    *(.romEcsHiResCopper)
+    *(.romAgaLowResCopper)
+    *(.romAgaHiResCopper)
+    *(.checksums)
+
+    . = KICKSTART_SIZE - 28;
+    *(.autovec)
+  } > rom
+}

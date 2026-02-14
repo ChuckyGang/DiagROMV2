@@ -1,0 +1,60 @@
+#include "globalvars.h"
+#include "generic.h"
+#include <hardware/cia.h>
+void floppyTestC(VARS)
+{
+       volatile struct CIA *ciaa = (struct CIA *)0xbfe001;
+       volatile struct CIA *ciab = (struct CIA *)0xbfd000;
+       InitScreen();
+       Print("\002Floppytest (New Experimental)\n\n",CYAN);
+       Print("This test will run much better with working CIA Timer.\nIs CIA Timers tested ok: ",CYAN);
+       if(globals->ODDCIATIMEROK==1)
+       {
+              Print("ODD CIA OK ",GREEN);
+       }
+       else
+       {
+              Print("ODD CIA NOT TESTED/NOT OK ",RED);
+       }
+
+       Print(" | ",WHITE);
+
+       if(globals->EVENCIATIMEROK==1)
+       {
+              Print("EVEN CIA OK ",GREEN);
+       }
+       else
+       {
+              Print("EVEN CIA NOT TESTED/NOT OK ",RED);
+       }
+       ciab->ciaprb &= ~(CIAB_DSKSEL0);
+       ciab->ciaprb |= CIAB_DSKSEL0;
+
+    uint32_t id = 0;
+    uint8_t mask = CIAB_DSKSEL0;
+    unsigned int i;
+
+    ciab->ciaprb |= 0xf8;  /* motor-off, deselect all */
+    ciab->ciaprb &= 0x7f;  /* 1. MTRXD low */
+    ciab->ciaprb &= ~mask; /* 2. SELxB low */
+    ciab->ciaprb |= mask;  /* 3. SELxB high */
+    ciab->ciaprb |= 0x80;  /* 4. MTRXD high */
+    ciab->ciaprb &= ~mask; /* 5. SELxB low */
+    ciab->ciaprb |= mask;  /* 6. SELxB high */
+    for (i = 0; i < 32; i++) {
+        ciab->ciaprb &= ~mask; /* 7. SELxB low */
+        id = (id<<1) | ((ciaa->ciapra>>5)&1); /* 8. Read and save state of RDY */
+        ciab->ciaprb |= mask;  /* 9. SELxB high */
+    }
+
+    Print("Drive ID: ",WHITE);
+    Print(binhex(id),WHITE);
+
+       Print("\n\nDONE. Press any key/button to exit",WHITE);
+       do
+       {
+
+              GetInput();
+       }
+             while(globals->BUTTON == 0);
+}

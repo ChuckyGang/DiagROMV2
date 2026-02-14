@@ -1,0 +1,56 @@
+#pragma once
+#include "globalvars.h"
+register volatile struct GlobalVars* globals __asm("a6");         // globals is always available via a6
+#define VARS volatile struct GlobalVars* globals __asm("a6")      // use this when transitioning from ASM to C, or from IRQs
+#define RED 1
+#define GREEN 2
+#define YELLOW 3
+#define BLUE 4
+#define PURPLE 5
+#define CYAN 6
+#define WHITE 7
+#include <hardware/custom.h>
+#define custom ((volatile struct Custom*)0xdff000)
+#define TOGGLEPWR (*(volatile unsigned char *)0xbfe001) ^=(1<<1);
+//#define ciaa ((struct Ciaa*)0xbfe001)
+//#define ciab ((struct Ciab*)0xbfe001)
+//#define PAUSE while( (*(unsigned char*)0xbfe001) & (1<<6) ) *(unsigned short*)(0xdff180) =  *(unsigned short*)(0xdff006); while( !( (*(unsigned char*)0xbfe001) & (1<<6) ));
+
+void getHWReg(VARS);
+void readSerial();
+void rs232_out(char character);
+void sendSerial(char *string);
+void initSerial();
+
+// Below is defintions for ASM code
+void Print(char *string __asm("a0"), int color __asm("d1"));
+void InitScreen();
+void GetInput();
+char* binhex(int value __asm("d0"));
+char* binstring(int value __asm("d0"));
+char* GetChip(int value __asm("d0"));
+int hexbin(char *string __asm("a0"));
+char* bindec(int value __asm("d0"));
+int decbin(char *string __asm("a0"));
+void SendSerial(char *string __asm("a0"));
+//void Log(char *string);
+void CIALevTst();
+void RTEcode();
+int setBit(int value, int bit);
+int clearBit(int value, int bit);
+void ClearBuffer();
+int toggleBit(int value, int bit);
+void initIRQ3(int code);
+void DisableCache();
+void GetSerial();
+void StartECLK();
+void SetPos(int x __asm("d0"), int y __asm("d1"));
+int read_eclk();
+int get_eclk_freq();
+int get_tod_freq();
+void StartTOD();
+void SetMenuCopper();
+//struct CIA ciaa, ciab;
+
+void PAUSEC();
+void Log(char *string,int value);
