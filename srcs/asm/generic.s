@@ -73,59 +73,6 @@
 	xdef	DevPrint
 	xdef	_PAUSE
 
-	; This contains the generic code for all general-purpose stuff
-GetHWReg:					; Dumps all readable HW registers to memory
-	jsr	_getHWReg
-	rts
-
-
-DefaultVars:					; Set defualtvalues
-	move.l	$400,CheckMemEditScreenAdr(a6)
-	move.b	#0,skipnextkey(a6)
-	rts
-
-_PAUSE:
-	PAUSE
-	rts
-
-Init_Serial:
-	PUSH
-	jsr	_initSerial
-	POP
-	rts
-	cmp.b	#1,NoSerial(a6)
-	beq	.noser
-	move.w	#$4000,$dff09a
-	clr.l	d0
-	move.w	SerialSpeed(a6),d0		; Get serialspeed
-	mulu	#4,d0				; Multiply with 4 to get correct address
-	lea	SerSpeeds,a0
-	move.l	(a0,d0),d0			; Load d0 with the value to write to the register for the correct speed.
-	move.w	d0,$dff032			; Set the speed of the serialport
-	move.b	#$4f,$bfd000			; Set DTR high
-	move.w	#$0801,$dff09a
-	move.w	#$0801,$dff09c
-.noser:
-	rts
-
-_SendSerial:
-SendSerial:
-		; Indata a0=string to send to serialport
-		; nullterminated
-	PUSH
-	move.l	a0,-(sp)			; Push string pointer for C calling convention
-	jsr	_sendSerial
-	addq.l	#4,sp				; Clean up stack
-	POP
-	rts
-
-rs232_out:
-	PUSH					; Save all registers (C may clobber d0/d1/a0/a1)
-	move.l	d0,-(sp)			; Push character (d0) onto stack for C calling convention
-	jsr	_rs232_out
-	addq.l	#4,sp				; Clean up stack
-	POP					; Restore all registers
-	rts
 
 _Print:
 Print:						; Prints a string
@@ -2953,6 +2900,16 @@ DevPrint:
 	jsr	SetPos
 	rts
 
+DefaultVars:					; Set defualtvalues
+	move.l	$400,CheckMemEditScreenAdr(a6)
+	move.b	#0,skipnextkey(a6)
+	rts
+
+_PAUSE:
+	PAUSE
+	rts
+
+
 hextab:
 	dc.b	"0123456789ABCDEF"		; For bin->hex convertion
 
@@ -3007,3 +2964,34 @@ EnglishKeyShifted::
 	dc.b	0 ;f10
 	dc.b	"()/*+"
 	dc.b	0 ; Help
+
+
+Init_Serial:
+	PUSH
+	jsr	_initSerial
+	POP
+	rts
+
+_SendSerial:
+SendSerial:
+		; Indata a0=string to send to serialport
+		; nullterminated
+	PUSH
+	move.l	a0,-(sp)			; Push string pointer for C calling convention
+	jsr	_sendSerial
+	addq.l	#4,sp				; Clean up stack
+	POP
+	rts
+
+rs232_out:
+	PUSH					; Save all registers (C may clobber d0/d1/a0/a1)
+	move.l	d0,-(sp)			; Push character (d0) onto stack for C calling convention
+	jsr	_rs232_out
+	addq.l	#4,sp				; Clean up stack
+	POP					; Restore all registers
+	rts
+
+	; This contains the generic code for all general-purpose stuff
+GetHWReg:					; Dumps all readable HW registers to memory
+	jsr	_getHWReg
+	rts
