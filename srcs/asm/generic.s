@@ -1,6 +1,10 @@
        include "earlymacros.i"
        include "build/srcs/globalvars.i"
 
+       xref	_RomFont
+       xref	_putChar
+       xref	_setPos
+
        section "generic",code_p
 	xdef	GetHWReg
 	xdef	Init_Serial
@@ -277,129 +281,12 @@ ClearScreen:
 	POP
 	rts
 	
-_SetPos:
-SetPos:					; Set cursor at wanted position on screen
-	; Indata:
-	; d0 = xpos
-	; d1 = ypos
-
-	PUSH
-	move.b	d0,Xpos(a6)
-	move.b	d1,Ypos(a6)
-	move.l	d0,d2
-	move.l	d1,d0
-	add.l	#1,d0
-	lea	Ansi,a0
-	bsr	SendSerial
-	bsr	oldbindec			;convert d0 to decimal string (x pos)
-	bsr	SendSerial			;and send result to serialport
-	move.l	#";",d0			;load d0 with ;
-	bsr	rs232_out
-	move.l	d2,d0
-	add.l	#1,d0
-	bsr	oldbindec			;convert d0 (from d1. Ypos) to decimal
-	bsr	SendSerial
-	move.l	#"H",d0
-	bsr	rs232_out
-	POP
-	rts
-
 GetPos:
 	clr.l	d0
 	clr.l	d1
 	move.b	Xpos(a6),d0
 	move.b	Ypos(a6),d1
 	rts
-
-
-PutChar:
-	PUSH					; Puts a char on the screen.
-						; INDATA: (expects longwords)
-						; D0 = Char (IF color above 8, it gets reversed in that color - 8)
-						; D1 = Color
-						; D2 = XPos
-						; D3 = YPos
-
-	cmp.b	#1,d0				; Nonprinted char?
-	beq	.noprint					
-
-	cmp.b	#0,NoDraw(a6)			; Check if we should draw
-	bne	.exit
-
-	move.l	d0,d5
-	sub.b	#32,d0				; Subtract 32 from the char as " " is the first char in the Font.
-	clr.l	d4				; if d4 if 0. no invert of char
-	cmp.b	#8,d1
-	blt	.Normal			; Normal color. do not invert
-	move.b	#1,d4
-	sub.b	#8,d1
-.Normal:
-
-	mulu	#640,d3			; Multiply Y with 640 to get a correct Y pos on screen
-	add.w	d2,d3				; Add X pos to the d3. D3 now contains how much to add to bitplane to print
-
-	move.l	Bpl1Ptr(a6),a0		; load A0 with address of BPL1
-	move.l	Bpl2Ptr(a6),a1		; load A1 with address of BPL2
-	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
-	lea	RomFont,a3
-
-	add.l	d3,a0
-	add.l	d3,a1
-	add.l	d3,a2				; Add the value to the screen bitplane addresses
-
-	mulu	#8,d0
-	add.l	d0,a3
-	
-	cmp.b	#0,NoChar(a6)			; Check if we should print
-	bne	.no				; nonzero. do not print
-
-
-	move.l	#7,d0
-.loop:
-	move.b	(a3)+,d2
-
-	cmp.b	#1,d4				; IF D4 is 1, invert char
-	bne.s	.noinvert
-	eor	#$ff,d2
-.noinvert:
-	clr.b	(a0)
-	clr.b	(a1)
-	clr.b	(a2)				; To be sure. delete anything
-	btst	#0,d1				; Check what bitplane to print on
-	beq.w	.nopl1
-	move.b	d2,(a0)
-.nopl1:
-	btst	#1,d1
-	beq.s	.nopl2
-	move.b	d2,(a1)
-.nopl2:
-	btst	#2,d1
-	beq.s	.nopl3
-	move.b	d2,(a2)
-.nopl3:
-	add.l	#80,a0
-	add.l	#80,a1
-	add.l	#80,a2
-	dbf	d0,.loop			; put char on the screen
-.no:
-	move.l	d5,d0
-.exitwithserial:
-	bsr	rs232_out
-	POP
-	rts
-
-
-.noprint:
-	move.l	#" ",d0
-	bsr	rs232_out
-	POP
-	rts
-.exit:
-	TOGGLEPWRLED				; As we cannot put any chars on screen. flicker the powerled so user MIGHT
-						; notice something is happening. as DMA etc are out. we cannot rely on colors etc.
-	move.b	d3,$dff180			; but. just for the "fun" of it. push some random crap on background colotr
-	move.b	d0,$dff181
-	bra	.exitwithserial
 
 ScrollScreen:
 	cmp.b	#0,NoDraw(a6)			; Check if we should draw
@@ -2972,7 +2859,6 @@ Init_Serial:
 	POP
 	rts
 
-_SendSerial:
 SendSerial:
 		; Indata a0=string to send to serialport
 		; nullterminated
@@ -2994,4 +2880,27 @@ rs232_out:
 	; This contains the generic code for all general-purpose stuff
 GetHWReg:					; Dumps all readable HW registers to memory
 	jsr	_getHWReg
+	rts
+
+PutChar:
+	PUSH
+	move.l	d3,-(sp)		; yPos (arg 4)
+	move.l	d2,-(sp)		; xPos (arg 3)
+	move.l	d1,-(sp)		; color (arg 2)
+	move.l	d0,-(sp)		; character (arg 1)
+	jsr	_putChar
+	lea	16(sp),sp		; clean up 4 args from stack
+	POP
+	rts
+
+SetPos:					; Set cursor at wanted position on screen
+	; Indata:
+	; d0 = xpos
+	; d1 = ypos
+	PUSH
+	move.l	d1,-(sp)		; yPos (arg 2)
+	move.l	d0,-(sp)		; xPos (arg 1)
+	jsr	_setPos
+	lea	8(sp),sp		; clean up 2 args from stack
+	POP
 	rts

@@ -50,6 +50,13 @@ void floppyTestC(VARS)
     Print("Drive ID: ",WHITE);
     Print(binhex(id),WHITE);
 
+    putChar('a',RED,10,10);
+    putChar('a',R_RED,11,10);
+
+    putChar('a',CYAN,20,10);
+    putChar('a',R_CYAN,21,10);
+
+
        Print("\n\nDONE. Press any key/button to exit",WHITE);
        do
        {

@@ -42,7 +42,7 @@ void RTCTestC(VARS)
        InitScreen();
        uint8_t ricochMonth = ((*(rtc+41)&0xf)*10)+(*(rtc+37)&0xf); // Read from where Ricoh have its month stored (Reg10*10+Reg9, stride 4)
 
-       SetPos(0,4);
+       setPos(0,4);
        Print("RTC Chipset: ",WHITE);
 
               if(ricochMonth>12)
@@ -54,17 +54,17 @@ void RTCTestC(VARS)
               ricoh=TRUE;
        }
        printRTCChip(ricoh);
-       SetPos(0,5);
+       setPos(0,5);
        Print("Year: ",WHITE);
-       SetPos(0,6);
+       setPos(0,6);
        Print("Month: ",WHITE);
-       SetPos(0,7);
+       setPos(0,7);
        Print("Date: ",WHITE);
-       SetPos(10,7);
+       setPos(10,7);
        Print("Day of week: ",WHITE);
-       SetPos(0,8);
+       setPos(0,8);
        Print("Time:",WHITE);
-       SetPos(0,15);
+       setPos(0,15);
        Print("\002S - Swap Chipset\n",WHITE);
        Print("\002D - Dump RTC content\n",WHITE);
        Print("\002T - Measure RTC second accuracy (uses CIAB HSYNC counter)\n",WHITE);
@@ -109,9 +109,9 @@ void RTCTestC(VARS)
              if(second!=oldSecond)
              {
                      oldSecond=second;
-                     SetPos(6,8);
+                     setPos(6,8);
                      Print("Time: ",GREEN);
-                     SetPos(6,8);
+                     setPos(6,8);
                      if(hour<10)
                      Print("0",YELLOW);
                      Print(bindec(hour),YELLOW);
@@ -135,20 +135,20 @@ void RTCTestC(VARS)
                             Print("   ",CYAN);
                      }
 
-                     SetPos(6,5);
+                     setPos(6,5);
                      Print(bindec(year),CYAN);
 
-                     SetPos(7,6);
+                     setPos(7,6);
                      if(month<10)
                             Print("0",CYAN);
                      Print(bindec(month),CYAN);
 //
-                     SetPos(6,7);
+                     setPos(6,7);
                      if(date<10)
                            Print("0",CYAN);
                      Print(bindec(date),CYAN);
 //
-                     SetPos(23,7);
+                     setPos(23,7);
                      Print(bindec(day),CYAN);
 
               }
@@ -166,14 +166,14 @@ void RTCTestC(VARS)
 
                      if(globals->GetCharData=='d')
                      {
-                            SetPos(0,10);
+                            setPos(0,10);
                             for(int i=0;i<20;i++)                     // Prints the Array on screen
                             {
                                    Print(bindec(rtcArray[i]),YELLOW);
                                    Print(":",GREEN);
                             }
                             exit=FALSE;
-                            SetPos(0,11);
+                            setPos(0,11);
                             Print("0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9\n",GREEN);
                             for(int i=20;i<40;i++)                     // Prints the Array on screen
                             {
@@ -183,14 +183,14 @@ void RTCTestC(VARS)
                      }
                      if(globals->GetCharData=='t')
                      {
-                            SetPos(0,10);
+                            setPos(0,10);
                             Print("Measuring RTC (wait ~11 sec)...",WHITE);
                             int hsync = measureRTCSecond();
-                            SetPos(0,11);
+                            setPos(0,11);
                             Print("HSYNC/10sec: ",WHITE);
                             Print(bindec(hsync),CYAN);
                             Print(" (PAL=156250, NTSC=157340)",GREEN);
-                            SetPos(0,12);
+                            setPos(0,12);
                             if(hsync > 150000 && hsync < 165000)
                                    Print("RTC timing OK",GREEN);
                             else if(hsync < 150000)
@@ -257,7 +257,7 @@ int measureRTCSecond(void)
 
 void printRTCChip(uint8_t ricoh)
 {
-              SetPos(0,4);
+       setPos(0,4);
        Print("RTC Chipset: ",WHITE);
 
        if(!ricoh)

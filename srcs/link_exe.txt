@@ -23,6 +23,7 @@ SECTIONS
     *(module)
     *(gfx)
     *(data)
+    *(.data)
     *(.checksums)
 
     . = KICKSTART_SIZE - 16;

@@ -25,6 +25,7 @@ OC := /opt/amiga/bin/m68k-amigaos-objcopy
 SRCS =$(wildcard srcs/**/*.c) $(wildcard srcs/**/*.s)
 OBJS =$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.c=.o)))
 OBJS+=$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.s=.o)))
+OBJS+=$(OUTDIR)/data/TopazFont.o
 
 # Create output dirs
 DIRS:=$(OUTDIR) $(patsubst %/,%,$(dir $(OBJS)))
@@ -53,6 +54,11 @@ $(OUTDIR)/%.o: %.s
 
 $(OUTDIR)/%.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
+
+$(OUTDIR)/data/TopazFont.o: data/TopazFont.bin
+	@mkdir -p $(dir $@)
+	$(OC) -I binary -O amiga -B m68k $< $@
+	$(OC) --redefine-sym _binary_data_TopazFont_bin_start=_RomFont $@
 
 $(OUTDIR)/%.i: %.h
 	python3 tools/h2i.py $< -o $@ -- -I libc

@@ -9,6 +9,15 @@ register volatile struct GlobalVars* globals __asm("a6");         // globals is 
 #define PURPLE 5
 #define CYAN 6
 #define WHITE 7
+#define R_RED 8
+#define R_GREEN 9
+#define R_YELLOW 10
+#define R_BLUE 11
+#define R_PURPLE 12
+#define R_CYAN 13
+#define R_WHITE 14
+
+
 #include <hardware/custom.h>
 #define custom ((volatile struct Custom*)0xdff000)
 #define TOGGLEPWR (*(volatile unsigned char *)0xbfe001) ^=(1<<1);
@@ -21,6 +30,10 @@ void readSerial();
 void rs232_out(char character);
 void sendSerial(char *string);
 void initSerial();
+void putChar(char character, uint8_t color, uint8_t xPos, uint8_t yPos);
+void clearScreen();
+void setPos(uint32_t xPos, uint32_t yPos);
+char *binDec(int16_t value);
 
 // Below is defintions for ASM code
 void Print(char *string __asm("a0"), int color __asm("d1"));
@@ -30,9 +43,9 @@ char* binhex(int value __asm("d0"));
 char* binstring(int value __asm("d0"));
 char* GetChip(int value __asm("d0"));
 int hexbin(char *string __asm("a0"));
-char* bindec(int value __asm("d0"));
+//char* bindec(int value __asm("d0"));
 int decbin(char *string __asm("a0"));
-void SendSerial(char *string __asm("a0"));
+//void SendSerial(char *string __asm("a0"));
 //void Log(char *string);
 void CIALevTst();
 void RTEcode();
@@ -44,7 +57,7 @@ void initIRQ3(int code);
 void DisableCache();
 void GetSerial();
 void StartECLK();
-void SetPos(int x __asm("d0"), int y __asm("d1"));
+//void SetPos(int x __asm("d0"), int y __asm("d1"));
 int read_eclk();
 int get_eclk_freq();
 int get_tod_freq();

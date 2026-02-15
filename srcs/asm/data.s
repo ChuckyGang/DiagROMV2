@@ -1894,7 +1894,3 @@ StartupFlagsDoneTxt::
 EVEN
 
 
-RomFont::
-	incbin	"data/TopazFont.bin"
-
-	EVEN

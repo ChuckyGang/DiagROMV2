@@ -27,6 +27,7 @@ SECTIONS
     *(module)
     *(gfx)
     *(data)
+    *(.data)
     *(.copperlist)
     *(.romEcsLowResCopper)
     *(.romEcsHiResCopper)
