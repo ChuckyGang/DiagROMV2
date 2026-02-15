@@ -266,12 +266,12 @@ def main():
                                 "Latest code available at   : https://github.com/erique/h2i")
 
     parser.add_argument("filename", help=".h/.c/.cpp file to parse")
-    parser.add_argument("args", nargs="*", help="additional libclang arguments")
     parser.add_argument("-t", "--tests", dest="gen_tests", action="store_true",
                         default=False, help="generate offset/size tests")
     parser.add_argument("-o", "--output", dest="output", default=None,
                         help="output file (default: stdout)")
-    opts = parser.parse_args()
+    opts, extra = parser.parse_known_args()
+    opts.args = [a for a in extra if a != '--']
 
     index = Index.create()
     tu = index.parse(opts.filename,
