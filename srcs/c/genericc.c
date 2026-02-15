@@ -38,7 +38,8 @@ void getHWReg(VARS)
     uint16_t serialSpeed = globals->SerialSpeed;
     static const int baudRates[] = {0,1492,373,187,94,30,0,0};
     custom->serper = baudRates[serialSpeed];                     // Set serial port baud rate
-    *(volatile uint8_t *)0xbfd000 = 0x4f;                       // Set DTR high (CIAB PRA)
+
+    *(volatile uint8_t *)0xbfd000 = 0x4f;                        // Set DTR high (CIAB PRA)
     custom->intena = 0x0801;                                     // Clear TBE + EXTER interrupt enable bits
     custom->intreq = 0x0801;                                     // Clear TBE + EXTER interrupt request flags
 }
