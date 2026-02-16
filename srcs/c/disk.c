@@ -6,26 +6,26 @@ void floppyTestC(VARS)
        volatile struct CIA *ciaa = (struct CIA *)0xbfe001;
        volatile struct CIA *ciab = (struct CIA *)0xbfd000;
        InitScreen();
-       Print("\002Floppytest (New Experimental)\n\n",CYAN);
-       Print("This test will run much better with working CIA Timer.\nIs CIA Timers tested ok: ",CYAN);
+       print("\002Floppytest (New Experimental)\n\n",CYAN);
+       print("This test will run much better with working CIA Timer.\nIs CIA Timers tested ok: ",CYAN);
        if(globals->ODDCIATIMEROK==1)
        {
-              Print("ODD CIA OK ",GREEN);
+              print("ODD CIA OK ",GREEN);
        }
        else
        {
-              Print("ODD CIA NOT TESTED/NOT OK ",RED);
+              print("ODD CIA NOT TESTED/NOT OK ",RED);
        }
 
-       Print(" | ",WHITE);
+       print(" | ",WHITE);
 
        if(globals->EVENCIATIMEROK==1)
        {
-              Print("EVEN CIA OK ",GREEN);
+              print("EVEN CIA OK ",GREEN);
        }
        else
        {
-              Print("EVEN CIA NOT TESTED/NOT OK ",RED);
+              print("EVEN CIA NOT TESTED/NOT OK ",RED);
        }
        ciab->ciaprb &= ~(CIAB_DSKSEL0);
        ciab->ciaprb |= CIAB_DSKSEL0;
@@ -47,17 +47,19 @@ void floppyTestC(VARS)
         ciab->ciaprb |= mask;  /* 9. SELxB high */
     }
 
-    Print("Drive ID: ",WHITE);
-    Print(binhex(id),WHITE);
+    print("Drive ID: ",WHITE);
+    print(binhex(id),WHITE);
 
     putChar('a',RED,10,10);
     putChar('a',R_RED,11,10);
 
     putChar('a',CYAN,20,10);
     putChar('a',R_CYAN,21,10);
+    PAUSEC();
+//    scrollScreen();
+    print("hejsan",WHITE);
 
-
-       Print("\n\nDONE. Press any key/button to exit",WHITE);
+       print("\n\nDONE. Press any key/button to exit",WHITE);
        do
        {
 

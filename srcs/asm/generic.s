@@ -3,27 +3,28 @@
 
        xref	_RomFont
        xref	_putChar
+	xref	_printChar
        xref	_setPos
+	xref	_clearScreen
 
        section "generic",code_p
 	xdef	GetHWReg
 	xdef	Init_Serial
-	xdef	_SendSerial
 	xdef	SendSerial
 	xdef	WaitShort
-	xdef	_bindec
+;	xdef	_bindec
 	xdef	bindec
 	xdef	oldbindec
 	xdef	_binhex
 	xdef	binhex
 	xdef	CopyMem
-	xdef	_Print
 	xdef	Print
 	xdef	PrintChar
 	xdef	PutChar
+	xdef	_scrollScreen:
 	xdef	ScrollScreen
 	xdef	ClearScreen
-	xdef	_SetPos
+;	xdef	_SetPos
 	xdef	SetPos
 	xdef	GetPos
 	xdef	RomChecksum
@@ -77,290 +78,6 @@
 	xdef	DevPrint
 	xdef	_PAUSE
 
-
-_Print:
-Print:						; Prints a string
-	PUSH					; INDATA:
-	clr.l	d7				; Clear d7
-	cmp.b	#2,(a0)			; Check if first byte in string is a 2, then we will center it.
-	beq	.center
-.print:					; A0 = string to print, nullterminated
-						; D1 = Color
-	clr.l	d0
-	move.b	(a0)+,d0
-	cmp.b	#0,d0				; is the char 0?
-	beq	.exit				; exit printing, we are done
-
-	bsr	PrintChar
-
-	add.l	#1,d7				; add one to d7
-	cmp.l	#3000,d7			; to avoid "foreverprinting" bug, if string is too long, just stop
-	beq	.exit
-	
-	bra.s	.print
-.exit:
-	POP
-	rts
-.center:
-	move.l	d1,d5				; backup colordata
-	add.l	#1,a0				; First skip this first char.
-	move.l	a0,a1				; Store stringaddress for future use.
-	clr.l	d7				; Clear d7
-.loop:
-	move.b	(a0)+,d6			; Read char into d6
-
-	cmp.b	#0,d6				; End of string?
-	beq	.end
-
-	cmp.b	#31,d6
-	ble	.loop				; is less then space? then it is not printable and should be ignored
-
-	add.l	#1,d7				; Add 1 to length of string
-	bra	.loop
-.end:						; OK we are done, d7 now contains length of string
-	cmp.b	#80,d7				; Check if string is larger then one row, then skip centerstuff
-	bge	.zero
-
-	move.l	#80,d1
-	sub.b	d7,d1				; d7 now contains number of chars to fill row.
-	asr	#1,d1				; Divide by 2, d7 now contains number of spaces to fill out to center
-
-	cmp.b	#0,d1				; Check if zero, then no spaces to be printed
-	beq	.zero
-	move.l	d1,d7
-	sub.b	#1,d7				; Subtract with 1 so loop gets correct number of spaces.
-
-.spaceloop:
-	move.b	#" ",d0			; make sure a space is printed
-	move.l	d5,d1
-	bsr	PrintChar			; Print it
-	dbf	d7,.spaceloop			; loop it.
-
-.zero:
-	move.l	a1,a0				; We are done, restore string to print (minus first char) and print it
-	move.l	d5,d1				; Restore d1 (color)
-	bra	.print
-	
-PrintChar:				; Puts a char on screen and add X, Y variables depending on char etc.
-	; INDATA: (Longwords expected)
-	;	D0 = Char
-	;	D1 = Color
-	PUSH
-	cmp.b	#1,d0				; check if char is $1
-	beq	.Noprint			; then it is a nonprinted char
-	cmp.b	#$d,d0
-	beq	.ignore
-
-	clr.l	d7
-	move.b	d0,d7
-	move.l	d1,d6
-	move.l	d1,d0
-	cmp.b	Color(a6),d0
-	beq	.samecol			; if it is the same color as last time.. do nothing special
-	move.b	d0,Color(a6)
-	; ok we have a new color, change it to serialport
-	cmp.b	#8,d0
-	blt	.noinvert
-	move.b	#1,Inverted(a6)		; set the inverted-flag
-	lea	Black,a0
-	bsr	SendSerial
-	sub.l	#8,d1
-
-	lea	Ansi,a0
-	bsr	SendSerial			; Send ANSI esc code.
-	move.b	#"4",d0
-	bsr	rs232_out
-	move.b	d1,d0
-	bsr	oldbindec
-	bsr	SendSerial
-	move.l	#"m",d0
-	bsr	rs232_out
-	bra	.samecol
-
-.noinvert:
-
-	cmp.b	#0,Inverted(a6)		; Check if the invertedflag is 0
-	beq	.notinverted			; it was 0, last char printed was not inverted
-
-		; last char WAS inverted. we must clear it on the serialport.
-	lea	AnsiNull,a0
-	bsr	SendSerial			; Send the string to serialport that clears inverted.
-	clr.b	Inverted(a6)			; clear the invertedflag aswell
-
-.notinverted:
-	lea	Ansi,a0
-	bsr	SendSerial			; Send ANSI esc code.
-	move.b	#"3",d0
-	bsr	rs232_out
-	move.b	d1,d0
-	bsr	oldbindec
-	bsr	SendSerial
-	move.l	#"m",d0
-	bsr	rs232_out
-.samecol:
-	move.l	d6,d1
-	move.l	d7,d0
-	move.l	#0,d2
-	move.l	#0,d3
-	cmp.b	#$a,d0				; IF char is $a, new line
-	beq.s	.NewLine
-	cmp.b	#$d,d0				; IF Char is $d, put cursor to the left
-	bne.s	.No
-	clr.b	Xpos(a6)
-	PUSH
-	move.b	#"A",d0
-	bsr	rs232_out
-	POP
-.No:
-	clr.l	d2
-	clr.l	d3				; Clear d2 and d3 so it is all clear before printing the char
-.Noprint:
-	move.b	Xpos(a6),d2
-	move.b	Ypos(a6),d3			; Take current X and Y positions to d2 and d3 as argument to PutChar
-	bsr	PutChar				; Print the char on screen
-	add.b	#1,Xpos(a6)			; Add one to the Xpos
-	cmp.b	#79,Xpos(a6)			; check if we have hit the border
-	bgt	.NewLine			; we have hit the border. put it on a new line instead.
-.ignore:
-	POP
-	rts
-.NewLine:
-	clr.b	Xpos(a6)			; Put X pos to the left
-	add.b	#1,Ypos(a6)			; Add Y pos
-	PUSH
-	move.l	#$a,d0
-	bsr	rs232_out
-	move.l	#$d,d0
-	bsr	rs232_out
-	POP
-	cmp.B	#1,NTSC(a6)			; are we at NTSC mode?
-	beq.S	.ntsc
-	cmp.b	#31,Ypos(a6)			; Hit the border?
-	bgt	.EndOfPage			; ohyes.
-	bra.S	.pal
-.ntsc:
-	cmp.B	#26,Ypos(a6)
-	bgt	.EndOfPage
-.pal:
-	POP
-	rts
-.EndOfPage:
-	bsr	ScrollScreen
-	clr.b	Xpos(a6)
-	sub.b	#1,Ypos(a6)
-	POP
-	rts
-
-ClearScreen:
-	PUSH
-	cmp.b	#0,NoDraw(a6)
-	bne	.no
-	move.l	Bpl1Ptr(a6),a0		; load A0 with address of BPL1
-	move.l	Bpl2Ptr(a6),a1		; load A1 with address of BPL2
-	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
-
-	move.l	#20*256,d0
-.loop:
-	clr.l	(a0)+
-	clr.l	(a1)+
-	clr.l	(a2)+
-	dbf	d0,.loop
-.no:
-	lea	AnsiNull,a0
-	bsr	SendSerial
-	lea	ClearScrn,a0
-	bsr	SendSerial
-	move.l	#12,d0
-	bsr	rs232_out
-	lea	AnsiNull,a0
-	bsr	SendSerial
-
-	clr.l	d0
-	clr.l	d1
-	bsr	SetPos
-	POP
-	rts
-	
-GetPos:
-	clr.l	d0
-	clr.l	d1
-	move.b	Xpos(a6),d0
-	move.b	Ypos(a6),d1
-	rts
-
-ScrollScreen:
-	cmp.b	#0,NoDraw(a6)			; Check if we should draw
-	bne	.exit
-
-	PUSH
-	move.l	Bpl1Ptr(a6),a0		; load A0 with address of BPL1
-	move.l	Bpl2Ptr(a6),a1		; load A1 with address of BPL2
-	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
-	move.l	BPLSIZE(a6),d0		; How much data is one screen
-	sub.l	#640,d0			; Subtract 8 pixels
-	divu	#4,d0				; Divide by 4 to get longwords.
-.loop:
-	move.l	640(a0),(a0)+
-	move.l	640(a1),(a1)+
-	move.l	640(a2),(a2)+	
-	dbf	d0,.loop
-
-	move.w	#159,d0
-.loop2:
-	clr.l	(a0)+
-	clr.l	(a1)+
-	clr.l	(a2)+				; Clear last row
-	dbf	d0,.loop2
-	POP
-.exit:
-	rts
-	
-	
-
-ReadSerial:					; Read serialport, and if anything there store it in the buffer
-	cmp.w	#0,SerialSpeed(a6)		; is serialport is disabled.  skip all serial stuff
-	beq	.exit
-	cmp.w	#5,SerialSpeed(a6)
-	beq	.exit
-
-	move.w	$dff018,d5
-	move.b	OldSerial(a6),d6
-	cmp.b	d5,d6				; is there a change from last scan?
-	bne	.serial			; yes. so. well handle it as a new char.
-	btst	#14,d5				; Buffer full, we have a new char
-	beq	.exit
-
-.serial:
-	move.b	#1,SerData(a6)
-	move.b	d5,OldSerial(a6)
-	move.w	#$0800,$dff09c		; Turn off RBF bit
-	move.w	#$0800,$dff09c
-	move.b	#1,BUTTON(a6)
-
-	clr.l	d6
-	move.b	SerBufLen(a6),d6
-	add.b	#1,SerBufLen(a6)
-	lea	SerBuf(a6),a5
-	move.b	d5,(a5,d6)
-.exit:
-	rts
-
-CopyMem:
-	; Copy one block memory to another
-	; INDATA:
-	;	A0 = Source
-	;	D0 = Bytes to copy. (YES. being lazy, we do this bytestyle)
-	;	A1 = Destination
-	clr.l	d7
-.loop:
-	move.b	(a0)+,(a1)+
-	add.l	#1,d7
-	cmp.l	d7,d0
-	bgt	.loop				; YES a DBF would do just fine. but i want to support more then 64k
-	rts
-
-
-
 WaitShort:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have detected working raster)
 	PUSH
 	cmp.b	#1,RASTER(a6)			; Check if we have a confirmed working raster
@@ -383,46 +100,6 @@ WaitShort:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have d
 	POP
 	rts
 
-RomChecksum:
-	lea	RomCheckTxt,a0
-	move.l	#3,d1
-	bsr	Print
-	lea	_checksums,a1			; Load a1 with list of checksums
-	lea	rom_base,a5
-	move.l	#_checksums,d2		; store Checksumaddre in d1
-	move.l	#_endchecksums,d3		; store end of Checksumaddr in d2
-	move.l	#7,d6
-.romcheckloop2:
-	move.l	#0,d0				; Clear D0 that calculates the checksum
-	move.l	#$3fff,d7
-.romcheckloop:
-						; lets skip checksumcalc if we are in checksumvar area
-	cmp.l	d2,a5
-	bge	.higher
-	bra	.not
-.higher:
-	cmp.l	d3,a5
-	bge	.not				; ok we are in address of checksums. skip calc
-	add.l	#4,a5
-	bra	.nocalc
-.not:
-	add.l	(a5)+,d0
-.nocalc
-	dbf	d7,.romcheckloop
-.endromcheck:
-	cmp.l	(a1)+,d0			; Check if it fits stored checksum
-	bne	.nocheckok
-	move.l	#2,d1
-	bra	.checkok
-.nocheckok:
-	move.l	#1,d1
-.checkok:
-	bsr	binhex
-	bsr	Print
-	lea	SpaceTxt,a0
-	bsr	Print
-	dbf	d6,.romcheckloop2
-	rts
 
 ;------------------------------------------------------------------------------------------
 
@@ -868,26 +545,15 @@ _binhex:
 
 binhex:					; Converts a binary number to hex
 	; INDATA:
-	;	D0 = binary nymber
+	;	D0 = binary number
 	; OUTDATA:
 	;	A0 = Pointer to "binhexoutput" containing the string
 	PUSH
-	lea	hextab,a1			; location of hexstring source
-	lea	binhexoutput(a6),a0
-	clr.l	(a0)
-	clr.l	4(a0)
-	clr.w	8(a0)				; Clear the area first.
-	move.b	#"$",(a0)			; put a leading "$" char in the beginning
-	add.l	#9,a0
-	move.l	#7,d1
-.loop:
-	move.l	d0,d2
-	and.l	#15,d2
-	move.b	(a1,d2),-(a0)
-	lsr.l	#4,d0
-	dbra	d1,.loop
+	move.l	d0,-(sp)			; value (arg 1)
+	jsr	_binHex
+	addq.l	#4,sp				; clean up stack
 	POP
-	lea	binhexoutput(a6),a0
+	lea	binhexoutput(a6),a0		; Set a0 after POP so it isn't overwritten
 	rts
 
 ErrorScreen:
@@ -2526,21 +2192,13 @@ GetMouse:
 	rts
 
 _hexbin:
-hexbin:						; Converts a longword to binary.
-						; NO ERRORCHECk WHATSOEVER!
-						; Input:
-						;	A0 = String to convert (8 bytes)
-						; Output:
-						;	D0 = binary number
-						;
+hexbin:						; Converts a hex string to binary
+	; INDATA: A0 = String (8 hex chars)
+	; OUTDATA: D0 = binary number
 	PUSH
-	clr.l	d0				; Clear D0 that will contain the binary number
-	move.l	#3,d7				; Loop this 3 times.
-.loop:
-	bsr	hexbytetobin
-	asl.l	#8,d0				; Rotate d0 8 bits to make room for the next byte
-	add.l	d2,d0				; Add the content of d2 to d0
-	dbf	d7,.loop			; Repeat 3 times to complete one longword
+	move.l	a0,-(sp)			; string (arg 1)
+	jsr	_hexBin
+	addq.l	#4,sp
 	move.l	d0,HexBinBin(a6)
 	POP
 	move.l	HexBinBin(a6),d0
@@ -2692,27 +2350,15 @@ hexbytetobin:
 	rts
 _decbin:
 decbin:					; Convert a decimal string to binary number
-						; IN:
-						;	A0 = String (NO SYNTAXCHECK!)
-						; OUT:
-						;	D0 = Number in binary (16 bit number max)
+	; IN: A0 = String
+	; OUT: D0 = Number in binary
 	PUSH
-	jsr	StrLen
-	move.l	#1,d7
-	clr.l	d2
-	clr.l	d1
-.loop:
-	sub.l	#1,d0				; Subtract 1 to the length
-	move.b	(a0,d0),d1			; get char from the string
-	sub.b	#"0",d1			; Subtract "0" to get the binary number
-	mulu	d7,d1				; multiply with whats in d7 to d1 to get what to add in the result
-	add.l	d1,d2				; add it to d2
-	mulu	#10,d7				; multiply 10 do d7 to get next value to add for next char
-	cmp.w	#0,d0				; are we done?
-	bne.s	.loop				; no loop
-	move.l	d2,DecBinBin(a6)		; write result
+	move.l	a0,-(sp)			; string (arg 1)
+	jsr	_decBin
+	addq.l	#4,sp
+	move.l	d0,DecBinBin(a6)
 	POP
-	move.l	DecBinBin(a6),d0		; D0 now contains the binary form of the number
+	move.l	DecBinBin(a6),d0
 	rts
 
 MakePrintable:
@@ -2794,6 +2440,57 @@ DefaultVars:					; Set defualtvalues
 
 _PAUSE:
 	PAUSE
+	rts
+
+
+_scrollScreen:
+ScrollScreen:
+	cmp.b	#0,NoDraw(a6)			; Check if we should draw
+	bne	.exit
+
+	PUSH
+	move.l	Bpl1Ptr(a6),a0		; load A0 with address of BPL1
+	move.l	Bpl2Ptr(a6),a1		; load A1 with address of BPL2
+	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
+	move.l	BPLSIZE(a6),d0		; How much data is one screen
+	sub.l	#640,d0			; Subtract 8 pixels
+	divu	#4,d0				; Divide by 4 to get longwords.
+.loop:
+	move.l	640(a0),(a0)+
+	move.l	640(a1),(a1)+
+	move.l	640(a2),(a2)+	
+	dbf	d0,.loop
+
+	move.w	#159,d0
+.loop2:
+	clr.l	(a0)+
+	clr.l	(a1)+
+	clr.l	(a2)+				; Clear last row
+	dbf	d0,.loop2
+	POP
+.exit:
+	rts
+
+GetPos:
+	clr.l	d0
+	clr.l	d1
+	move.b	Xpos(a6),d0
+	move.b	Ypos(a6),d1
+	rts
+
+	
+CopyMem:
+	; Copy one block memory to another
+	; INDATA:
+	;	A0 = Source
+	;	D0 = Bytes to copy. (YES. being lazy, we do this bytestyle)
+	;	A1 = Destination
+	clr.l	d7
+.loop:
+	move.b	(a0)+,(a1)+
+	add.l	#1,d7
+	cmp.l	d7,d0
+	bgt	.loop				; YES a DBF would do just fine. but i want to support more then 64k
 	rts
 
 
@@ -2893,6 +2590,28 @@ PutChar:
 	POP
 	rts
 
+PrintChar:				; Puts a char on screen and add X, Y variables depending on char etc.
+	PUSH
+	move.l	d1,-(sp)		; color (arg 2)
+	move.l	d0,-(sp)		; character (arg 1)
+	jsr	_printChar
+	lea	8(sp),sp		; clean up 4 args from stack
+	POP
+	RTS
+
+Print:						; Prints a string
+	; INDATA:
+	; A0 = string to print, nullterminated
+	; D1 = Color
+	PUSH
+	move.l	d1,-(sp)			; color (arg 2)
+	move.l	a0,-(sp)			; string (arg 1)
+	jsr	_print
+	lea	8(sp),sp			; clean up 2 args from stack
+	POP
+	rts
+
+
 SetPos:					; Set cursor at wanted position on screen
 	; Indata:
 	; d0 = xpos
@@ -2902,5 +2621,23 @@ SetPos:					; Set cursor at wanted position on screen
 	move.l	d0,-(sp)		; xPos (arg 1)
 	jsr	_setPos
 	lea	8(sp),sp		; clean up 2 args from stack
+	POP
+	rts
+
+ClearScreen:
+	PUSH
+	jsr	_clearScreen
+	POP
+	rts
+
+ReadSerial:					; Read serialport, and if anything there store it in the buffer
+	PUSH
+	jsr	_readSerial
+	POP
+	rts
+
+RomChecksum:
+	PUSH
+	jsr	_romChecksum
 	POP
 	rts

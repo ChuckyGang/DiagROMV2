@@ -33,18 +33,21 @@ void initSerial();
 void putChar(char character, uint8_t color, uint8_t xPos, uint8_t yPos);
 void clearScreen();
 void setPos(uint32_t xPos, uint32_t yPos);
-char *binDec(int16_t value);
+char *binDec(int32_t value);
+void clearScreen();
+void printChar(char character, uint8_t color);
+void printCharNewLine();
 
 // Below is defintions for ASM code
-void Print(char *string __asm("a0"), int color __asm("d1"));
+//void print(char *string __asm("a0"), int color __asm("d1"));
 void InitScreen();
 void GetInput();
-char* binhex(int value __asm("d0"));
+//char* binhex(int value __asm("d0"));
 char* binstring(int value __asm("d0"));
 char* GetChip(int value __asm("d0"));
-int hexbin(char *string __asm("a0"));
+uint32_t hexBin(char *string);
 //char* bindec(int value __asm("d0"));
-int decbin(char *string __asm("a0"));
+uint32_t decBin(char *string);
 //void SendSerial(char *string __asm("a0"));
 //void Log(char *string);
 void CIALevTst();
@@ -63,6 +66,7 @@ int get_eclk_freq();
 int get_tod_freq();
 void StartTOD();
 void SetMenuCopper();
+void scrollScreen();
 //struct CIA ciaa, ciab;
 
 void PAUSEC();

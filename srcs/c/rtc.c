@@ -17,7 +17,7 @@ static void setSR(uint16_t sr __asm("d0"))
 
 void RTCTestC(VARS)
 {
-       Print("\002RTC TEST    **** EXPERIMENTAL ****\n\n",CYAN);
+       print("\002RTC TEST    **** EXPERIMENTAL ****\n\n",CYAN);
        volatile uint8_t *rtc = (volatile uint8_t *)0xdc0000;
        uint8_t rtcArray[40];
        uint8_t ricoh=FALSE;
@@ -43,7 +43,7 @@ void RTCTestC(VARS)
        uint8_t ricochMonth = ((*(rtc+41)&0xf)*10)+(*(rtc+37)&0xf); // Read from where Ricoh have its month stored (Reg10*10+Reg9, stride 4)
 
        setPos(0,4);
-       Print("RTC Chipset: ",WHITE);
+       print("RTC Chipset: ",WHITE);
 
               if(ricochMonth>12)
        {
@@ -55,21 +55,21 @@ void RTCTestC(VARS)
        }
        printRTCChip(ricoh);
        setPos(0,5);
-       Print("Year: ",WHITE);
+       print("Year: ",WHITE);
        setPos(0,6);
-       Print("Month: ",WHITE);
+       print("Month: ",WHITE);
        setPos(0,7);
-       Print("Date: ",WHITE);
+       print("Date: ",WHITE);
        setPos(10,7);
-       Print("Day of week: ",WHITE);
+       print("Day of week: ",WHITE);
        setPos(0,8);
-       Print("Time:",WHITE);
+       print("Time:",WHITE);
        setPos(0,15);
-       Print("\002S - Swap Chipset\n",WHITE);
-       Print("\002D - Dump RTC content\n",WHITE);
-       Print("\002T - Measure RTC second accuracy (uses CIAB HSYNC counter)\n",WHITE);
-       Print("\002ESC (or Mousebutton) - EXIT\n",WHITE);
-       Print("\n\n\n\n ALL EXPERIMENTAL",RED);
+       print("\002S - Swap Chipset\n",WHITE);
+       print("\002D - Dump RTC content\n",WHITE);
+       print("\002T - Measure RTC second accuracy (uses CIAB HSYNC counter)\n",WHITE);
+       print("\002ESC (or Mousebutton) - EXIT\n",WHITE);
+       print("\n\n\n\n ALL EXPERIMENTAL",RED);
        ricochMonth = ((*(rtc+41)&0xf)*10)+(*(rtc+37)&0xf);
        do
        {
@@ -110,46 +110,46 @@ void RTCTestC(VARS)
              {
                      oldSecond=second;
                      setPos(6,8);
-                     Print("Time: ",GREEN);
+                     print("Time: ",GREEN);
                      setPos(6,8);
                      if(hour<10)
-                     Print("0",YELLOW);
-                     Print(bindec(hour),YELLOW);
-                     Print(":",GREEN);
+                     print("0",YELLOW);
+                     print(binDec(hour),YELLOW);
+                     print(":",GREEN);
                      if(minute<10)
-                            Print("0",YELLOW);
-                     Print(bindec(minute),YELLOW);
-                     Print(":",GREEN);
+                            print("0",YELLOW);
+                     print(binDec(minute),YELLOW);
+                     print(":",GREEN);
                      if(second<10)
-                            Print("0",YELLOW);
-                     Print(bindec(second),YELLOW);
+                            print("0",YELLOW);
+                     print(binDec(second),YELLOW);
                      if(ampm)
                      {
                             if(am)
-                            Print(" PM",CYAN);
+                            print(" PM",CYAN);
                             else
-                            Print("   ",CYAN);
+                            print("   ",CYAN);
                      }
                      else
                      {
-                            Print("   ",CYAN);
+                            print("   ",CYAN);
                      }
 
                      setPos(6,5);
-                     Print(bindec(year),CYAN);
+                     print(binDec(year),CYAN);
 
                      setPos(7,6);
                      if(month<10)
-                            Print("0",CYAN);
-                     Print(bindec(month),CYAN);
+                            print("0",CYAN);
+                     print(binDec(month),CYAN);
 //
                      setPos(6,7);
                      if(date<10)
-                           Print("0",CYAN);
-                     Print(bindec(date),CYAN);
+                           print("0",CYAN);
+                     print(binDec(date),CYAN);
 //
                      setPos(23,7);
-                     Print(bindec(day),CYAN);
+                     print(binDec(day),CYAN);
 
               }
               GetInput();
@@ -169,34 +169,34 @@ void RTCTestC(VARS)
                             setPos(0,10);
                             for(int i=0;i<20;i++)                     // Prints the Array on screen
                             {
-                                   Print(bindec(rtcArray[i]),YELLOW);
-                                   Print(":",GREEN);
+                                   print(binDec(rtcArray[i]),YELLOW);
+                                   print(":",GREEN);
                             }
                             exit=FALSE;
                             setPos(0,11);
-                            Print("0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9\n",GREEN);
+                            print("0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9\n",GREEN);
                             for(int i=20;i<40;i++)                     // Prints the Array on screen
                             {
-                                   Print(bindec(rtcArray[i]),YELLOW);
-                                   Print(":",GREEN);
+                                   print(binDec(rtcArray[i]),YELLOW);
+                                   print(":",GREEN);
                             }
                      }
                      if(globals->GetCharData=='t')
                      {
                             setPos(0,10);
-                            Print("Measuring RTC (wait ~11 sec)...",WHITE);
+                            print("Measuring RTC (wait ~11 sec)...",WHITE);
                             int hsync = measureRTCSecond();
                             setPos(0,11);
-                            Print("HSYNC/10sec: ",WHITE);
-                            Print(bindec(hsync),CYAN);
-                            Print(" (PAL=156250, NTSC=157340)",GREEN);
+                            print("HSYNC/10sec: ",WHITE);
+                            print(binDec(hsync),CYAN);
+                            print(" (PAL=156250, NTSC=157340)",GREEN);
                             setPos(0,12);
                             if(hsync > 150000 && hsync < 165000)
-                                   Print("RTC timing OK",GREEN);
+                                   print("RTC timing OK",GREEN);
                             else if(hsync < 150000)
-                                   Print("RTC runs FAST",RED);
+                                   print("RTC runs FAST",RED);
                             else
-                                   Print("RTC runs SLOW",RED);
+                                   print("RTC runs SLOW",RED);
                             exit=FALSE;
                      }
                      if(globals->GetCharData==0x1b)
@@ -258,14 +258,14 @@ int measureRTCSecond(void)
 void printRTCChip(uint8_t ricoh)
 {
        setPos(0,4);
-       Print("RTC Chipset: ",WHITE);
+       print("RTC Chipset: ",WHITE);
 
        if(!ricoh)
        {
-              Print("OKI  ",CYAN);
+              print("OKI  ",CYAN);
        }
        else
        {
-              Print("RICOH",CYAN);
+              print("RICOH",CYAN);
        }
 }

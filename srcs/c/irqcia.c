@@ -47,7 +47,7 @@ void detectTOD(VARS)                      // to test ToD bug!.  apparenlty cias 
               volatile struct CIA *ciaa = (struct CIA *)0xbfe001;
        volatile struct CIA *ciab = (struct CIA *)0xbfd000;
               globals->IRQ6=0;
-       Print("\n\n Testing ODD CIA ALARM 2 Seconds: ",WHITE);
+       print("\n\n Testing ODD CIA ALARM 2 Seconds: ",WHITE);
        custom->color[0]=0x0;
        globals->Frames=0;
                      ciaa->ciaicr = 0x80;
@@ -73,7 +73,7 @@ void detectTOD(VARS)                      // to test ToD bug!.  apparenlty cias 
               {
                      if(globals->IRQ2)
                      {
-                            Print("OK",GREEN);
+                            print("OK",GREEN);
                             globals->ODDALARMOK=1;
                      break;
                      }
@@ -90,7 +90,7 @@ void timedcia(VARS)
        volatile struct CIA *ciaa = (struct CIA *)0xbfe001;
        volatile struct CIA *ciab = (struct CIA *)0xbfd000;
        globals->IRQ6=0;
-       Print("\n\n Testing ODD CIA ALARM 2 Seconds: ",WHITE);
+       print("\n\n Testing ODD CIA ALARM 2 Seconds: ",WHITE);
        custom->color[0]=0x0;
        globals->Frames=0;
               ciaa->ciacra = 0x00;
@@ -114,7 +114,7 @@ void timedcia(VARS)
               {
                      if(globals->IRQ2)
                      {
-                            Print("OK",GREEN);
+                            print("OK",GREEN);
                             globals->ODDALARMOK=1;
                      break;
                      }
@@ -124,10 +124,10 @@ void timedcia(VARS)
               while(globals->Frames<200);
               if(globals->IRQ2==0)
               {
-                     Print(" FAILED",RED);
+                     print(" FAILED",RED);
               }
 
-              Print("\n Testing EVEN CIA ALARM 2 Seconds: ",WHITE);
+              print("\n Testing EVEN CIA ALARM 2 Seconds: ",WHITE);
               ciab->ciacra = 0x00;
               ciab->ciatodhi = 0;
               ciab->ciatodmid =0;
@@ -148,7 +148,7 @@ void timedcia(VARS)
               {
                      if(globals->IRQ6)
                      {
-                            Print("OK",GREEN);
+                            print("OK",GREEN);
                      break;
                      }
                      custom->color[0]=0x060;
@@ -157,7 +157,7 @@ void timedcia(VARS)
               while(globals->Frames<200);
        if(globals->IRQ6==0)
               {
-                     Print(" FAILED",RED);
+                     print(" FAILED",RED);
               }
 }
 
@@ -173,11 +173,11 @@ void polledcia(VARS)
        volatile struct CIA *ciab = (struct CIA *)0xbfd000;
        globals->IRQ2=0;
        globals->IRQ6=0;
-       Print("\n Testing ODD CIA Steps of 1ms each\n",WHITE);
-       Print("\n\nCIAA Timer A:",GREEN);
+       print("\n Testing ODD CIA Steps of 1ms each\n",WHITE);
+       print("\n\nCIAA Timer A:",GREEN);
 
        globals->Frames=0;
-       Print("             ",WHITE);
+       print("             ",WHITE);
        do
        {
               custom->color[0]=0x0;
@@ -192,13 +192,13 @@ void polledcia(VARS)
                      if(globals->Frames>timeout+10) 
                      {
                             timeout=0;
-                            Print("NO ICR Triggered, FAILED",RED);
+                            print("NO ICR Triggered, FAILED",RED);
                             failed=1;
                             break;
                      }
                      if(globals->Frames>200)
                      {
-                           Print("TIMEOUT",RED);
+                           print("TIMEOUT",RED);
                            globals->ODDCIATIMEROK=0;
                             failed=1;
                             //break;
@@ -210,18 +210,18 @@ void polledcia(VARS)
                             timeout = globals->Frames;
               } while (globals->Frames<=122);
 
-              Print("Counter: ",WHITE);
-              Print(bindec(counter),CYAN);
+              print("Counter: ",WHITE);
+              print(binDec(counter),CYAN);
               globals->ODDCIATIMEROK=0;
               if(checkCiaOK(counter)==1)
               {
                       globals->ODDCIATIMEROK=1;      
               }
 
-       Print("CIAA Timer B:",GREEN);
+       print("CIAA Timer B:",GREEN);
        counter = 0;
        globals->Frames=0;
-       Print("             ",WHITE);
+       print("             ",WHITE);
        do
        {
               custom->color[0]=0x0;
@@ -236,14 +236,14 @@ void polledcia(VARS)
                      if(globals->Frames>timeout+10) 
                      {
                             timeout=0;
-                            Print("NO ICR Triggered, FAILED",RED);
+                            print("NO ICR Triggered, FAILED",RED);
                             failed=1;
                             globals->ODDCIATIMEROK=0;
                             break;
                      }
                      if(globals->Frames>200)
                      {
-                           Print("TIMEOUT",RED);
+                           print("TIMEOUT",RED);
                            globals->ODDCIATIMEROK=0;
                             failed=1;
                      }
@@ -254,14 +254,14 @@ void polledcia(VARS)
                             timeout = globals->Frames;
               } while (globals->Frames<=122);
 
-              Print("Counter: ",WHITE);
-              Print(bindec(counter),CYAN);
+              print("Counter: ",WHITE);
+              print(binDec(counter),CYAN);
 
               if(checkCiaOK(counter)==1)
               {
                       globals->ODDCIATIMEROK=1;      
               }
-              Print("CIAA TOD (VSync)",GREEN);
+              print("CIAA TOD (VSync)",GREEN);
               ciaa->ciacrb=!CIACRBB_ALARM;
               ciaa->ciatodhi=0;
               ciaa->ciatodmid=0;
@@ -274,33 +274,33 @@ void polledcia(VARS)
               }
               while(globals->Frames<101);
               tod = (ciaa->ciatodhi<<16)|(ciaa->ciatodmid<<8)|ciaa->ciatodlow;
-              Print("          ",WHITE);
-              Print("Counter: ",WHITE);
-              Print(bindec(tod),CYAN);
+              print("          ",WHITE);
+              print("Counter: ",WHITE);
+              print(binDec(tod),CYAN);
 
               if(tod<98)
               {
-                     Print(" - TOO SLOW",RED);
+                     print(" - TOO SLOW",RED);
                      globals->ODDTODOK=0;
               }
               else
               if(tod>122)
               {
-                     Print("  - TOO FAST",RED);
+                     print("  - TOO FAST",RED);
                      globals->ODDTODOK=0;
               }
               else
               {
-                     Print("  - OK", GREEN);
+                     print("  - OK", GREEN);
                      globals->ODDTODOK=1;
               }
-              Print("\n",WHITE);
+              print("\n",WHITE);
 
-       Print("\n Testing EVEN CIA Steps of 1ms each\n",WHITE);
-       Print("\nCIAB Timer B:",GREEN);
+       print("\n Testing EVEN CIA Steps of 1ms each\n",WHITE);
+       print("\nCIAB Timer B:",GREEN);
        counter = 0;
        globals->Frames=0;
-       Print("             ",WHITE);
+       print("             ",WHITE);
        do
        {
               custom->color[0]=0x0;
@@ -315,13 +315,13 @@ void polledcia(VARS)
                      if(globals->Frames>timeout+10) 
                      {
                             timeout=0;
-                            Print("NO ICR Triggered, FAILED",RED);
+                            print("NO ICR Triggered, FAILED",RED);
                             failed=1;
                             break;
                      }
                      if(globals->Frames>200)
                      {
-                           Print("TIMEOUT",RED);
+                           print("TIMEOUT",RED);
                             failed=1;
                             //break;
                      }
@@ -332,18 +332,18 @@ void polledcia(VARS)
                             timeout = globals->Frames;
               } while (globals->Frames<=122);
 
-              Print("Counter: ",WHITE);
-              Print(bindec(counter),CYAN);
+              print("Counter: ",WHITE);
+              print(binDec(counter),CYAN);
               globals->EVENCIATIMEROK=0;
               if(checkCiaOK(counter)==1)
               {
                       globals->EVENCIATIMEROK=1;      
               }
-       Print("CIAB Timer B:",GREEN);
+       print("CIAB Timer B:",GREEN);
 
        counter = 0;
        globals->Frames=0;
-       Print("             ",WHITE);
+       print("             ",WHITE);
        do
        {
               custom->color[0]=0x0;
@@ -358,13 +358,13 @@ void polledcia(VARS)
                      if(globals->Frames>timeout+10) 
                      {
                             timeout=0;
-                            Print("NO ICR Triggered, FAILED",RED);
+                            print("NO ICR Triggered, FAILED",RED);
                             failed=1;
                             break;
                      }
                      if(globals->Frames>200)
                      {
-                           Print("TIMEOUT",RED);
+                           print("TIMEOUT",RED);
                             failed=1;
                             //break;
                      }
@@ -375,15 +375,15 @@ void polledcia(VARS)
                             timeout = globals->Frames;
               } while (globals->Frames<=122);
 
-              Print("Counter: ",WHITE);
-              Print(bindec(counter),CYAN);
+              print("Counter: ",WHITE);
+              print(binDec(counter),CYAN);
               globals->EVENCIATIMEROK=0;
               if(checkCiaOK(counter)==1)
               {
                       globals->EVENCIATIMEROK=1;      
               }
 
-              Print("CIAB TOD (Hsync)",GREEN);
+              print("CIAB TOD (Hsync)",GREEN);
               ciab->ciacrb=!CIACRBB_ALARM;
               ciab->ciatodhi=0;
               ciab->ciatodmid=0;
@@ -396,35 +396,35 @@ void polledcia(VARS)
               }
               while(globals->Frames<101);
               tod = (ciab->ciatodhi<<16)|(ciab->ciatodmid<<8)|ciab->ciatodlow;
-              Print("          ",WHITE);
-              Print("Counter: ",WHITE);
-              Print(bindec(tod),CYAN);
+              print("          ",WHITE);
+              print("Counter: ",WHITE);
+              print(binDec(tod),CYAN);
               int ntsc = 0;
               if(tod>26000 && tod <28000)
               {
-                     Print("  - OK", GREEN);
-                     Print(" 60Hz",WHITE);
+                     print("  - OK", GREEN);
+                     print(" 60Hz",WHITE);
                      ntsc = 1;
               }
               if(ntsc!=1)
               {
                      if(tod<31000)
                      {
-                            Print(" - TOO SLOW",RED);
+                            print(" - TOO SLOW",RED);
                      }
                      else
                      if(tod>34000)
                      {
-                            Print("  - TOO FAST",RED);
+                            print("  - TOO FAST",RED);
                      }
                      else
                      {
-                            Print("  - OK", GREEN);
+                            print("  - OK", GREEN);
                      }
               }
-              Print("\n",WHITE);
+              print("\n",WHITE);
 
-              Print("\nCheck if CIAA can trigger IRQ2: ",WHITE);
+              print("\nCheck if CIAA can trigger IRQ2: ",WHITE);
 
        ciaa->ciacra = 0x00;
        ciaa->ciatalo = 0x10;
@@ -446,16 +446,16 @@ void polledcia(VARS)
                      ciaa->ciacra = 0x00;
        if(globals->IRQ2!=0)
        {
-              Print("OK",GREEN);
+              print("OK",GREEN);
               globals->ODDIRQOK=1;
        }
        else
        {
-              Print("FAILED",RED);
+              print("FAILED",RED);
               globals->ODDIRQOK=0;
        }
 
-              Print("\nCheck if CIAB can trigger IRQ6: ",WHITE);
+              print("\nCheck if CIAB can trigger IRQ6: ",WHITE);
 
        custom->intena = 0xc000+IR3+IR6;
        custom->intena = 0xc000+IR3+IR6;
@@ -476,11 +476,11 @@ void polledcia(VARS)
        ciab->ciacra = 0x00;
        if(globals->IRQ6!=0)
        {
-              Print("OK",GREEN);
+              print("OK",GREEN);
        }
        else
        {
-              Print("FAILED",RED);
+              print("FAILED",RED);
        }
 
        custom->intena = 0xc000;
@@ -503,7 +503,7 @@ int checkCiaOK(int counter)
               }
               else
               {
-                     Print("  - OK", GREEN);
+                     print("  - OK", GREEN);
                      result=1;
               }
 
@@ -520,19 +520,19 @@ int checkCiaOK(int counter)
                      }
                      else
                      {
-                            Print("  - OK", GREEN);
-                            Print("  60Hz",WHITE);
+                            print("  - OK", GREEN);
+                            print("  60Hz",WHITE);
                             result=1;
                      }
        }
               if(result!=1)
               {
                      if(result==2)
-                            Print(" - TOO SLOW",RED);
+                            print(" - TOO SLOW",RED);
                      if(result==3)
-                            Print(" - TOO FAST",RED);
+                            print(" - TOO FAST",RED);
               }
-       Print("\n",WHITE);
+       print("\n",WHITE);
        return result;
 }
 
@@ -540,31 +540,31 @@ void ciaok(VARS)
 {
        if(globals->ODDCIATIMEROK)
        {
-              Print ("ODD Timer OK\n",GREEN);
+              print("ODD Timer OK\n",GREEN);
        }
               else
-              Print("FAIL",RED);
+              print("FAIL",RED);
        
               if(globals->ODDTODOK)
        {
-              Print ("ODD TOD OK\n",GREEN);
+              print("ODD TOD OK\n",GREEN);
        }
               else
-              Print("FAIL",RED);
+              print("FAIL",RED);
        
                      if(globals->ODDIRQOK)
        {
-              Print ("ODD IRQ OK\n",GREEN);
+              print("ODD IRQ OK\n",GREEN);
        }
               else
-              Print("FAIL",RED);
+              print("FAIL",RED);
 
                            if(globals->ODDALARMOK)
       {
-             Print ("ODD ALARM OK\n",GREEN);
+             print("ODD ALARM OK\n",GREEN);
       }
               else
-              Print("FAIL",RED);
+              print("FAIL",RED);
        return;
 }
 
@@ -605,8 +605,8 @@ void triggerIRQ(VARS, int num, int mask)
        globals->IRQ6=0;
        custom->intreq=0x8000+mask;
        custom->intreq=0x8000+mask;
-       Print("\nTrigger IRQ: ",WHITE);
-       Print(bindec(num),GREEN);
+       print("\nTrigger IRQ: ",WHITE);
+       print(binDec(num),GREEN);
        int Frames=0;
        volatile uint16_t* irqlevdone = &globals->IRQLevDone;
       do
@@ -619,8 +619,8 @@ void triggerIRQ(VARS, int num, int mask)
               } while (custom->vhposr>>8!=0x41);
               Frames++;
          } while (!(Frames>40) && (*irqlevdone==0));
-                  Print(" Triggered IRQ: ",WHITE);
-         Print(bindec(globals->IRQLevDone),GREEN);
+                  print(" Triggered IRQ: ",WHITE);
+         print(binDec(globals->IRQLevDone),GREEN);
          if(num==3)
          {
               globals->IRQ3OK=1;
@@ -628,9 +628,9 @@ void triggerIRQ(VARS, int num, int mask)
 
               if(globals->IRQLevDone!=num)
          {
-              Print("   -   ERROR",RED);
+              print("   -   ERROR",RED);
          }
-         Print("\n",WHITE);
+         print("\n",WHITE);
 }
 
 __interrupt void IRQ1(VARS)
@@ -669,7 +669,7 @@ __interrupt void IRQ3(VARS)
        globals->IRQ3+=1;
        if(irq&0x20)                              // Check if it is a VBlank IRQ
        {
-            //  Print("VBlank",RED);
+            //  print("VBlank",RED);
        }
        else
        {
@@ -723,8 +723,8 @@ void IRQTestC(VARS)
        struct CIA *ciaa = (struct CIA *)0xbfe001;
     int counter=0;
        InitScreen();
-              Print("\002IRQ Test EXPERIMENTAL Written in C\n",WHITE);
-              Print("\nTo start IRQ test press any key, ESC or Right Mousebutton to cancel",GREEN);
+              print("\002IRQ Test EXPERIMENTAL Written in C\n",WHITE);
+              print("\nTo start IRQ test press any key, ESC or Right Mousebutton to cancel",GREEN);
 
         do
        {
@@ -736,7 +736,7 @@ void IRQTestC(VARS)
                      return;
               if(globals->RMB==1)
                      return;
-       Print("\nSetting IRQ TEST\n",WHITE);
+       print("\nSetting IRQ TEST\n",WHITE);
 
        *(volatile APTR *) + 0x64 = IRQ1;
        *(volatile APTR *) + 0x68 = IRQ2;
@@ -757,7 +757,7 @@ void IRQTestC(VARS)
        triggerIRQ(globals,5,0x1000);
        triggerIRQ(globals,6,0x2000);
 
-       Print("\n\nPress any button to exit",CYAN);
+       print("\n\nPress any button to exit",CYAN);
 
        custom->intreq=0x7fff;
        custom->intena=0x7fff;
@@ -793,16 +793,16 @@ void IRQCIATestC(VARS)
        ciab->ciatahi=0;
        ciab->ciatalo=0;
 
-              Print("\002CIA Test\n",WHITE);
-              Print("This test requires IRQ3 to work. Is it tested: ",GREEN);
+              print("\002CIA Test\n",WHITE);
+              print("This test requires IRQ3 to work. Is it tested: ",GREEN);
        if(globals->IRQ3OK == 1)
-              Print("YES\n",GREEN);
+              print("YES\n",GREEN);
               else
               {
-                     Print("NO ",RED);
-                     Print("Test might be unreliable\n",GREEN);
+                     print("NO ",RED);
+                     print("Test might be unreliable\n",GREEN);
               }
-       Print("\002This is during DEV and tests MIGHT be unreliable!\n",CYAN);
+       print("\002This is during DEV and tests MIGHT be unreliable!\n",CYAN);
        globals->Frames=0;
        custom->color[0]=0x60;
 
@@ -816,11 +816,11 @@ void IRQCIATestC(VARS)
        polledcia(globals);
        timedcia(globals);
 
-//       Print("\nEXPERIMENTAL Probably not working test to find TOD bug\n",PURPLE);
+//       print("\nEXPERIMENTAL Probably not working test to find TOD bug\n",PURPLE);
 //       detectTOD(globals);
        //ciaok(globals);
 
-       Print("\n\nDONE. Press any key/button to exit",WHITE);
+       print("\n\nDONE. Press any key/button to exit",WHITE);
 
              custom->intreq=0x7fff;
              custom->intena=0x7fff;

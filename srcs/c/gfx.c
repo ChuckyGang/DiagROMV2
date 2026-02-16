@@ -502,10 +502,10 @@ void gfxC(VARS)
                     bplPointers[i]=bitPlane;
                     bitPlane=bitPlane+40*256;
                     SetBplPtr(copperlist,i,bplPointers[i]);
-                    Print("\nBitplane no: ",WHITE);
-                    Print(bindec(i),WHITE);
-                    Print(" at: ",WHITE);
-                    Print(binhex((int)bplPointers[i]),WHITE);
+                    print("\nBitplane no: ",WHITE);
+                    print(binDec(i),WHITE);
+                    print(" at: ",WHITE);
+                    print(binhex((int)bplPointers[i]),WHITE);
                     clearLowRes(bplPointers[i]);
               }
             SetColLowRes(copperlist);
@@ -515,10 +515,10 @@ void gfxC(VARS)
        }
               else
        {
-              Print("FAIL! NOT ENOUGH CHIPMEM!",RED);
+              print("FAIL! NOT ENOUGH CHIPMEM!",RED);
        }
 
-       Print("\n\nDONE. Press any key/button to exit",WHITE);
+       print("\n\nDONE. Press any key/button to exit",WHITE);
        do
        {
 
@@ -555,10 +555,10 @@ void gfxCAga(VARS)
               {
                     bplPointers[i]=bitPlane;
                     bitPlane=bitPlane+40*256;
-                    Print("\nBitplane no: ",WHITE);
-                    Print(bindec(i),WHITE);
-                    Print(" at: ",WHITE);
-                    Print(binhex((int)bplPointers[i]),WHITE);
+                    print("\nBitplane no: ",WHITE);
+                    print(binDec(i),WHITE);
+                    print(" at: ",WHITE);
+                    print(binhex((int)bplPointers[i]),WHITE);
                     SetBplPtrAga(copperlist,i,bplPointers[i]);
                     clearLowRes(bplPointers[i]);
               }
@@ -571,10 +571,10 @@ void gfxCAga(VARS)
        }
               else
        {
-              Print("FAIL! NOT ENOUGH CHIPMEM!",RED);
+              print("FAIL! NOT ENOUGH CHIPMEM!",RED);
        }
 
-       Print("\n\nDONE. Press any key/button to exit",WHITE);
+       print("\n\nDONE. Press any key/button to exit",WHITE);
        do
        {
 
@@ -612,10 +612,10 @@ void gfxCAgaHigh(VARS)
               {
                      bplPointers[i]=bitPlane;
                      bitPlane=bitPlane+80*512;
-                     Print("\nBitplane no: ",WHITE);
-                     Print(bindec(i),WHITE);
-                     Print(" at: ",WHITE);
-                     Print(binhex((int)bplPointers[i]),WHITE);
+                     print("\nBitplane no: ",WHITE);
+                     print(binDec(i),WHITE);
+                     print(" at: ",WHITE);
+                     print(binhex((int)bplPointers[i]),WHITE);
                      SetBplPtrAga(copperlist,i,bplPointers[i]);
                      clearHiRes(bplPointers[i]);
               }
@@ -628,10 +628,10 @@ void gfxCAgaHigh(VARS)
        }
               else
        {
-              Print("FAIL! NOT ENOUGH CHIPMEM!",RED);
+              print("FAIL! NOT ENOUGH CHIPMEM!",RED);
        }
 
-       Print("\n\nDONE. Press any key/button to exit",WHITE);
+       print("\n\nDONE. Press any key/button to exit",WHITE);
        do
        {
 
@@ -659,14 +659,14 @@ void gfxCAgaHigh(VARS)
 
 void printGfxtst(VARS)
 {
-    Print("\002 GFX Testpicture",WHITE);
-    Print("\n\nThis will generate a testpicture using 640x512 and will scale down\n",WHITE);
-    Print("to wanted resolution, blitter and cpu is used during this and will not be\n",WHITE);
-    Print("fast on slower machines, When done, press any key / button to go back to normal\n",WHITE);;
-    Print("\n\nAs code (for now) runs in ROM, Accelerators will not really help!\n\n",CYAN);
-    Print("There will be NO check if screenmode will work on your machine it will just try",YELLOW);
-    Print("\n\n\n",WHITE);
-    Print("\n\nDONE. Press any key/button to exit",WHITE);
+    print("\002 GFX Testpicture",WHITE);
+    print("\n\nThis will generate a testpicture using 640x512 and will scale down\n",WHITE);
+    print("to wanted resolution, blitter and cpu is used during this and will not be\n",WHITE);
+    print("fast on slower machines, When done, press any key / button to go back to normal\n",WHITE);;
+    print("\n\nAs code (for now) runs in ROM, Accelerators will not really help!\n\n",CYAN);
+    print("There will be NO check if screenmode will work on your machine it will just try",YELLOW);
+    print("\n\n\n",WHITE);
+    print("\n\nDONE. Press any key/button to exit",WHITE);
     globals->BUTTON = 0;
     do
        {
@@ -700,10 +700,10 @@ void gfxChigh(VARS)
               {
                     bplPointers[i]=bitPlane;
                     bitPlane=bitPlane+80*512;
-                    Print("\nBitplane no: ",WHITE);
-                    Print(bindec(i),WHITE);
-                    Print(" at: ",WHITE);
-                    Print(binhex((int)bplPointers[i]),WHITE);
+                    print("\nBitplane no: ",WHITE);
+                    print(binDec(i),WHITE);
+                    print(" at: ",WHITE);
+                    print(binhex((int)bplPointers[i]),WHITE);
                     SetBplPtr(copperlist,i,bplPointers[i]);
                     clearHiRes(bplPointers[i]);
               }
@@ -717,12 +717,12 @@ void gfxChigh(VARS)
     }
               else
        {
-              Print("FAIL! NOT ENOUGH CHIPMEM!",RED);
+              print("FAIL! NOT ENOUGH CHIPMEM!",RED);
        }
 
         globals->BUTTON = 0;
 
-       Print("\n\nDONE. Press any key/button to exit",WHITE);
+       print("\n\nDONE. Press any key/button to exit",WHITE);
 
        do
        {
