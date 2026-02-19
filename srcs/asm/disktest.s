@@ -544,7 +544,7 @@ DiskdriveTest:
 	lea	AnyKeyMouseTxt,a0
 	move.l	#4,d1
 	jsr	Print
-	jsr	WaitButton
+	jsr	_WaitButton
 	bra	.DiskdriveTester
 .FindSector
 	move.l	trackbuff(a6),a0		; A0 now contains pointer to where the MFM data is

@@ -35,7 +35,7 @@ GFXTestScreen:
 	move.b	(a1)+,(a0)+				; Copy testimage to Chipmem
 	dbf	d2,.loop
 .exit:
-	bsr	WaitButton
+	jsr	_WaitButton
 	jsr	SetMenuCopper
 	bra	GFXtestMenu
 

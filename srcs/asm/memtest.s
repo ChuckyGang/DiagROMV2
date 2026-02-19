@@ -12,7 +12,7 @@
        xdef   CheckMemEdit
     	
 MemtestMenu:
-	bsr	ClearBuffer
+	jsr	_ClearBuffer
 	bsr	InitScreen
 	move.w	#3,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
@@ -42,7 +42,7 @@ CheckDetectedChip:
 ;		move.l	#0,d2
 ;		clr.b	CheckMemRow(a6)
 ;		bsr	CheckMemory
-	bsr	WaitButton
+	jsr	_WaitButton
 	bra	MemtestMenu
 
 
@@ -354,7 +354,7 @@ CheckMemManual:
 ;	move.l	#MemTestEndcode-MemoryTestManual,d0
 ;	jsr	RunCode
 	jsr	MemoryTestManual
-	bsr	ClearBuffer
+	jsr	_ClearBuffer
 	bsr	WaitPressed
 	bsr	WaitReleased
 .exit:
@@ -786,7 +786,7 @@ ForceExtended16MBMem:
 	lea	MemoryTest16MB,a0
 		move.l	#MemTestEndcode-MemoryTest16MB,d0
 	jsr	RunCode
-	bsr	ClearBuffer
+	jsr	_ClearBuffer
 	bsr	WaitPressed
 	bsr	WaitReleased
 	bra	MemtestMenu
@@ -799,7 +799,7 @@ CheckExtended16MBMem:
 	lea	MemoryTest16MBQuick,a0
 	move.l	#MemTestEndcode-MemoryTest16MBQuick,d0
 	jsr	RunCode
-	bsr	ClearBuffer
+	jsr	_ClearBuffer
 	bsr	WaitPressed
 	bsr	WaitReleased
 	bra	MemtestMenu
@@ -812,7 +812,7 @@ CheckExtendedChip:
 	lea	MemoryTestChipExt,a0
 	move.l	#MemTestEndcode-MemoryTestChipExt,d0
 	jsr	RunCode
-	bsr	ClearBuffer
+	jsr	_ClearBuffer
 	bsr	WaitPressed
 	bsr	WaitReleased
 	bra	MemtestMenu

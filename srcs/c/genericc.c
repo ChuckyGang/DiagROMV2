@@ -4,8 +4,8 @@
 #include "globalvars.h"
 
 void readSerial();
-void print(char *string, uint8_t color);
-char *binHex(uint32_t value);
+void print(char *string __asm("a0"), uint8_t color __asm("d1"));
+char *binHex(uint32_t value __asm("d0"));
 
 // Byte access macros for uint32_t fields that asm accesses with move.b (big-endian MSB)
 #define BYTE(field) (*(volatile uint8_t *)&(field))
@@ -53,7 +53,7 @@ void clearScreen()              // Clears the screen
     setPos(0,0);
 }
 
-void setPos(uint32_t xPos, uint32_t yPos)
+void setPos(uint32_t xPos __asm("d0"), uint32_t yPos __asm("d1"))
 {
     BYTE(globals->Xpos) = xPos;
     BYTE(globals->Ypos) = yPos;
@@ -64,7 +64,7 @@ void setPos(uint32_t xPos, uint32_t yPos)
     rs232_out('H');
 }
 
-void putChar(char character, uint8_t color, uint8_t xPos, uint8_t yPos)
+void putChar(char character __asm("d0"), uint8_t color __asm("d1"), uint8_t xPos __asm("d2"), uint8_t yPos __asm("d3"))
 {
     extern const uint8_t RomFont[];
     uint8_t xormask = 0;
@@ -125,26 +125,37 @@ void romChecksum()
 
     print("\n\nDoing ROM Checksumtest: (64K blocks, Green OK, Red Failed)\n", 3);
 
-    uint32_t *rom = (uint32_t *)0xF80000;
     uint32_t *csPtr = checksums;
     uint32_t csStart = (uint32_t)checksums;
     uint32_t csEnd = (uint32_t)&endchecksums;
 
     for(int block = 0; block < 8; block++)
     {
+        uint32_t *rom = (uint32_t *)(0xF80000 + block * 0x10000);
         uint32_t sum = 0;
-        for(int i = 0; i < 0x4000; i++)
+
+        // Sum entire 64K block - tight loop, no branch per word
+        for(int i = 0; i < 0x4000; i += 8)
         {
-            uint32_t addr = (uint32_t)rom;
-            if(addr >= csStart && addr < csEnd)  // Skip checksum area
+            sum += rom[0]; sum += rom[1]; sum += rom[2]; sum += rom[3];
+            sum += rom[4]; sum += rom[5]; sum += rom[6]; sum += rom[7];
+            rom += 8;
+        }
+
+        // Subtract out any checksum longwords that fell inside this block
+        uint32_t blockStart = 0xF80000 + block * 0x10000;
+        uint32_t blockEnd = blockStart + 0x10000;
+        if(csStart < blockEnd && csEnd > blockStart)
+        {
+            uint32_t *cs = (uint32_t *)csStart;
+            while((uint32_t)cs < csEnd)
             {
-                rom++;
-            }
-            else
-            {
-                sum += *rom++;
+                if((uint32_t)cs >= blockStart && (uint32_t)cs < blockEnd)
+                    sum -= *cs;
+                cs++;
             }
         }
+
         uint8_t color;
         if(sum == *csPtr++)
             color = 2;                           // Green = OK
@@ -156,7 +167,7 @@ void romChecksum()
     }
 }
 
-void print(char *string, uint8_t color)                  // Prints a string on screen
+void print(char *string __asm("a0"), uint8_t color __asm("d1"))                  // Prints a string on screen
 {
     if(*string == 2)                                     // If first byte is 2, center the string
     {
@@ -184,9 +195,8 @@ void print(char *string, uint8_t color)                  // Prints a string on s
     }
 }
 
-void printChar(char character, uint8_t color)            // Prints a char on screen, handles X, Y postiion, scrolling etc.
+void printChar(char character __asm("d0"), uint8_t color __asm("d1"))            // Prints a char on screen, handles X, Y postiion, scrolling etc.
 {
-    int inverted=0;
     uint8_t invCol=0;
     if(character==0xd)
     {
@@ -221,12 +231,6 @@ void printChar(char character, uint8_t color)            // Prints a char on scr
     if(character==0xa)      // if it is hex a, do a new line
     {
         printCharNewLine();
-        return;
-    }
-    if(character==0xd)
-    {
-        BYTE(globals->Xpos)=0;
-        rs232_out('\x0d');
         return;
     }
 
@@ -266,7 +270,7 @@ void printCharNewLine()
 
 // Convert a 32-bit value to hex string with leading "$"
 // Output: pointer to string stored in globals->binhexoutput
-char *binHex(uint32_t value)
+char *binHex(uint32_t value __asm("d0"))
 {
     static const char hextab[] = "0123456789ABCDEF";
     char *buf = (char *)globals->binhexoutput;
@@ -278,6 +282,38 @@ char *binHex(uint32_t value)
     }
     buf[9] = 0;
     return buf;
+}
+
+char *binHexByte(uint32_t value __asm("d0"))
+{
+    static const char hextab[] = "0123456789ABCDEF";
+    char *buf = (char *)globals->binhexoutput;
+    buf[7] = hextab[(value >> 4) & 0xF];
+    buf[8] = hextab[value & 0xF];
+    buf[9] = '\0';
+    return &buf[7];
+}
+
+char *binHexWord(uint32_t value __asm("d0"))
+{
+    static const char hextab[] = "0123456789ABCDEF";
+    char *buf = (char *)globals->binhexoutput;
+    buf[4] = '$';
+    buf[5] = hextab[(value >> 12) & 0xF];
+    buf[6] = hextab[(value >> 8) & 0xF];
+    buf[7] = hextab[(value >> 4) & 0xF];
+    buf[8] = hextab[value & 0xF];
+    buf[9] = '\0';
+    return &buf[4];
+}
+
+char *binString(uint32_t value __asm("d0"))
+{
+    char *buf = (char *)globals->binstringoutput;
+    for(int i = 31; i >= 0; i--)
+        *buf++ = (value >> i) & 1 ? '1' : '0';
+    *buf = '\0';
+    return (char *)globals->binstringoutput;
 }
 
 // Input:  value = signed 32-bit number
@@ -374,7 +410,7 @@ uint32_t decBin(char *string)
     custom->intreq = 0x0801;                                     // Clear TBE + EXTER interrupt request flags
 }
 
-void sendSerial(char *string)
+void sendSerial(char *string __asm("a0"))
 {
     while(*string)
     {
@@ -383,7 +419,7 @@ void sendSerial(char *string)
     }
 }
 
-void rs232_out(char character)
+void rs232_out(char character __asm("d0"))
 {
     if(globals->SerialSpeed == 0 || globals->SerialSpeed == 5 || globals->NoSerial == 1)
         return;
@@ -457,9 +493,9 @@ void Log(char *string,int value)
     sendSerial("\n\x0d");
     sendSerial(string);
     sendSerial("Value: ");
-    sendSerial(binhex(value));
+    sendSerial(binHex(value));
     sendSerial(" ");
-    sendSerial(binstring(value));
+    sendSerial(binString(value));
     sendSerial(" ");
     sendSerial(binDec(value));
 
@@ -486,4 +522,196 @@ void initIRQ3(int code)
 {
     Log("IRQ: ",code);
     //*(volatile APTR *) + 0x6c = code;
+}
+
+// WaitPressed: waits until any button is pressed (or $ffff-iteration timeout)
+static void WaitPressed(void)
+{
+    uint32_t d7 = 0;
+    for (;;) {
+        d7++;
+        if (d7 == 0xffff) return;
+        GetInput();
+        if (globals->BUTTON == 1) return;
+    }
+}
+
+// WaitReleased: waits until all buttons are released (or timeout, marks stuck inputs)
+static void WaitReleased(void)
+{
+    uint32_t d7 = 0;
+    for (;;) {
+        *(volatile uint8_t *)0xdff180 = *(volatile uint8_t *)0xdff006;
+        d7++;
+        if (d7 == 0xffff) {
+            globals->STUCKP1LMB = globals->P1LMB;
+            globals->STUCKP2LMB = globals->P2LMB;
+            globals->STUCKP1LMB = globals->P1LMB;   // mirrors original asm
+            globals->STUCKP2RMB = globals->P2RMB;
+            globals->STUCKP1MMB = globals->P1MMB;
+            globals->STUCKP2MMB = globals->P2MMB;
+            return;
+        }
+        GetInput();
+        if (globals->BUTTON == 0) return;
+    }
+}
+
+void WaitButton(void)
+{
+    WaitPressed();
+    WaitReleased();
+}
+
+void ClearBuffer(void)
+{
+    for (int i = 0; i <= 20; i++)   // dbf with d7=20 → 21 iterations
+        GetInput();
+    globals->SerBufLen = 0;
+    ClearInput();
+    globals->SerBufLen = 0;
+}
+
+void PrintCPU(void)
+{
+    print("\nCPU: ", GREEN);
+    print((char *)globals->CPUPointer, GREEN);
+    if (globals->CPUGen == 5) {     // 060 gen: also print revision number
+        print(" Rev: ", GREEN);
+        print(bindec(globals->CPU060Rev), GREEN);
+    }
+    print(" FPU: ", GREEN);
+    print((char *)globals->FPUPointer, GREEN);
+    print(" MMU: ", GREEN);
+    if (globals->MMU != 0)
+        print("NOT CHECKED", GREEN);
+    else
+        print("NO ", GREEN);
+}
+
+extern char BuiltdateTxt[];     // incbin in data.s, cannot be a C literal
+
+void debugScreen(void)
+{
+    // Register dump header
+    setPos(0, 3);
+    print("Debugdata (Dump of CPU Registers D0-D7/A0-A7):", YELLOW);
+    setPos(0, 3);
+
+    // D registers
+    print(binHex(globals->DebD0), GREEN);  print(" ", GREEN);
+    print(binHex(globals->DebD1), GREEN);  print(" ", GREEN);
+    print(binHex(globals->DebD2), GREEN);  print(" ", GREEN);
+    print(binHex(globals->DebD3), GREEN);  print(" ", GREEN);
+    print(binHex(globals->DebD4), GREEN);  print(" ", GREEN);
+    print(binHex(globals->DebD5), GREEN);  print(" ", GREEN);
+    print(binHex(globals->DebD6), GREEN);  print(" ", GREEN);
+    print(binHex(globals->DebD7), GREEN);  print(" ", GREEN);
+
+    // A registers
+    print(binHex(globals->DebA0), YELLOW); print(" ", YELLOW);
+    print(binHex(globals->DebA1), YELLOW); print(" ", YELLOW);
+    print(binHex(globals->DebA2), YELLOW); print(" ", YELLOW);
+    print(binHex(globals->DebA3), YELLOW); print(" ", YELLOW);
+    print(binHex(globals->DebA4), YELLOW); print(" ", YELLOW);
+    print(binHex(globals->DebA5), YELLOW); print(" ", YELLOW);
+    print(binHex(globals->DebA6), YELLOW); print(" ", YELLOW);
+    print(binHex(globals->DebA7), YELLOW); print(" ", YELLOW);
+    print("\n\r", YELLOW);
+
+    // SR and PC
+    print("SR: ", YELLOW);
+    print(binHexWord(globals->DebSR >> 16), GREEN);
+    print(" ADR: ", YELLOW);
+    uint8_t *pc = (uint8_t *)globals->DebPC;
+    print(binHex(globals->DebPC), GREEN);
+    print(" Content: ", YELLOW);
+
+    // 20 bytes of content at PC address
+    for(int i = 0; i < 20; i++)
+    {
+        print(binHexByte(*pc++), YELLOW);
+        if((i + 1) % 4 == 0)
+            printChar(' ', YELLOW);
+    }
+    print("\n\r", YELLOW);
+
+    // Stack dump: 15 longwords starting 16 bytes above crash SP
+    print("\n  Stack:  ", RED);
+    uint32_t *sp = (uint32_t *)(globals->DebA7 + 16);
+    for(int i = 0; i < 15; i++)
+    {
+        print(binHex(*sp++), CYAN);
+        print(" ", CYAN);
+    }
+
+    // IRQ exception vectors (levels 1-7, vector table starts at 0x64)
+    volatile uint32_t *ivec = (volatile uint32_t *)0x64;
+    for(int irq = 1; irq <= 7; irq++)
+    {
+        print("\n\r", CYAN);
+        print("IRQ Level ", YELLOW);
+        print(binDec(irq), YELLOW);
+        print(" Points to: ", YELLOW);
+        uint32_t vecAddr = *ivec;
+        uint8_t *vec = (uint8_t *)vecAddr;
+        print(binHex(vecAddr), YELLOW);
+        print(" Content: ", YELLOW);
+        for(int i = 0; i < 16; i++)
+        {
+            print(binHexByte(*vec++), YELLOW);
+            if((i + 1) % 4 == 0)
+                printChar(' ', YELLOW);
+        }
+        ivec++;
+    }
+
+    print("\n\r", YELLOW);
+    print("\n\r", YELLOW);
+
+    // ROM presence checks
+    print("Is $1114 readable at addr $0 (ROM still at $0): ", YELLOW);
+    if(*(volatile uint16_t *)0x0 == 0x1114)
+    {
+        print("YES", RED);
+        print("\n\r", RED);
+    }
+    else
+    {
+        print("NO ", GREEN);
+        print("\n\r", GREEN);
+    }
+
+    print("Is $1114 readable at addr $f80000 (Real ROM addr): ", YELLOW);
+    if(*(volatile uint16_t *)0xf80000 == 0x1114)
+    {
+        print("YES", GREEN);
+        print("\n\r", GREEN);
+    }
+    else
+    {
+        print("NO ", RED);
+        print("\n\r", RED);
+    }
+
+    PrintCPU();
+
+    print("\nPoweronflags: ", YELLOW);
+    print(binString(globals->PowerONStatus), YELLOW);
+    print("  Builddate: ", GREEN);
+    print(BuiltdateTxt, GREEN);
+}
+
+void errorScreenC(char *errorTitle __asm("a0"))
+{
+    clearScreen();
+    print(errorTitle, RED);
+    print("\n\r", RED);
+    print("\x02" "DiagROM CRASHED - Software/Hardware failure - Unexpected event", RED);
+    debugScreen();
+    print("\n\r", RED);
+    print("\n\r", RED);
+    print("\x02" "Press any key/mouse to continue", PURPLE);
+    ClearBuffer();
+    WaitButton();
 }

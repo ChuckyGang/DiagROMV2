@@ -26,7 +26,7 @@ TF1260:						; Some TF360/TF1260 Diag tests
 	lea	TF1260Txt,a0
 	move.l	#6,d1
 	jsr	Print
-	jsr	PrintCPU
+	jsr	_PrintCPU
 	lea	FlagTxt,a0
 	jsr	Print
 	lea	PCRFlagsTxt,a0
@@ -124,5 +124,5 @@ TF1260:						; Some TF360/TF1260 Diag tests
 	jsr	GetInput
 	cmp.b	#1,BUTTON(a6)
 	bne	.loopa
-;	jsr	WaitButton
+;	jsr	_WaitButton
 	bra	OtherTest

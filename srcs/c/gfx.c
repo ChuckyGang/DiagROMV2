@@ -505,7 +505,7 @@ void gfxC(VARS)
                     print("\nBitplane no: ",WHITE);
                     print(binDec(i),WHITE);
                     print(" at: ",WHITE);
-                    print(binhex((int)bplPointers[i]),WHITE);
+                    print(binHex((int)bplPointers[i]),WHITE);
                     clearLowRes(bplPointers[i]);
               }
             SetColLowRes(copperlist);
@@ -558,7 +558,7 @@ void gfxCAga(VARS)
                     print("\nBitplane no: ",WHITE);
                     print(binDec(i),WHITE);
                     print(" at: ",WHITE);
-                    print(binhex((int)bplPointers[i]),WHITE);
+                    print(binHex((int)bplPointers[i]),WHITE);
                     SetBplPtrAga(copperlist,i,bplPointers[i]);
                     clearLowRes(bplPointers[i]);
               }
@@ -615,7 +615,7 @@ void gfxCAgaHigh(VARS)
                      print("\nBitplane no: ",WHITE);
                      print(binDec(i),WHITE);
                      print(" at: ",WHITE);
-                     print(binhex((int)bplPointers[i]),WHITE);
+                     print(binHex((int)bplPointers[i]),WHITE);
                      SetBplPtrAga(copperlist,i,bplPointers[i]);
                      clearHiRes(bplPointers[i]);
               }
@@ -703,7 +703,7 @@ void gfxChigh(VARS)
                     print("\nBitplane no: ",WHITE);
                     print(binDec(i),WHITE);
                     print(" at: ",WHITE);
-                    print(binhex((int)bplPointers[i]),WHITE);
+                    print(binHex((int)bplPointers[i]),WHITE);
                     SetBplPtr(copperlist,i,bplPointers[i]);
                     clearHiRes(bplPointers[i]);
               }

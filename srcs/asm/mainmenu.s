@@ -33,7 +33,7 @@ MainLoop:
               
 _MainMenu:
 MainMenu:
-	jsr	ClearBuffer
+	jsr	_ClearBuffer
 	jsr	FilterON
 	bsr	ClearScreen			; Clear the screen
 	bsr	PrintStatus			; Print the statusline
@@ -45,7 +45,7 @@ MainMenu:
 	move.l	#0,MenuVariable(a6)
 	move.w	#0,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
-	jsr	ClearBuffer
+	jsr	_ClearBuffer
 	bra	MainLoop
 
 Exit:
@@ -314,7 +314,7 @@ PrintMenu:
 	cmp.b	#$a,d0
 	bne	.NoEnter
 	move.b	#1,MenuChoose(a6)
-	bsr	ClearBuffer			; Make sure inputbuffer is cleared
+	jsr	_ClearBuffer			; Make sure inputbuffer is cleared
 .NoEnter:
 .NoKeyMove:
 	move.w	CurAddY(a6),d7		; Load d7 with any value of added (lower) mousemovement

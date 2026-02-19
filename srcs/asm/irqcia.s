@@ -183,11 +183,11 @@ IRQCIAIRQTest:
 	beq	.done7
 	bsr	WaitReleased
 .done7:
-       jsr	ClearBuffer
+       jsr	_ClearBuffer
 	lea	IRQTestDone,a0
 	move.l	#2,d1
 	bsr	Print
-	bsr	WaitButton
+	jsr	_WaitButton
 .exit:
 	bsr	IRQCIAtestMenu
 
@@ -255,7 +255,7 @@ IRQCIACIATest:
 	bsr	.TestCIA
 	bsr	TestBTOD
 
-	jsr	ClearBuffer
+	jsr	_ClearBuffer
 	lea	ButtonExit,a0
 	move.l	#1,d0
 	bsr	Print

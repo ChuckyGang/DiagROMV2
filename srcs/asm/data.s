@@ -423,6 +423,7 @@ _diagRomTxt::
 	dc.b	"DiagROM Amiga Diagnostic by John Hertell. "
 	VERSION
 	dc.b " "
+_BuiltdateTxt::
 BuiltdateTxt::
 	incbin	"builddate.i"
 	dc.b $a,$d,0

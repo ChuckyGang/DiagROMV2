@@ -179,7 +179,7 @@ RTCTest:
 	move.w	#$7fff,$dff09a			; Disable all INTREQ
 	move.l	#RTEcode,$6c			; Restore IRC Vector to empty code
 .noirq:
-	jsr	WaitButton
+	jsr	_WaitButton
 	bra	OtherTest
 .irq:
 	cmp.b	#1,RMB(a6)
@@ -505,7 +505,7 @@ About:
 	lea	AboutTxt2,a0
 	move.l	#7,d1
 	jsr	Print
-	jsr	ClearBuffer
+	jsr	_ClearBuffer
 	jsr	WaitPressed
 	jsr	WaitReleased
 	jmp	MainMenu
@@ -639,7 +639,7 @@ SystemInfoTest:
        lea	.CpuDone,a5
        jsr	DetectCPU
 .CpuDone:
-       jsr	PrintCPU
+       jsr	_PrintCPU
 
        clr.l	d0
        move.b	CPUGen(a6),d0
@@ -787,7 +787,7 @@ SystemInfoTest:
        jsr	Print
 	move.L	#3,d1
 	jsr	Print
-       jsr	WaitButton
+       jsr	_WaitButton
        jmp	MainMenu
 
 PrintHWReg:

@@ -12,7 +12,7 @@
 	xdef	Init_Serial
 	xdef	SendSerial
 	xdef	WaitShort
-;	xdef	_bindec
+	xdef	_bindec
 	xdef	bindec
 	xdef	oldbindec
 	xdef	_binhex
@@ -29,19 +29,15 @@
 	xdef	GetPos
 	xdef	RomChecksum
 	xdef	DetectCPU
-	xdef	PrintCPU
 	xdef 	EnglishKey
 	xdef	EnglishKeyShifted
-	xdef	_ClearBuffer
-	xdef	ClearBuffer
+	xdef	_ClearInput
 	xdef	_GetInput
 	xdef	GetInput
 	xdef	DefaultVars
 	xdef	UnimplInst
-	xdef	_binstring
 	xdef	binstring
 	xdef	BusError
-	xdef	WaitButton
 	xdef	binhexword
 	xdef	Trap
 	xdef	WaitLong
@@ -49,7 +45,6 @@
 	xdef	WaitPressed
 	xdef	_GetChip
 	xdef	GetChip
-	xdef	_binhexbyte
 	xdef	binhexbyte
 	xdef	RunCode
 	xdef	GetMemory
@@ -101,221 +96,6 @@ WaitShort:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have d
 	rts
 
 
-;------------------------------------------------------------------------------------------
-
-DetectCPU:					; Detects CPU, FPU etc.
-; Code more or less from romanworkshop.blutu.pl/menu/amiasm.htm
-; IB!  a5 Contains address to instruction after branch to here. so it can exit there
-; if not correct cpu
-
-	move.l	#"TEST",$700			; Put "TEST" into $700
-	clr.l	PCRReg(a6)			; Clear PCRReg value
-	clr.b	CPU060Rev(a6)			; Clear 060 CPU Rev value
-	clr.b	MMU(a6)			; Clear the MMU Flag
-	clr.b	ADR24BIT(a6)			; Clear the 24Bit addressmode flag
-	cmp.l	#"TEST",$700			; Check if $700 is "TEST" if not.  we assume having memoroissues at lower chipmem.
-						; so CPU detection will just fail and crash.  put 680x0 as string of cpu.
-	bne	.nochip
-	clr.l	$700				; Clear $700
-
-	move.l	#"24AD",$4000700		; Write "24AD" to highmem $700
-	cmp.l	#"24AD",$700			; IF memory is readable at $700 instead. we are using a cpu with 24 bit address.
-	bne	.no24bit
-	move.b	#1,ADR24BIT(a6)
-.no24bit:
-	moveq	#$0,d1				; Set CPU detected.  begin with "0" as 68000
-	move.l	#.notabove68k,$10		; Set illegal instruction to this
-	movec	VBR,d3				; Supported by 010+	dc.l	$4e7a3801		;movec VBR,d3	- move VBR to d3
-	moveq	#$10,d2
-	move.l	d2,a1
-	add.l	d3,a1
-	move.l	(a1),d2			; take a backup of current value
-	lea	.notabove68k,a0
-	move.l	a0,(a1)
-	moveq	#$1,d1				; Set 68010
-	moveq	#$10,d2
-	move.l	d2,a1
-	add.l	d3,a1
-	move.l	(a1),d2
-	lea	.cpu3,a0
-	move.l	a0,(a1)
-	move.l	d3,a2
-	moveq	#$2c,d3
-	add.l	d3,a2
-	move.l	(a2),d3			; Line 111 will happen when illegal instruction happens.
-	lea	.above010,a0
-	move.l	a0,(a2)
-	move.l	a7,a3
-	movec	CACR,d1			;dc.l	$4e7a1002		;movec CACR,d1	; 020-060?
-	moveq	#$2,d1				; Set 68020
-	movec	ITT0,d1			; Supported in 040-060
-	moveq	#$4,d1				; Set 68040
-	movec	pcr,d1				;dc.l	$4e7a1808		; movec pcr,dq	; Supported by 060
-	move.l	d1,PCRReg(a6)			; Store the value for future use
-	move.l	d1,d7
-	moveq	#$5,d1				; Set 68060
-						; OK We have 060, this cpu have some nice features, like the PCR register that shows its config.
-						; and we just read it.. so lets.. use it
-	movec	PCR,d4
-	bclr	#1,d4
-	movec	d4,PCR				; Make sure FPU is enabled
-	and.l	#$0000ff00,d7
-	asr.l	#8,d7
-	move.b	d7,CPU060Rev(a6)		; Store the 060 Revisionnumber
-	movec	PCR,d4
-	swap	d4
-	cmp.l	#$0440,d4
-	bne	.novamp
-						; Ohnooez..  someone is running this on a fake cpu..  a "080"
-	moveq	#$6,d1				; Set 68080  YUKK  or well   68FAIL as it is no real stuff...   
-.novamp:
-.above010:
-	move.l	d2,(a1)
-	move.l	d3,(a2)
-	move.l	a3,a7
-.notabove68k:
-	move.l	#BusError,$8
-	move.l	#IllegalError,$10
-	move.l	#UnimplInst,$2c
-	move.b	d1,CPUGen(a6)			; Store generation of CPU
-	cmp.b	#3,d1
-	blt	.lower020			; check if we have 020 or lower then skip next instruction
-	clr.b	ADR24BIT(a6)			; Clear the 24Bit addressmode flag
-						; as some blizzards seem to screw up my 24 bit adr. detection
-.lower020:
-	move.l	#0,d1
-	move.l	#.chkfpu,$10
-	move.l	#$2c,d2
-	move.l	d2,a1
-	move.l	(a1),d2
-	lea	.nofpu,a0
-	move.l	a0,(a1)
-	move.l	a7,a2
-	cmp.b	#0,CPUGen(a6)			; Check if we had 68000
-	beq	.nofpu				; YUP!.  we had
-	move.l	d2,(a1)
-	dc.l	$4e7a3801			; movec VBR,d3	(crash on 68k)
-	add.l	d3,a1
-	move.l	(a1),d2
-	move.l	a0,(a1)
-	dc.l	$f201583a			; ftst.b,d1
-	dc.w	$f327				; FSAVE
-.chkfpu:
-	move.l	a2,d3
-	sub.l	a7,d3
-	moveq	#1,d1				; Set 68881
-	cmp.b	#$1c,d3
-	beq	.nofpu
-	moveq	#2,d1				; Set 68882
-	cmp.b	#$3c,d3
-	beq	.nofpu
-	moveq	#3,d1				; Set 68040
-	cmp.b	#4,d3
-	beq	.nofpu
-	moveq	#4,d1				; Set 68060
-	move.l	d2,(a1)
-.nofpu:
-	move.l	d1,FPU(a6)
-	lea	FPUString,a0
-	move.b	d1,FPU(a6)
-	mulu	#6,d1
-	add.l	d1,a0
-	move.l	a0,FPUPointer(a6)
-	move.l	#BusError,$8			; This time to a routine that can present more data.
-	move.l	#IllegalError,$10
-	move.l	#UnimplInst,$2c
-.mmutest:
-	move.b	#4,MMU(a6)			; Lets set a fake value of "MMU Detected"
-						; Lets skipthat MMU detection,  it is buggy (now even removed!)
-	move.l	#BusError,$8			; This time to a routine that can present more data.
-	move.l	#IllegalError,$10
-	move.l	#UnimplInst,$2c
-	move.l	#Trap,$80			; Restored all exceptions etc touched here
-	clr.l	d1
-	move.b	CPUGen(a6),d1			; Get CPU Gen from memory, lets find out the real string
-	cmp.b	#1,d1				; Check if we had 010
-	ble	.cpudone			; if equal or lover than. skip the rest
-	cmp.b	#2,d1				; Check if we have a 020
-	bne	.no020	
-	cmp.b	#0,ADR24BIT(a6)		; check if we have 24bit adr mode
-	beq	.full020
-	move.b	#2,d1				; Set 68EC20
-	bra	.cpudone
-.full020:
-	move.b	#3,d1				; Set 68020
-	bra	.cpudone
-.no020:
-	cmp.b	#3,d1				; Check if we have a 030
-	bne	.no030
-	cmp.b	#0,MMU(a6)			; Check if we have a MMU
-	bne	.full030
-	move.b	#4,d1				; Set 68EC30
-	bra	.cpudone	
-.full030:
-	move.b	#5,d1				; Set 68030
-	bra	.cpudone
-.no030:
-	cmp.b	#4,d1				; Check if we have a 040
-	bne	.no040
-	cmp.b	#0,MMU(a6)			; Check if we have a MMU
-	bne	.mmu040
-	move.b	#6,d1				; no mmu, so no FPu so set 68EC40
-	bra	.cpudone
-.mmu040:
-	cmp.b	#0,FPU(a6)			; Check if we have a FPU
-	bne	.full040
-	move.b	#7,d1				; Set 68LC40
-	bra	.cpudone
-.full040:
-	move.b	#8,d1				; Set 68040
-	bra	.cpudone
-.no040:
-	cmp.b	#5,d1				; Check if we have a 060
-	bne	.no060
-	cmp.b	#0,MMU(a6)
-	bne	.mmu060yes
-	move.b	#9,d1				; no mmu no fpu so set 68EC60
-	bra	.cpudone
-.mmu060yes:
-	cmp.b	#0,FPU(a6)
-	bne	.full060
-	move.b	#10,d1				; Set 68LC60
-	cmp.b	#3,CPU060Rev(a6)		; Check if we had rev 3.
-	bne.s	.noEC
-	move.b	#9,d1				; set 68EC60
-.noEC
-	bra	.cpudone
-.full060:
-	move.b	#11,d1				; set 68060
-	bra	.cpudone
-.no060:					;DQFUQ?  ok something went nuts we did not have ANY CPU?
-	cmp.b	#6,d1
-	bne	.novampcrap
-	move.b	#12,d1
-	bra	.cpudone
-.novampcrap:
-	move.b	#13,d1				;So set 68???
-.cpudone:
-	;	move.l	#0,d1
-	move.b	d1,CPU(a6)			; Store CPU model
-	lea	CPUString,a0
-	mulu	#7,d1				; Multiply with 7 to point at correct part of string
-	add.l	d1,a0
-	move.l	a0,CPUPointer(a6)
-	jmp	(a5)
-.cpu3:
-	cmp.b	#2,d1
-	bne.w	.notabove68k
-	dc.w	$f02f,$6200,$fffe		;Pmove I-PSR 
-	moveq	#$3,d1				; Set 68030
-	bra	.notabove68k
-.nochip:
-	move.b	#0,FPU(a6)
-	move.b	#0,MMU(a6)
-	move.b	#0,CPUGen(a6)
-	clr.l	d1
-	move.b	#13,d1				; set 68060
-	bra	.cpudone
 ;------------------------------------------------------------------------------------------
 
 SSPError:
@@ -372,58 +152,6 @@ Trap:
 	move.l	a0,DebugA0(a6)
 	lea	TrapTxt,a0
 	bra	ErrorScreen
-
-oldbindec:					; Converts a binary number to decimal textstring
-	; this is my old bin->dec code. it is still here as I need a bin-dec
-	; convertion done for ANSI stuff in my print routine. and that can
-	; overwrite other data when printing. so to separate the different things
-	; why not have this left.  this only handles word and no longwords...
-	;
-	; INDATA:
-	;	D0 = binary number (word)
-	; OUTDATA:
-	;	A0 = Pointer to "bindecoutput" contining the string
-
-	PUSH
-	lea	bindecoutput(a6),a0
-	move.b	#$20,d1
-	tst.w	d0
-	bpl	.notneg
-	move.b	#$2d,d1
-	neg.w	d0
-	clr.l	d3
-.notneg:
-	move.b	d1,(a0)
-	add.l	#5,a0
-	move.w	#4,d1
-.loop:
-	ext.l	d0
-	divs	#10,d0
-	swap	d0
-	move.b	d0,-(a0)
-	add.b	#$30,(a0)
-	swap	d0
-	dbra	d1,.loop
-	clr.l	d0
-.scroll:
-	move.w	#6,d2
-	lea	bindecoutput(a6),a0
-	lea	bindecoutput+1(a6),a1
-	move.b	(a0),d1
-	cmp.b	#"0",d1
-	bne.s	.stop
-	add.b	#1,d0
-	cmp.b	#5,d0
-	beq.s	.stop
-.scroll1:
-	move.b	(a1)+,(a0)+
-	dbf	d2,.scroll1
-	bra.s	.scroll
-.stop:
-	POP
-	lea	bindecoutput(a6),a0
-	rts
-
 
 
 	; *********************************************
@@ -538,328 +266,32 @@ bindec:		movem.l	d1-d5/a1,-(sp)
 .b2dExit:	movem.l	(sp)+,d1-d5/a1
 		rts
 
-_binhex:
-	bsr	binhex
-	move.l	a0,d0
-	rts
-
-binhex:					; Converts a binary number to hex
-	; INDATA:
-	;	D0 = binary number
-	; OUTDATA:
-	;	A0 = Pointer to "binhexoutput" containing the string
-	PUSH
-	move.l	d0,-(sp)			; value (arg 1)
-	jsr	_binHex
-	addq.l	#4,sp				; clean up stack
-	POP
-	lea	binhexoutput(a6),a0		; Set a0 after POP so it isn't overwritten
-	rts
 
 ErrorScreen:
-	move.w	(a7),DebSR(a6)		; Store what was in stack as first word is a copy of SR at crash
-	move.l	2(a7),DebPC(a6)		; and next longword is PC
-	move.l	d0,DebD0(a6)			; first store everything in registers
-	move.l	d1,DebD1(a6)			; and for visability etc.. I do several move instead of movem. dunno why :)
+	move.w	(a7),DebSR(a6)		; Store SR from exception stack frame
+	move.l	2(a7),DebPC(a6)		; Store PC from exception stack frame
+	move.l	d0,DebD0(a6)
+	move.l	d1,DebD1(a6)
 	move.l	d2,DebD2(a6)
 	move.l	d3,DebD3(a6)
 	move.l	d4,DebD4(a6)
 	move.l	d5,DebD5(a6)
 	move.l	d6,DebD6(a6)
 	move.l	d7,DebD7(a6)
-	move.l	a0,DebA0(a6)
+	move.l	a0,DebA0(a6)		; a0 = error title (set by exception handler)
 	move.l	a1,DebA1(a6)
 	move.l	a2,DebA2(a6)
 	move.l	a3,DebA3(a6)
 	move.l	a4,DebA4(a6)
 	move.l	a5,DebA5(a6)
 	move.l	a6,DebA6(a6)
-	move.l	a7,DebA7(a6)			; OK now everything is stored.
-	bsr	ClearScreen
-	move.l	d1,DebugD1(a6)
-	move.l	#1,d1
-	bsr	Print
-	lea	NewLineTxt,a0
-	jsr	Print
-	lea	CrashTxt,a0
-	bsr	Print
-	move.l	DebugA0(a6),a0
-	move.l	DebugD1(a6),d1
-	bsr	DebugScreen
-
-	lea	NewLineTxt,a0
-	jsr	Print
-	lea	NewLineTxt,a0
-	jsr	Print
-
-	lea	AnyKeyMouseTxt,a0
-	move.l	#5,d1
-	bsr	Print
-
-	bsr	ClearBuffer
-
-	bsr	WaitButton
+	move.l	a7,DebA7(a6)
+	jsr	_errorScreenC			; a0 still has error title (register param)
 	bra	MainMenu
 
-DebugScreen:					; This dumps out registers..
-	PUSH
-	clr.l	d0
-	move.l	#3,d1
-	jsr	SetPos
-	lea	DebugTxt,a0
-	move.l	#3,d1
-	jsr	Print
-	clr.l	d0
-	move.l	#3,d1
-	jsr	SetPos
-	move.l	DebD0(a6),d0
-	jsr	binhex
-	move.l	#2,d1
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebD1(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebD2(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebD3(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebD4(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebD5(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebD6(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebD7(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebA0(a6),d0
-	jsr	binhex
-	move.l	#3,d1
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebA1(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebA2(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebA3(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebA4(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebA5(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebA6(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	move.l	DebA7(a6),d0
-	jsr	binhex
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-	clr.l	d0
-	lea	NewLineTxt,a0
-	jsr	Print
-	lea	DebugSR,a0
-	jsr	Print
-	clr.l	d0
-	move.w	DebSR(a6),d0
-	jsr	binhexword
-	move.l	#2,d1
-	jsr	Print
-	lea	DebugADR,a0
-	move.l	#3,d1
-	jsr	Print
-	clr.l	d0
-	move.l	DebPC(a6),d0
-	move.l	d0,a4
-	jsr	binhex
-	move.l	#2,d1
-	jsr	Print
-	lea	DebugContent,a0
-	move.l	#3,d1
-	jsr	Print
-	move.l	#19,d6
-	clr.l	d5
-.contentloop2:
-	clr.l	d0
-	move.b	(a4)+,d0
-	jsr	binhexbyte
-	jsr	Print
-	add.b	#1,d5
-	cmp.b	#4,d5				; 4th byte?
-	bne	.not42
-	move.b	#" ",d0
-	jsr	PrintChar
-
-	clr.l	d5
-.not42:
-	dbf	d6,.contentloop2
-	add.l	#4,a5
-	lea	NewLineTxt,a0
-	jsr	Print
-
-	lea	StackTxt,a0
-	move.l	#1,d1
-	jsr	Print
-
-	move.l	#14,d7
-	move.l	DebA7(a6),a3
-	add.l	#16,a3
-.stackloop:
-	move.l	(a3)+,d0
-	bsr	binhex
-	move.l	#6,d1
-	jsr	Print
-	lea	SPACE,a0
-	jsr	Print
-.nostacknewline:
-	dbf	d7,.stackloop
-
-	clr.l	d7
-	lea	$64,a5				; Level1 pointer
-.irqloop:
-	add.b	#1,d7
-	cmp.b	#8,d7
-	beq	.endloop
-	lea	NewLineTxt,a0
-	jsr	Print
-	lea	DebugIRQ,a0
-	move.l	#3,d1
-	jsr	Print
-	move.l	d7,d0
-	jsr	bindec
-	move.l	#3,d1
-	jsr	Print
-	lea	DebugIRQPoint,a0
-	jsr	Print
-	move.l	(a5),d0			; Get where IRQ points to
-	move.l	d0,a4				; Store a copy of it in A4, to be able to print content
-	jsr	binhex
-	jsr	Print
-	lea	DebugContent,a0
-	jsr	Print
-	move.l	#15,d6
-	clr.l	d5
-.contentloop:
-	clr.l	d0
-	move.b	(a4)+,d0
-	jsr	binhexbyte
-	jsr	Print
-	add.b	#1,d5
-	cmp.b	#4,d5				; 4th byte?
-	bne	.not4
-	move.b	#" ",d0
-	jsr	PrintChar
-	clr.l	d5
-.not4:
-	dbf	d6,.contentloop
-	add.l	#4,a5
-	bra	.irqloop
-.endloop:
-	lea	NewLineTxt,a0
-	jsr	Print
-	lea	NewLineTxt,a0
-	jsr	Print
-	lea	DebugROM,a0
-	jsr	Print
-	cmp.w	#$1114,$0
-	bne	.no1114at0
-	lea	YES,a0
-	move.l	#1,d1
-	jsr	Print
-	bra	.yes1114at0
-.no1114at0:
-	lea	NO,a0
-	move.l	#2,d1
-	jsr	Print
-.yes1114at0
-	lea	NewLineTxt,a0
-	jsr	Print
-	lea	DebugROM2,a0
-	move.l	#3,d1
-	jsr	Print
-	cmp.w	#$1114,$f80000
-	bne	.no1114atf8
-	lea	YES,a0
-	move.l	#2,d1
-	jsr	Print
-	bra	.yes1114atf8
-.no1114atf8:
-	lea	NO,a0
-	move.l	#1,d1
-	jsr	Print
-.yes1114atf8:
-	lea	NewLineTxt,a0
-	jsr	Print
-	bsr	PrintCPU
-	lea	DebugPWR,a0
-	move.l	#3,d1
-	jsr	Print
-	move.l	PowerONStatus(a6),d0
-	jsr	binstring
-	jsr	Print
-	lea	BuildTxt,a0
-	move.l	#2,d1
-	jsr	Print
-	lea	BuiltdateTxt,a0
-	move.l	#2,d1
-	jsr	Print
-	POP
-	rts
-
-_ClearBuffer:
-ClearBuffer:
-	move.l	#20,d7
-.loop
-	bsr	GetInput
-	dbf	d7,.loop
-	clr.b	SerBufLen(a6)
-	bsr	ClearInput
-	move.b	#0,SerBufLen(a6)		; Check if we have a serialbuffer, if not, just exit
-	rts
-
-WaitButton:					; Waits until a button is pressed AND released
-	bsr	WaitPressed
-	bsr	WaitReleased
-	rts
+; --- DebugScreen removed: converted to C debugScreen() ---
+; --- ClearBuffer removed: converted to C ClearBuffer() ---
+; --- WaitButton removed: converted to C WaitButton() ---
 
 WaitPressed:					; Waits until some "button" is pressed
 	clr.l	d7				; Clear d7 that is used for a timeout counter
@@ -901,77 +333,26 @@ WaitReleased:					; Waits until some "button" is unreleased
 	move.b	P2MMB(a6),STUCKP2MMB(a6)
 	rts
 
-_binhexbyte:
-	bsr	binhexbyte
-	move.l	a0,d0
-	rts
 binhexbyte:
-		; Same as binhex but only for one byte.
+	; D0 = byte value, returns A0 = pointer to 2-char hex string in binhexoutput+7
 	PUSH
-	lea	hextab,a1			; location of hexstring source
-	lea	binhexoutput(a6),a0
-	clr.l	(a0)
-	clr.l	4(a0)
-	clr.w	8(a0)				; Clear the area first.
-	add.l	#9,a0
-	move.l	#1,d1
-.loop:
-	move.l	d0,d2
-	and.l	#15,d2
-	move.b	(a1,d2),-(a0)
-	lsr.l	#4,d0
-	dbra	d1,.loop
+	jsr	_binHexByte
 	POP
 	lea	binhexoutput+7(a6),a0
 	rts
 
 binhexword:
-		; Same as binhex but only for one word.
+	; D0 = word value, returns A0 = pointer to "$XXXX" string in binhexoutput+4
 	PUSH
-	lea	hextab,a1			; location of hexstring source
-	lea	binhexoutput(a6),a0
-	clr.l	(a0)
-	clr.l	4(a0)
-	clr.w	8(a0)				; Clear the area first.
-	add.l	#9,a0
-	move.l	#3,d1
-.loop:
-	move.l	d0,d2
-	and.l	#15,d2
-	move.b	(a1,d2),-(a0)
-	lsr.l	#4,d0
-	dbra	d1,.loop
+	jsr	_binHexWord
 	POP
 	lea	binhexoutput+4(a6),a0
-	move.b	#"$",(a0)
-	rts
-		; Same as binhex but only for one byte.
-
-_binstring:
-	bsr	binstring
-	move.l	a0,d0
 	rts
 
 binstring:
-	; Converts a binary number (longword) to binary string
-	; INDATA:
-	;	D0 = binary number
-	; OUTDATA:
-	;	A0 = Poiner to outputstring
+	; D0 = 32-bit value, returns A0 = pointer to 32-char binary string
 	PUSH
-	move.l	#31,d7
-	lea	binstringoutput(a6),a0
-.loop:
-	btst	d7,d0
-	beq	.notset
-	move.b	#"1",(a0)+
-	bra	.done
-.notset:
-	move.b	#"0",(a0)+
-.done:
-	dbf	d7,.loop
-	move.b	#0,(a0)
-
+	jsr	_binString
 	POP
 	lea	binstringoutput(a6),a0
 	rts
@@ -1053,6 +434,7 @@ GetSerial:					; Reads serialport and returns first char in buffer.
 .exit:
 	rts
 
+_ClearInput:
 ClearInput:
 	move.w	#0,CurAddX(a6)
 	move.w	#0,CurSubX(a6)
@@ -1614,44 +996,7 @@ ConvertKey:					; Converts keystroke to char.
 .notshift:
 	rts	
 
-PrintCPU:
-		; Prints CPU Information
-	lea	CPUTxt,a0
-	move.l	#2,d1
-	bsr	Print
-	move.l	CPUPointer(a6),a0
-	move.l	#2,d1
-	bsr	Print
-	clr.l	d7
-	cmp.b	#5,CPUGen(a6)			; Check if we had 060 gen of CPU, if so, print revisionnumber
-	bne	.no060
-	move.b	CPU060Rev(a6),d7
-	lea	REVTxt,a0
-	bsr	Print
-	move.l	d7,d0
-	bsr	bindec
-	bsr	Print
-.no060:
-	lea	FPUTxt,a0
-	move.l	#2,d1
-	bsr	Print
-	move.l	FPUPointer(a6),a0
-	move.l	#2,d1
-	bsr	Print
-	lea	MMUTxt,a0
-	move.l	#2,d1
-	bsr	Print
-	clr.l	d0
-	move.b	MMU(a6),d0
-	cmp.b	#0,d0
-	beq	.nommu
-	lea	NOTCHECKED,a0
-	bra	.mmuprint
-.nommu:
-	lea	NO,a0
-.mmuprint:
-	bsr	Print
-	rts
+; --- PrintCPU removed: converted to C PrintCPU() ---
 
 WaitLong:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have detected working raster)
 	PUSH
@@ -2478,6 +1823,221 @@ GetPos:
 	move.b	Ypos(a6),d1
 	rts
 
+DetectCPU:					; Detects CPU, FPU etc.
+; Code more or less from romanworkshop.blutu.pl/menu/amiasm.htm
+; IB!  a5 Contains address to instruction after branch to here. so it can exit there
+; if not correct cpu
+
+	move.l	#"TEST",$700			; Put "TEST" into $700
+	clr.l	PCRReg(a6)			; Clear PCRReg value
+	clr.b	CPU060Rev(a6)			; Clear 060 CPU Rev value
+	clr.b	MMU(a6)			; Clear the MMU Flag
+	clr.b	ADR24BIT(a6)			; Clear the 24Bit addressmode flag
+	cmp.l	#"TEST",$700			; Check if $700 is "TEST" if not.  we assume having memoroissues at lower chipmem.
+						; so CPU detection will just fail and crash.  put 680x0 as string of cpu.
+	bne	.nochip
+	clr.l	$700				; Clear $700
+
+	move.l	#"24AD",$4000700		; Write "24AD" to highmem $700
+	cmp.l	#"24AD",$700			; IF memory is readable at $700 instead. we are using a cpu with 24 bit address.
+	bne	.no24bit
+	move.b	#1,ADR24BIT(a6)
+.no24bit:
+	moveq	#$0,d1				; Set CPU detected.  begin with "0" as 68000
+	move.l	#.notabove68k,$10		; Set illegal instruction to this
+	movec	VBR,d3				; Supported by 010+	dc.l	$4e7a3801		;movec VBR,d3	- move VBR to d3
+	moveq	#$10,d2
+	move.l	d2,a1
+	add.l	d3,a1
+	move.l	(a1),d2			; take a backup of current value
+	lea	.notabove68k,a0
+	move.l	a0,(a1)
+	moveq	#$1,d1				; Set 68010
+	moveq	#$10,d2
+	move.l	d2,a1
+	add.l	d3,a1
+	move.l	(a1),d2
+	lea	.cpu3,a0
+	move.l	a0,(a1)
+	move.l	d3,a2
+	moveq	#$2c,d3
+	add.l	d3,a2
+	move.l	(a2),d3			; Line 111 will happen when illegal instruction happens.
+	lea	.above010,a0
+	move.l	a0,(a2)
+	move.l	a7,a3
+	movec	CACR,d1			;dc.l	$4e7a1002		;movec CACR,d1	; 020-060?
+	moveq	#$2,d1				; Set 68020
+	movec	ITT0,d1			; Supported in 040-060
+	moveq	#$4,d1				; Set 68040
+	movec	pcr,d1				;dc.l	$4e7a1808		; movec pcr,dq	; Supported by 060
+	move.l	d1,PCRReg(a6)			; Store the value for future use
+	move.l	d1,d7
+	moveq	#$5,d1				; Set 68060
+						; OK We have 060, this cpu have some nice features, like the PCR register that shows its config.
+						; and we just read it.. so lets.. use it
+	movec	PCR,d4
+	bclr	#1,d4
+	movec	d4,PCR				; Make sure FPU is enabled
+	and.l	#$0000ff00,d7
+	asr.l	#8,d7
+	move.b	d7,CPU060Rev(a6)		; Store the 060 Revisionnumber
+	movec	PCR,d4
+	swap	d4
+	cmp.l	#$0440,d4
+	bne	.novamp
+						; Ohnooez..  someone is running this on a fake cpu..  a "080"
+	moveq	#$6,d1				; Set 68080  YUKK  or well   68FAIL as it is no real stuff...   
+.novamp:
+.above010:
+	move.l	d2,(a1)
+	move.l	d3,(a2)
+	move.l	a3,a7
+.notabove68k:
+	move.l	#BusError,$8
+	move.l	#IllegalError,$10
+	move.l	#UnimplInst,$2c
+	move.b	d1,CPUGen(a6)			; Store generation of CPU
+	cmp.b	#3,d1
+	blt	.lower020			; check if we have 020 or lower then skip next instruction
+	clr.b	ADR24BIT(a6)			; Clear the 24Bit addressmode flag
+						; as some blizzards seem to screw up my 24 bit adr. detection
+.lower020:
+	move.l	#0,d1
+	move.l	#.chkfpu,$10
+	move.l	#$2c,d2
+	move.l	d2,a1
+	move.l	(a1),d2
+	lea	.nofpu,a0
+	move.l	a0,(a1)
+	move.l	a7,a2
+	cmp.b	#0,CPUGen(a6)			; Check if we had 68000
+	beq	.nofpu				; YUP!.  we had
+	move.l	d2,(a1)
+	dc.l	$4e7a3801			; movec VBR,d3	(crash on 68k)
+	add.l	d3,a1
+	move.l	(a1),d2
+	move.l	a0,(a1)
+	dc.l	$f201583a			; ftst.b,d1
+	dc.w	$f327				; FSAVE
+.chkfpu:
+	move.l	a2,d3
+	sub.l	a7,d3
+	moveq	#1,d1				; Set 68881
+	cmp.b	#$1c,d3
+	beq	.nofpu
+	moveq	#2,d1				; Set 68882
+	cmp.b	#$3c,d3
+	beq	.nofpu
+	moveq	#3,d1				; Set 68040
+	cmp.b	#4,d3
+	beq	.nofpu
+	moveq	#4,d1				; Set 68060
+	move.l	d2,(a1)
+.nofpu:
+	move.l	d1,FPU(a6)
+	lea	FPUString,a0
+	move.b	d1,FPU(a6)
+	mulu	#6,d1
+	add.l	d1,a0
+	move.l	a0,FPUPointer(a6)
+	move.l	#BusError,$8			; This time to a routine that can present more data.
+	move.l	#IllegalError,$10
+	move.l	#UnimplInst,$2c
+.mmutest:
+	move.b	#4,MMU(a6)			; Lets set a fake value of "MMU Detected"
+						; Lets skipthat MMU detection,  it is buggy (now even removed!)
+	move.l	#BusError,$8			; This time to a routine that can present more data.
+	move.l	#IllegalError,$10
+	move.l	#UnimplInst,$2c
+	move.l	#Trap,$80			; Restored all exceptions etc touched here
+	clr.l	d1
+	move.b	CPUGen(a6),d1			; Get CPU Gen from memory, lets find out the real string
+	cmp.b	#1,d1				; Check if we had 010
+	ble	.cpudone			; if equal or lover than. skip the rest
+	cmp.b	#2,d1				; Check if we have a 020
+	bne	.no020	
+	cmp.b	#0,ADR24BIT(a6)		; check if we have 24bit adr mode
+	beq	.full020
+	move.b	#2,d1				; Set 68EC20
+	bra	.cpudone
+.full020:
+	move.b	#3,d1				; Set 68020
+	bra	.cpudone
+.no020:
+	cmp.b	#3,d1				; Check if we have a 030
+	bne	.no030
+	cmp.b	#0,MMU(a6)			; Check if we have a MMU
+	bne	.full030
+	move.b	#4,d1				; Set 68EC30
+	bra	.cpudone	
+.full030:
+	move.b	#5,d1				; Set 68030
+	bra	.cpudone
+.no030:
+	cmp.b	#4,d1				; Check if we have a 040
+	bne	.no040
+	cmp.b	#0,MMU(a6)			; Check if we have a MMU
+	bne	.mmu040
+	move.b	#6,d1				; no mmu, so no FPu so set 68EC40
+	bra	.cpudone
+.mmu040:
+	cmp.b	#0,FPU(a6)			; Check if we have a FPU
+	bne	.full040
+	move.b	#7,d1				; Set 68LC40
+	bra	.cpudone
+.full040:
+	move.b	#8,d1				; Set 68040
+	bra	.cpudone
+.no040:
+	cmp.b	#5,d1				; Check if we have a 060
+	bne	.no060
+	cmp.b	#0,MMU(a6)
+	bne	.mmu060yes
+	move.b	#9,d1				; no mmu no fpu so set 68EC60
+	bra	.cpudone
+.mmu060yes:
+	cmp.b	#0,FPU(a6)
+	bne	.full060
+	move.b	#10,d1				; Set 68LC60
+	cmp.b	#3,CPU060Rev(a6)		; Check if we had rev 3.
+	bne.s	.noEC
+	move.b	#9,d1				; set 68EC60
+.noEC
+	bra	.cpudone
+.full060:
+	move.b	#11,d1				; set 68060
+	bra	.cpudone
+.no060:					;DQFUQ?  ok something went nuts we did not have ANY CPU?
+	cmp.b	#6,d1
+	bne	.novampcrap
+	move.b	#12,d1
+	bra	.cpudone
+.novampcrap:
+	move.b	#13,d1				;So set 68???
+.cpudone:
+	;	move.l	#0,d1
+	move.b	d1,CPU(a6)			; Store CPU model
+	lea	CPUString,a0
+	mulu	#7,d1				; Multiply with 7 to point at correct part of string
+	add.l	d1,a0
+	move.l	a0,CPUPointer(a6)
+	jmp	(a5)
+.cpu3:
+	cmp.b	#2,d1
+	bne.w	.notabove68k
+	dc.w	$f02f,$6200,$fffe		;Pmove I-PSR 
+	moveq	#$3,d1				; Set 68030
+	bra	.notabove68k
+.nochip:
+	move.b	#0,FPU(a6)
+	move.b	#0,MMU(a6)
+	move.b	#0,CPUGen(a6)
+	clr.l	d1
+	move.b	#13,d1				; set 68060
+	bra	.cpudone
+;------------------------------------------------------------------------------------------
+
 	
 CopyMem:
 	; Copy one block memory to another
@@ -2557,21 +2117,17 @@ Init_Serial:
 	rts
 
 SendSerial:
-		; Indata a0=string to send to serialport
-		; nullterminated
+	; Indata a0=string to send to serialport, nullterminated
 	PUSH
-	move.l	a0,-(sp)			; Push string pointer for C calling convention
 	jsr	_sendSerial
-	addq.l	#4,sp				; Clean up stack
 	POP
 	rts
 
 rs232_out:
-	PUSH					; Save all registers (C may clobber d0/d1/a0/a1)
-	move.l	d0,-(sp)			; Push character (d0) onto stack for C calling convention
+	; Indata d0=character
+	PUSH
 	jsr	_rs232_out
-	addq.l	#4,sp				; Clean up stack
-	POP					; Restore all registers
+	POP
 	rts
 
 	; This contains the generic code for all general-purpose stuff
@@ -2580,47 +2136,30 @@ GetHWReg:					; Dumps all readable HW registers to memory
 	rts
 
 PutChar:
+	; Indata: d0=char, d1=color, d2=xPos, d3=yPos
 	PUSH
-	move.l	d3,-(sp)		; yPos (arg 4)
-	move.l	d2,-(sp)		; xPos (arg 3)
-	move.l	d1,-(sp)		; color (arg 2)
-	move.l	d0,-(sp)		; character (arg 1)
 	jsr	_putChar
-	lea	16(sp),sp		; clean up 4 args from stack
 	POP
 	rts
 
 PrintChar:				; Puts a char on screen and add X, Y variables depending on char etc.
+	; Indata: d0=char, d1=color
 	PUSH
-	move.l	d1,-(sp)		; color (arg 2)
-	move.l	d0,-(sp)		; character (arg 1)
 	jsr	_printChar
-	lea	8(sp),sp		; clean up 4 args from stack
-	POP
-	RTS
-
-Print:						; Prints a string
-	; INDATA:
-	; A0 = string to print, nullterminated
-	; D1 = Color
-	PUSH
-	move.l	d1,-(sp)			; color (arg 2)
-	move.l	a0,-(sp)			; string (arg 1)
-	jsr	_print
-	lea	8(sp),sp			; clean up 2 args from stack
 	POP
 	rts
 
+Print:					; Prints a string
+	; Indata: a0=string (nullterminated), d1=color
+	PUSH
+	jsr	_print
+	POP
+	rts
 
 SetPos:					; Set cursor at wanted position on screen
-	; Indata:
-	; d0 = xpos
-	; d1 = ypos
+	; Indata: d0=xpos, d1=ypos
 	PUSH
-	move.l	d1,-(sp)		; yPos (arg 2)
-	move.l	d0,-(sp)		; xPos (arg 1)
 	jsr	_setPos
-	lea	8(sp),sp		; clean up 2 args from stack
 	POP
 	rts
 
@@ -2640,4 +2179,13 @@ RomChecksum:
 	PUSH
 	jsr	_romChecksum
 	POP
+	rts
+
+binhex:					; Converts a binary number to hex
+	; INDATA:  D0 = binary number
+	; OUTDATA: A0 = Pointer to "binhexoutput" containing the string
+	PUSH
+	jsr	_binHex
+	POP
+	lea	binhexoutput(a6),a0		; Set a0 after POP so it isn't overwritten
 	rts

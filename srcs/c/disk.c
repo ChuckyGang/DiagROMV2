@@ -48,7 +48,7 @@ void floppyTestC(VARS)
     }
 
     print("Drive ID: ",WHITE);
-    print(binhex(id),WHITE);
+    print(binHex(id),WHITE);
 
     putChar('a',RED,10,10);
     putChar('a',R_RED,11,10);

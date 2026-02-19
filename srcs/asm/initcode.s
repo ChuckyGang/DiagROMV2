@@ -193,7 +193,7 @@ Initcode:                                                      ; OK we have RAM.
 .loopbackdone:
  	cmp.b	#1,NoSerial(a6)	; Check if noserial is set
 	beq	.noser
-	cmp.b	#1,LoopB(a6)		; Check if loopbackadapter was attacjhed
+	cmp.b	#1,LoopB(a6)		; Check if loopbackadapter was attached
 	beq	.noserloop		; in that case, no serial output
 	move.w	#2,SerialSpeed(a6)	; Set speed 3 (38400)
 	;bsr	Init_Serial
@@ -370,7 +370,7 @@ Initcode:                                                      ; OK we have RAM.
 	move.l	#.cpureturn,a5
 	bsr	DetectCPU
 .cpureturn:
-	bsr	PrintCPU
+	jsr	_PrintCPU
 
 	move.l	FastBlocksAtBoot(a6),d1
 	lea	FastDetectTxt,a0
@@ -416,7 +416,7 @@ Initcode:                                                      ; OK we have RAM.
 	beq	.serialon			; IF Noserial was set, skip this part
 	cmp.b	#1,LoopB(a6)			; Same if loopbackadapter was attached
 	beq	.serialon
-	jsr	ClearBuffer
+	jsr	_ClearBuffer
 	move.l	#1200,d7			; read data for a while.. Giving user a possability of try to press a key on serialport
 	clr.l	d6
 .waitloop:
@@ -436,6 +436,8 @@ Initcode:                                                      ; OK we have RAM.
 	bsr	Print
 	clr.l	d6
 .nodot:
+	bsr	WaitShort
+	bsr	WaitShort
 	dbf	d7,.waitloop
 	lea	EndSerial,a0			; Send text about "no key pressed"
 	move.l	#7,d1
@@ -448,11 +450,10 @@ Initcode:                                                      ; OK we have RAM.
 	lea	NoDrawTxt,a0
 	bsr	SendSerial
 .serialon:
-	jsr	ClearBuffer
+	jsr	_ClearBuffer
 
 	clr.l	d7
 	bsr	DefaultVars
-
 	move.l	#Menus,Menu(a6)
 	;move.w	#44,OldMenuNumber(a6)	; Write bogus number
 	bra	MainMenu			; Print the mainmenu

@@ -19,7 +19,7 @@ void RTCTestC(VARS)
 {
        print("\002RTC TEST    **** EXPERIMENTAL ****\n\n",CYAN);
        volatile uint8_t *rtc = (volatile uint8_t *)0xdc0000;
-       uint8_t rtcArray[40];
+       uint8_t rtcArray[16];
        uint8_t ricoh=FALSE;
        uint8_t ampm=FALSE;
        uint8_t am=FALSE;
@@ -33,14 +33,17 @@ void RTCTestC(VARS)
        uint8_t date;
        int exit=FALSE;
 
-       // Initialize RTC - matches working ASM code (stride 4 addressing)
-       // Ricoh: 0x35=Mode(0x0D), 0x39=Test(0x0E), 0x37 between them
-       // OKI uses stride 2, but these writes seem to work for both
-       *(rtc + 0x39) = 0x08;  // Test register / reset (Reg 14, stride 4)
-       *(rtc + 0x35) = 0x08;  // Mode: Timer Enable=1, Bank 0 (Reg 13, stride 4)
+       // Initialize RTC (Ricoh RP5C01 / OKI MSM6242B)
+       // All writes use +3 byte offset within 4-byte register blocks (matching ASM convention)
+       *(rtc + 0x37) = 0x04;  // Mode register (Reg 13): stop timer (TE=0) before init
+       *(rtc + 0x3b) = 0x00;  // Test register (Reg 14): MUST be 0x00 for normal operation
+                               // Writing non-zero here puts chip in fast-count test mode!
+       *(rtc + 0x37) = 0x08;  // Mode register (Reg 13): start timer (TE=1, Bank 0)
 
        InitScreen();
-       uint8_t ricochMonth = ((*(rtc+41)&0xf)*10)+(*(rtc+37)&0xf); // Read from where Ricoh have its month stored (Reg10*10+Reg9, stride 4)
+       // Detect chip: read Reg10 (Ricoh month-tens) and Reg9 (Ricoh month-units)
+       // using +3 offset within each 4-byte block, matching ASM read convention
+       uint8_t ricochMonth = ((*(rtc+43)&0xf)*10)+(*(rtc+39)&0xf); // Reg10*10+Reg9, offset +3
 
        setPos(0,4);
        print("RTC Chipset: ",WHITE);
@@ -70,28 +73,40 @@ void RTCTestC(VARS)
        print("\002T - Measure RTC second accuracy (uses CIAB HSYNC counter)\n",WHITE);
        print("\002ESC (or Mousebutton) - EXIT\n",WHITE);
        print("\n\n\n\n ALL EXPERIMENTAL",RED);
-       ricochMonth = ((*(rtc+41)&0xf)*10)+(*(rtc+37)&0xf);
+       ricochMonth = ((*(rtc+43)&0xf)*10)+(*(rtc+39)&0xf);
        do
        {
-              for(int i=0;i<40;i++)                     // Reads from the RTC Chip to the Array
+              // Read all 16 RTC registers using stride 4, offset +3 (matches ASM inner loop)
+              // ASM: lea $dc0003,a1 / add.l #4,a1 → reads from $DC0003,$DC0007,$DC000B,...
+              // i.e. rtcArray[N] = *(rtc + N*4 + 3) = register N directly
+              for(int i=0;i<16;i++)
               {
-                     rtcArray[i]=(*(rtc+(i*2)+1))&0xf;
+                     *(rtc + 0x37) = 0x08;  // write mode reg before each read (matches ASM)
+                     rtcArray[i]=(*(rtc+(i*4)+3))&0xf;
               }
               if(ricoh)
               {
-                     second = (rtcArray[2]*10)+rtcArray[0];
-                     minute = (rtcArray[6]*10)+rtcArray[4];
-                     hour = (rtcArray[10]*10)+rtcArray[8];
-                     day = rtcArray[12];
-                     date = (rtcArray[16]*10)+rtcArray[14];
-                     month = (rtcArray[20]*10)+rtcArray[18];
-                     year = (rtcArray[24]*10)+rtcArray[22];
+                     // Ricoh RP5C01: Reg0=sec1, Reg1=sec10, Reg2=min1, Reg3=min10,
+                     //               Reg4=hr1,  Reg5=hr10,  Reg6=dow,
+                     //               Reg7=day1, Reg8=day10, Reg9=mon1, Reg10=mon10,
+                     //               Reg11=yr1, Reg12=yr10
+                     second = (rtcArray[1]*10)+rtcArray[0];
+                     minute = (rtcArray[3]*10)+rtcArray[2];
+                     hour = (rtcArray[5]*10)+rtcArray[4];
+                     day = rtcArray[6];
+                     date = (rtcArray[8]*10)+rtcArray[7];
+                     month = (rtcArray[10]*10)+rtcArray[9];
+                     year = (rtcArray[12]*10)+rtcArray[11];
               }
               else
               {
-                     second = (rtcArray[2]*10)+rtcArray[1];
-                     minute = (rtcArray[6]*10)+rtcArray[5];
-                     hour = (rtcArray[10]*10)+rtcArray[9];
+                     // OKI MSM6242B: Reg0=sec1, Reg1=sec10, Reg2=min1, Reg3=min10,
+                     //               Reg4=hr1,  Reg5=hr10,
+                     //               Reg6=day1, Reg7=day10, Reg8=mon1, Reg9=mon10,
+                     //               Reg10=yr1, Reg11=yr10, Reg12=dow
+                     second = (rtcArray[1]*10)+rtcArray[0];
+                     minute = (rtcArray[3]*10)+rtcArray[2];
+                     hour = (rtcArray[5]*10)+rtcArray[4];
                      ampm = FALSE;
                      if(hour>24)
                      {
@@ -100,10 +115,10 @@ void RTCTestC(VARS)
                             hour=hour&0x1f;
                             hour=hour-10;
                      }
-                     day = rtcArray[24];
-                     date = (rtcArray[14]*10)+rtcArray[12];
-                     month = (rtcArray[18]*10)+rtcArray[16];
-                     year = ((rtcArray[22]%10)*10)+rtcArray[20];
+                     day = rtcArray[12];
+                     date = (rtcArray[7]*10)+rtcArray[6];
+                     month = (rtcArray[9]*10)+rtcArray[8];
+                     year = (rtcArray[11]*10)+rtcArray[10];
               }
 
              if(second!=oldSecond)
@@ -136,7 +151,8 @@ void RTCTestC(VARS)
                      }
 
                      setPos(6,5);
-                     print(binDec(year),CYAN);
+                     int yearFull = (year >= 78) ? (year + 1900) : (year + 2000);
+                     print(binDec(yearFull),CYAN);
 
                      setPos(7,6);
                      if(month<10)
@@ -167,19 +183,14 @@ void RTCTestC(VARS)
                      if(globals->GetCharData=='d')
                      {
                             setPos(0,10);
-                            for(int i=0;i<20;i++)                     // Prints the Array on screen
+                            for(int i=0;i<16;i++)                     // Prints the Array on screen
                             {
                                    print(binDec(rtcArray[i]),YELLOW);
                                    print(":",GREEN);
                             }
                             exit=FALSE;
                             setPos(0,11);
-                            print("0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9\n",GREEN);
-                            for(int i=20;i<40;i++)                     // Prints the Array on screen
-                            {
-                                   print(binDec(rtcArray[i]),YELLOW);
-                                   print(":",GREEN);
-                            }
+                            print("0 1 2 3 4 5 6 7 8 9 A B C D E F\n",GREEN);
                      }
                      if(globals->GetCharData=='t')
                      {
@@ -211,15 +222,6 @@ void RTCTestC(VARS)
 
        }
              while(!exit);
-//       ClearBuffer();
-//       do
-//       {
-//
-//              GetInput();
-//       }
-//             while(globals->BUTTON == 0);
-//
-//             ClearBuffer();
 }
 
 int measureRTCSecond(void)
@@ -228,11 +230,11 @@ int measureRTCSecond(void)
        volatile uint8_t *rtc = (volatile uint8_t *)0xdc0000;
        uint8_t sec;
 
-       // Read seconds units digit - register 0 at offset 0x01
-       sec = (*(rtc + 0x01)) & 0xf;
+       // Read seconds units digit - Reg0 at offset +3 (matches ASM convention)
+       sec = (*(rtc + 0x03)) & 0xf;
 
        // Wait for second to change (sync to edge)
-       while (((*(rtc + 0x01)) & 0xf) == sec) {}
+       while (((*(rtc + 0x03)) & 0xf) == sec) {}
 
        // Reset CIAB TOD counter (counts HSYNC ~15625/sec PAL)
        ciab->ciacrb &= ~0x80;  // Write TOD mode, not alarm
@@ -242,8 +244,8 @@ int measureRTCSecond(void)
 
        // Wait for 10 second changes
        for (int i = 0; i < 10; i++) {
-              sec = (*(rtc + 0x01)) & 0xf;
-              while (((*(rtc + 0x01)) & 0xf) == sec) {}
+              sec = (*(rtc + 0x03)) & 0xf;
+              while (((*(rtc + 0x03)) & 0xf) == sec) {}
        }
 
        // Read elapsed HSYNC count (read hi first to latch)

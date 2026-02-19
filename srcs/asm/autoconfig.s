@@ -15,11 +15,11 @@ AutoConfig:
 	jsr	Print
 	lea	NewLineTxt,a0
 	jsr	Print
-	jsr	ClearBuffer
+	jsr	_ClearBuffer
 	lea	AnyKeyMouseTxt,a0
 	move.l	#3,d1
 	jsr	Print
-	jsr	WaitButton
+	jsr	_WaitButton
 	jmp	MemtestMenu
 
 
@@ -33,13 +33,13 @@ AutoConfigDetail:				; Do Autoconfigmagic
 	jsr	Print
 	lea	NewLineTxt,a0
 	jsr	Print
-	jsr	ClearBuffer
+	jsr	_ClearBuffer
 
 
 	lea	AnyKeyMouseTxt,a0
 	move.l	#3,d1
 	jsr	Print
-	jsr	WaitButton
+	jsr	_WaitButton
 	jmp	MainMenu
 
 
