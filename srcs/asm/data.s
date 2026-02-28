@@ -10,14 +10,17 @@ MEMCheckPattern::
 	dc.l	$ff0000ff,$00ffff00,$ff00ff00,$00ff00ff,$ffff0000,$0000ffff,$ffffffff,$aaaaaaaa,$aaaa5555,$5555aaaa,$55555555,$f0f0f0f0,$0f0f0f0f,$0f0ff0f0,0,0
 
 RomMenuCopper::
+_RomMenuCopper::
     MenuSprite::
 		dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$01380000,$013a0000,$013c0000,$013e0000
 		dc.l	$0100b201,$0092003c,$009400d4,$008e2c81,$00902cc1,$01020000,$01080000,$010a0000,$01060020
 		dc.l	$01800000,$01820f00,$018400f0,$01860ff0,$0188000f,$018a0f0f,$018c00ff,$018e0fff,$01900ff0
        MenuBplPnt::
+_MenuBplPnt::
 		dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000
 		dc.l	$fffffffe	;End of copperlist
 EndRomMenuCopper::
+_EndRomMenuCopper::
 MenuBplPntPos::	EQU	MenuBplPnt-RomMenuCopper
 
 
@@ -25,6 +28,7 @@ EndRomMenuCopperSize::	EQU	EndRomMenuCopper-RomMenuCopper
 EndRomEcsCopperSize::	EQU	EndRomEcsCopper-RomEcsCopper
 EndRomEcsCopper2Size::	EQU	EndRomEcsCopper2-RomEcsCopper2
 RomEcsCopper::
+_RomEcsCopper::
        dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$0138000,$013a0000,$013c0000,$013e0000
        dc.l	$01005200,$00920038,$009400d0,$008e2c81,$00902cc1,$01020000,$01080000,$010a0000
        blk.l	32,0
@@ -32,8 +36,10 @@ RomEcsCopper::
        dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000,$00ec0000,$00ee0000,$00f00000,$00f20000,$01060020
        dc.l	$fffffffe	;End of copperlist
 EndRomEcsCopper::
+_EndRomEcsCopper::
 
 RomEcsCopper2::
+_RomEcsCopper2::
        dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$0138000,$013a0000,$013c0000,$013e0000
        dc.l	$01005200,$00920038,$009400d0,$008e2c81,$00902cc1,$01020000,$01080004,$010a0004
        blk.l	32,0
@@ -41,6 +47,7 @@ RomEcsCopper2::
        dc.l	$00e00000,$00e20000,$00e40000,$00e60000,$00e80000,$00ea0000,$00ec0000,$00ee0000,$00f00000,$00f20000,$01060020
        dc.l	$fffffffe	;End of copperlist
 EndRomEcsCopper2::
+_EndRomEcsCopper2::
 
 GFXColTestCopperStart::
 	dc.l	$01200000,$01220000,$01240000,$01260000,$01280000,$012a0000,$012c0000,$012e0000,$01300000,$01320000,$01340000,$01360000,$0138000,$013a0000,$013c0000,$013e0000
@@ -72,6 +79,7 @@ Octant_Table::
 	dc.b	7*4+1
 
 ROMAudioWaves::
+_ROMAudioWaves::
 	ROMAudio64ByteTriangle::
     dc.b	127,119,111,103,95,87,79,71,63,55,47,39,31,23,15,6
     dc.b	-1,-9,-17,-25,-33,-41,-49,-57,-65,-73,-81,-89,-97,-105,-113,-121,-127
@@ -104,6 +112,7 @@ ROMAudioWaves::
     dc.b 	0,-52,-95,-121,-127,-110,-75,-26,26,75,110,127,121,95,52,0,0,0
     EVEN
 EndROMAudioWaves::
+_EndROMAudioWaves::
 
 Wavesize:: equ EndROMAudioWaves-ROMAudioWaves
 _mempattern::	dc.l	$0000ffff,$ffff0000,$ff00ff00,$00ff00ff,$AAAAAAAA,$55555555,$5555aaaa,$aaaa5555,$ffffffff,0
@@ -136,34 +145,12 @@ ExtSizeTxtPointer::
 ExtSizePointer::
 	dc.l	$1000000,$2000000,$4000000,$8000000,$10000000,$20000000,$40000000,$80000000
 
-SerText::
-	dc.l	BpsNone,Bps2400,Bps9600,Bps19200,Bps38400,Bps115200,BpsLoop,BpsNone
-	EVEN
 AgnusID::
 	dc.b 0,$10,$20,$30,$22,$31,$22,$32,$23,$33,255
 
 	EVEN
 
-;-----------------------------------------------------------------------------------------------------------------------------------------------------------
-;
-; KEEP MENUDATA HERE
-;
-;-----------------------------------------------------------------------------------------------------------------------------------------------------------
-
-
-Menus::					; Pointers to the menus
-	dc.l	MainMenuItems,0,AudioMenuItems,MemtestMenuItems,IRQCIAtestMenuItems,GFXtestMenuItems,PortTestMenuItems,OtherTestItems,DiskTestMenuItems,0,0
-MenuCode::				; Pointers to pointers of the menus.
-	dc.l	MainMenuCode,0,AudioMenuCode,MemtestMenuCode,IRQCIAtestMenuCode,GFXtestMenuCode,PortTestMenuCode,OtherTestCode,DiskTestMenuCode,0,0
-MenuKeys::
-	dc.l	MainMenuKey,0,AudioMenuKey,MemtestMenuKey,IRQCIAtestMenuKey,GFXtestMenuKey,PortTestMenuKey,OtherTestKey,DiskTestMenuKey,0,0
-
-MainMenuItems::
-    dc.l	MainMenuText,MainMenu1,MainMenu2,MainMenu3,MainMenu4,MainMenu5,MainMenu6,MainMenu7,MainMenu8,MainMenu9,MainMenu10,MainMenu11,0,0
-MainMenuCode::
-    dc.l	SystemInfoTest,AudioMenu,MemtestMenu,IRQCIAtestMenu,GFXtestMenu,PortTestMenu,DiskTest,KeyBoardTest,OtherTest,Setup,About,SwapMode
-MainMenuKey::	; Keys needed to choose menu. first byte keycode 2:nd byte serialcode.
-    dc.b	"0","1","2","3","4","5","6","7","8","s","a"," ",0
+_MainMenuText::
 MainMenuText::
 	dc.b	"                              DiagROM "
     VERSION
@@ -173,183 +160,6 @@ MainMenuText::
 	dc.b	$a
 	dc.b	"                        By John (Chucky / The Gang) Hertell",$a,$a
 	dc.b	"                                       MAIN MENU",$a,$a,0
-MainMenu1::
-    dc.b	"0 - Systeminfo",0
-MainMenu2::
-    dc.b	"1 - Audiotests",0
-MainMenu3::
-    dc.b	"2 - Memorytests",0
-MainMenu4::
-    dc.b	"3 - IRQ/CIA Tests",0
-MainMenu5::
-    dc.b	"4 - Graphictests",0
-MainMenu6::
-    dc.b	"5 - Porttests",0
-MainMenu7::
-    dc.b	"6 - Drivetests",0
-MainMenu8::
-    dc.b	"7 - Keyboardtests",0
-MainMenu9::
-    dc.b	"8 - Other tests",0
-MainMenu10::
-    dc.b	"S - Setup",0
-MainMenu11::
-    dc.b	"A - About",0
-    EVEN
-
-AudioMenuItems::
-    dc.l	AudioMenuText,AudioMenu1,AudioMenu2,AudioMenu3,0
-AudioMenuCode::
-    dc.l	AudioSimple,AudioMod,MainMenu
-AudioMenuKey::
-       dc.b	"1","2","9",0
-AudioMenuText::
-       dc.b	2,"Audiotests",$a,$a,0
-AudioMenu1::
-       dc.b	"1 - Simple waveformtest",0
-AudioMenu2::
-       dc.b	"2 - Play test-module",0
-AudioMenu3::
-       dc.b	"9 - MainMenu",0
-       EVEN
-
-MemtestMenuItems::
-       dc.l	MemtestText,MemtestMenu1,MemtestMenu2,MemtestMenu3,MemtestMenu4,MemtestMenu5,MemtestMenu6,MemtestMenu7,MemtestMenu8,MemtestMenu9,MemtestMenu10,0
-MemtestMenuCode::
-       dc.l	CheckDetectedChip,CheckExtendedChip,CheckDetectedMBMem,CheckExtended16MBMem,ForceExtended16MBMem,Detectallmemory,CheckMemManual,CheckMemEdit,AutoConfig,MainMenu
-MemtestMenuKey::
-       dc.b	"1","2","3","4","5","6","7","8","9","0",0
-MemtestText::
-       dc.b	2,"Memorytests",$a,$a,0
-MemtestMenu1::
-       dc.b	"1 - Test detected chipmem",0
-MemtestMenu2::
-       dc.b	"2 - Extended chipmemtest (MIGHT crash on older amigas)",0
-MemtestMenu3::
-       dc.b	"3 - Test detected fastmem",0
-MemtestMenu4::
-       dc.b	"4 - Fast scan of 16MB fastmem-areas",0
-MemtestMenu5::
-       dc.b	"5 - Slow scan of 16MB fastmem-areas",0
-MemtestMenu6::
-       dc.b	"6 - Complete Memorydetection",0
-MemtestMenu7::
-       dc.b	"7 - Manual memorytest (NEW)",0
-MemtestMenu8::
-       dc.b	"8 - Manual memoryedit",0
-MemtestMenu9::
-       dc.b	"9 - Autoconfig - Automatic",0
-MemtestMenu10::
-       dc.b	"0 - Mainmenu",0
-       EVEN
-
-IRQCIAtestMenuItems::
-       dc.l	IRQCIATestText,IRQCIATestMenu1,IRQCIATestMenu2,IRQCIATestMenu3,IRQCIATestMenu4,IRQCIAtestMenu7,0,0
-IRQCIAtestMenuCode::
-       dc.l	IRQCIAIRQTest,IRQCIACIATest,IRQCIATest,IRQTestC,MainMenu
-IRQCIAtestMenuKey::
-       dc.b	"1","2","3","4","9",0
-IRQCIATestText::
-       dc.b	2,"IRQ & CIA Tests",$a,$a,0
-IRQCIATestMenu1::
-       dc.b	"1 - Test IRQs (OLD! SOON REMOVED)",0
-IRQCIATestMenu2::
-       dc.b	"2 - Test CIAs (OLD! SOON REMOVED)",0
-IRQCIATestMenu3::
-       dc.b	"3 - New Test CIAs",0
-IRQCIATestMenu4::
-       dc.b	"4 - New Test IRQ",0
-IRQCIAtestMenu7::
-       dc.b	"9 - Mainmenu",0
-       EVEN
-GFXtestMenuItems::
-       dc.l	GFXtestText,GFXtestMenu1,GFXtestMenu2,GFXtestMenu3,GFXtestMenu4,GFXtestMenu5,GFXtestMenu6,GFXtestMenu7,GFXtestMenu8,GFXtestMenu9,0
-GFXtestMenuCode::
-       dc.l	GFXTestScreen,GFXTestScroll,GFXTestRaster,GFXTestRGB,gfxC,gfxChigh,gfxCAga,gfxCAgaHigh,MainMenu,0
-GFXtestMenuKey::
-       dc.b	"1","2","3","4","5","6","7","8","9",0
-GFXtestText::
-       dc.b	2,"Graphicstests",$a,$a,0
-GFXtestMenu1::
-       dc.b	"1 - Testpicture in lowres 32Col",0
-GFXtestMenu2::
-       dc.b	"2 - Test Scroll",0
-GFXtestMenu3::
-       dc.b	"3 - Test raster (button to exit)",0
-GFXtestMenu4::
-       dc.b	"4 - RGB-test",0
-GFXtestMenu5::
-       dc.b	"5 - Testscreen 320x256 (New C)",0
-GFXtestMenu6::
-	dc.b	"6 - Testscreen 640x512 (New C)",0
-GFXtestMenu7::
-       dc.b	"7 - Testscreen 320x256 AGA (New C)",0
-GFXtestMenu8::
-       dc.b	"8 - Testscreen 640x512 AGA (New C)",0
-GFXtestMenu9::
-       dc.b	"9 - Exit to mainmenu",0
-       EVEN
-
-PortTestMenuItems::
-       dc.l	PortTestText,PortTestMenu1,PortTestMenu2,PortTestMenu3,PortTestMenu4,0
-PortTestMenuCode::
-       dc.l	PortTestPar,PortTestSer,PortTestJoystick,MainMenu
-PortTestMenuKey::
-       dc.b	"1","2","3","9",0
-PortTestText::
-       dc.b	2,"Porttests",$a,$a,0
-PortTestMenu1::
-       dc.b	"1 - Parallel Port",0
-PortTestMenu2::
-       dc.b	"2 - Serial Port",0
-PortTestMenu3::
-       dc.b	"3 - Joystick/Mouse Ports",0
-PortTestMenu4::
-       dc.b	"9 - Mainmenu",0
-       EVEN
-
-OtherTestItems::
-       dc.l	OtherTestText,OtherTestMenu1,OtherTestMenu2,OtherTestMenu3,OtherTestMenu4,OtherTestMenu5,OtherTestMenu6,0
-OtherTestCode::
-       dc.l	RTCTest,AutoConfigDetail,ShowMemAddress,RTCTestC,TF1260,MainMenu
-OtherTestKey::
-       dc.b	"1","2","3","4","8","9",0
-OtherTestText::
-       dc.b	2,"Other tests",$a,$a,0
-OtherTestMenu1::
-       dc.b	"1 - RTC Test (TO BE REMOVED NOT WORKING)",0
-OtherTestMenu2::
-       dc.b	"2 - Autoconfig - Detailed",0
-OtherTestMenu3::
-       dc.b	"3 - ShowMemAddress Content",0
-OtherTestMenu4::
-       dc.b	"4 - New RTC Test",0
-OtherTestMenu5::
-       dc.b	"8 - TF360/TF1260 Diag",0
-OtherTestMenu6::
-       dc.b	"9 - Mainmenu",0
-       EVEN
-
-DiskTestMenuItems::
-       dc.l	DiskTestText,DiskTestMenu1,DiskTestMenu2,DiskTestMenu3,DiskTestMenu4,DiskTestMenu5,0	;Add DiskTestMenu4 before 5 for new floppytest
-DiskTestMenuCode::
-	dc.l	DiskdriveTest,GayleTest,GayleExp,floppyTestC,MainMenu	; add floppyTestC before "MainMenu"
-DiskTestMenuKey::
-       dc.b	"1","2","3","4","9",0	; add "4" before 9 for new floppytest
-DiskTestText::
-       dc.b	2,"Disktests",$a,$a,0
-DiskTestMenu1::
-       dc.b	"1 - Diskdrivetest (old experimental)",0
-DiskTestMenu2::
-       dc.b	"2 - Gayletest (A600/1200 etc IDE)",0
-DiskTestMenu3::
-       dc.b	"3 - Gary-IDE test (A4000)",0
-DiskTestMenu4::
-       dc.b	"4 - Floppytest (New Experimental)",0
-DiskTestMenu5::
-       dc.b	"9 - Mainmenu",0
-
-       EVEN
 
 AudioSimpleMenu::
        dc.l	AudioSimpleWaveItems,0
@@ -1143,8 +953,10 @@ DebugROM3::
 StackTxt::
 	dc.b	$a,"  Stack:  ",0
 YES::
+_YES::
 	dc.b	"YES",0
 NO::
+_NO::
 	dc.b	"NO ",0
 CPUTxt::
 	dc.b	$a,"CPU: ",0
@@ -1203,16 +1015,20 @@ AgnusUnknTxt:
 DetectAgnusTxt::
 	dc.b	"Detecting agnuschip: ",0
 DETECTED::
+_DETECTED::
        dc.b	27,"[32mDETECTED",27,"[0m",0
 SFAILED::
+_SFAILED::
        dc.b	27,"[31mFAILED",27,"[0m",0
 NewLineTxt::
+_NewLineTxt::
        dc.b	$a,$d,0
 DetChipTxt::
        dc.b	"Detected Chipmem: ",0
 SystemHaltedTxt::
 	dc.b	$a,$d,$a,$d,27,"[31m --  ERROR  --  NO MEMORY FOUND SYSTEM HALTED - CANNOT CONTINUE!",0
 KB::
+_KB::
        dc.b	"kB",0
 DetMBFastTxt::
        dc.b	"Detected Motherboard Fastmem (not reliable result): ",0
@@ -1259,8 +1075,10 @@ WorkAreasTxt::
 WorkAreasTxt2::
 	dc.b	"  Fastmem: ",0	
 MinusTxt::
-	dc.b	" - ",0	
+_MinusTxt::
+	dc.b	" - ",0
 InitTxt::
+_InitTxt::
 	dc.b	"Amiga DiagROM "
 	VERSION
 	dc.b	" - By John (Chucky/The Gang) Hertell - "
@@ -1383,6 +1201,7 @@ KeyBoardTestCodeTxt::
 KeyBoardTestCodeTxt2::
 	dc.b	"Scancode binary:           HEX:      Keyboardcode binary:           HEX: ",0
 
+_StatusLine::
 StatusLine::
 	dc.b	"Serial: ",1,1,1,1,1," BPS - CPU: ",1,1,1,1,1,"  - Chip: ",1,1,1,1,1,1," - kBFast: ",1,1,1,1,1,1," Base: ",0
 BpsNone::

@@ -5,6 +5,7 @@
        xdef   PortTestPar
        xdef   PortTestSer
        xdef   PortTestJoystick
+       xref   _SerText
 
 PortTestMenu:
 	jsr	InitScreen
@@ -307,7 +308,7 @@ PortTestSer:
 .notmax:
 	move.w	SerTstBps(a6),d0		; Get SerialSpeed value
 	mulu	#4,d0				; Multiply with 4
-	lea	SerText,a0			; Load table of pointers to different texts
+	lea	_SerText,a0			; Load table of pointers to different texts
 	move.l	(a0,d0.l),a0			; load a0 with the value that a0+d0 points to (text of speed)
 	move.l	#7,d1
 	jsr	Print

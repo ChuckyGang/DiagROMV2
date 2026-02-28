@@ -4,6 +4,7 @@
        xdef AudioMenu
        xdef AudioSimple
        xdef AudioMod
+       xref _Menus
 
 AudioMenu:
        bsr	InitScreen
@@ -335,7 +336,7 @@ AudioSimple:
 .exit:
        move.w	#15,$dff096
        bsr	WaitReleased
-       move.l	#Menus,Menu(a6)		; Set Menus as default menu. if different set another manually
+       move.l	#_Menus,Menu(a6)	; Set Menus as default menu. if different set another manually
        move.l	#0,MenuVariable(a6)
        bra	AudioMenu
 

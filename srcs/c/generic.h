@@ -90,7 +90,16 @@ int get_eclk_freq();
 int get_tod_freq();
 void StartTOD();
 void SetMenuCopper();
+void setMenuCopper(void);
 void scrollScreen();
+
+// initcode.c
+void initCode(void);
+void copyToChip(void);
+void clearSerial(void);
+void clearScreenNoSerial(void);
+int  realLoopbackTest(char testChar __asm("d0"));
+void romChecksum(void);
 //struct CIA ciaa, ciab;
 
 void PAUSEC();
@@ -112,3 +121,13 @@ int32_t toKB(int32_t val __asm("d0"));
 int32_t random(int32_t d0 __asm("d0"), int32_t d1 __asm("d1"), int32_t d2 __asm("d2"),
                int32_t d3 __asm("d3"), int32_t d4 __asm("d4"), int32_t d5 __asm("d5"),
                int32_t d6 __asm("d6"), int32_t d7 __asm("d7"));
+
+// mainmenu.c
+void mainMenu(void);
+void mainLoop(void);
+void initScreen(void);
+void printMenu(void);
+void filterON(void);
+void filterOFF(void);
+void swapMode(void);
+void exitDiag(void);
