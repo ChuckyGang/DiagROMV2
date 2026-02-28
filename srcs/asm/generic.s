@@ -21,7 +21,6 @@
 	xdef	Print
 	xdef	PrintChar
 	xdef	PutChar
-	xdef	_scrollScreen:
 	xdef	ScrollScreen
 	xdef	ClearScreen
 ;	xdef	_SetPos
@@ -75,23 +74,7 @@
 
 WaitShort:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have detected working raster)
 	PUSH
-	cmp.b	#1,RASTER(a6)			; Check if we have a confirmed working raster
-	beq	.raster
-	move.l	#$1000,d0			; if now.  lets try to wait some anyway.
-	bsr	ReadSerial			; as we have no IRQs..  read serialport just in case
-.loop:
-	move.b	$bfe001,d1			; Dummyread from slow memory
-	move.b	$dff006,d1
-	dbf	d0,.loop
-	POP
-	rts
-.raster:
-	bsr	ReadSerial			; as we have no IRQs..  read serialport just in case
-	move.b	$dff006,d0			; Get what rasterline we are at now
-	add.b	#10,d0				; Add 10
-.rasterloop:
-	cmp.b	$dff006,d0
-	bne.s	 .rasterloop
+	jsr	_waitShort
 	POP
 	rts
 
@@ -294,934 +277,135 @@ ErrorScreen:
 ; --- WaitButton removed: converted to C WaitButton() ---
 
 WaitPressed:					; Waits until some "button" is pressed
-	clr.l	d7				; Clear d7 that is used for a timeout counter
-.loop:
-	add.l	#1,d7				; Add 1 to the timout counter
-	cmp.l	#$ffff,d7			; did we count for a lot of times? well then there is a timeout
-	beq	.timeout
-	bsr	GetInput			; get inputdata
-	cmp.b	#1,BUTTON(a6)			; check if any button was pressed.
-	bne	.loop				; nope. lets loop
-	rts
-.timeout:
-	rts
-	move.b	P1LMB(a6),STUCKP1LMB(a6)	; ok we had a timeout. so we GUESS a port is stuck.
-	move.b	P2LMB(a6),STUCKP2LMB(a6)	; if we just simply copy the status of all keys
-	move.b	P1LMB(a6),STUCKP1LMB(a6)	; to the STUCK version. we will disable all stuck ports
-	move.b	P2RMB(a6),STUCKP2RMB(a6)
-	move.b	P1MMB(a6),STUCKP1MMB(a6)
-	move.b	P2MMB(a6),STUCKP2MMB(a6)
+	jsr	_waitPressed
 	rts
 
 WaitReleased:					; Waits until some "button" is unreleased
-	clr.l	d7				; Clear d7 that is used for a timeout counter
-.loop:
-	move.b	$dff006,$dff180
-	add.l	#1,d7				; Add 1 to the timout counter
-	cmp.l	#$ffff,d7			; did we count for a lot of times? well then there is a timeout
-	beq	.timeout
-	bsr	GetInput			; get inputdata
-	cmp.b	#0,BUTTON(a6)			; check if any button was pressed.
-	bne	.loop				; nope. lets loop
-	rts
-.timeout:
-	move.b	P1LMB(a6),STUCKP1LMB(a6)	; ok we had a timeout. so we GUESS a port is stuck.
-	move.b	P2LMB(a6),STUCKP2LMB(a6)	; if we just simply copy the status of all keys
-	move.b	P1LMB(a6),STUCKP1LMB(a6)	; to the STUCK version. we will disable all stuck ports
-	move.b	P2RMB(a6),STUCKP2RMB(a6)
-	move.b	P1MMB(a6),STUCKP1MMB(a6)
-	move.b	P2MMB(a6),STUCKP2MMB(a6)
+	jsr	_waitReleased
 	rts
 
-binhexbyte:
-	; D0 = byte value, returns A0 = pointer to 2-char hex string in binhexoutput+7
-	PUSH
-	jsr	_binHexByte
-	POP
-	lea	binhexoutput+7(a6),a0
-	rts
-
-binhexword:
-	; D0 = word value, returns A0 = pointer to "$XXXX" string in binhexoutput+4
-	PUSH
-	jsr	_binHexWord
-	POP
-	lea	binhexoutput+4(a6),a0
-	rts
-
-binstring:
-	; D0 = 32-bit value, returns A0 = pointer to 32-char binary string
-	PUSH
-	jsr	_binString
-	POP
-	lea	binstringoutput(a6),a0
-	rts
 _GetInput:
 GetInput:
-						; Check inputsignals and return actions.
-						; in: none
-						; out: d0 - messageflags.
-						;	bits:
-						;		0 = Mouse moved
-						;		1 = Mouse button
-						;		2 = Keyboard action happened
-						;		3 = Serial action happened
 	PUSH
-	clr.l	d0				; Clear d0..
-	bsr	ClearInput
-	clr.l	d1
-	clr.l	d0
-	bsr	GetMouseData
-	move.l	d0,d1
-	cmp.b	#0,DISPAULA(a6)
-	bne	.paulabad
-	bsr	GetCharSerial
-	cmp.b	#0,d0
-	beq	.noserial
-.paulabad:
-	move.b	d0,GetCharData(a6)
-	move.b	#1,BUTTON(a6)
-	move.l	d1,d0
-	bset	#3,d1
-.noserial:
-	move.l	d1,d0
-.getkey:
-	move.l	d0,d1
-	cmp.b	#1,OVLErr(a6)			; If we had OVL error, CIA is most likly broke. ignore keyboard
-	beq	.noovl
-	bsr	GetCharKey
-.noovl:
-	cmp	#0,d0
-	beq	.nokey
-	move.b	#1,BUTTON(a6)
-	move.b	d0,GetCharData(a6)
-	move.l	d1,d0
-	bset	#2,d0
-	bra	.exit
-.nokey:
-	move.l	d1,d0	
-.exit:
-	move.l	d0,InputRegister(a6)
+	jsr	_getInput
 	POP
 	move.l	InputRegister(a6),d0
 	rts
 
 _GetSerial:
-GetSerial:					; Reads serialport and returns first char in buffer.
-	cmp.w	#0,SerialSpeed(a6)		; if serialport is disabled.  skip all serial stuff
-	beq	.exit
-	cmp.w	#5,SerialSpeed(a6)
-	beq	.exit
-	move.b	#0,SerData(a6)
-	bsr	ReadSerial
-	cmp.b	#0,SerBufLen(a6)		; Check if we have a serialbuffer, if not, just exit
-	beq	.exit
-						; OK, we do have a serialbuffer, so return first char in buffer
-	clr.l	d6
-	move.b	SerBufLen(a6),d6
-	lea	SerBuf(a6),a5
-	move.b	(a5),Serial(a6)		; Read char in the buffer and put it to "Serial" that is the output variable
+GetSerial:
 	PUSH
-	move.l	#$fe,d6
-.loop:
-	move.b	1(a5),(a5)+
-	dbf	d6,.loop
-	sub.b	#1,SerBufLen(a6)
-	move.b	#0,(a5)			; Clear the last byte in the buffer
+	jsr	_getSerial
 	POP
-	bset	#3,d0				; Mark that we had a serialevent
-	rts
-.exit:
 	rts
 
-_ClearInput:
 ClearInput:
-	move.w	#0,CurAddX(a6)
-	move.w	#0,CurSubX(a6)
-	move.w	#0,CurAddY(a6)
-	move.w	#0,CurSubY(a6)
-	move.b	#0,MOUSE(a6)
-	move.b	#0,BUTTON(a6)			; Clear the generic "Button" variable
-	move.b	#0,LMB(a6)			; I use move as clr actually does a read first
-	move.b	#0,P1LMB(a6)
-	move.b	#0,P2LMB(a6)
-	move.b	#0,RMB(a6)
-	move.b	#0,P1RMB(a6)
-	move.b	#0,P2RMB(a6)
-	move.b	#0,key(a6)
-	move.b	#0,Serial(a6)
-	move.b	#0,GetCharData(a6)
-	move.b	#0,MBUTTON(a6)
+	PUSH
+	jsr	_clearInput
+	POP
+
 	rts
 
 
+_GetMouseData::
 GetMouseData:
-		; Get data from mouse.. ANY port.
-	move.w	$dff016,d1			; Read POTINP to d1
-	and.w	#$fe,d1			; mask out bit 0
-	cmp.b	#0,d1				; ok  if d1 is 0 we should have a working paula as bit 1-7 always shold be 0
-						; but a bad paula can give random numbers. so DiagROM messes up presses etc.
-						; so DISABLE all paulachecks.
-	beq	.paulaok
-	move.b	#1,DISPAULA(a6)		; ok it was not 0.  so lets disable paulastuff
-.paulaok:
-	cmp.b	#0,DISPAULA(a6)
-	bne	.paulabad
-	;First handle Y position
-	bsr	.CheckButton
-	move.l	d0,d4				; Store d0 in d4 temporary
-	move.b	$dff00a,d2
-	move.b	OldMouse1Y(a6),d1
-	cmp.b	d1,d2				; Check to old Y pos at mouse 1. if differs, mouse is moved.
-	bne	.Mouse1YMove
-.Check2Y:
-	move.b	$dff00c,d2
-	move.b	OldMouse2Y(a6),d1
-	cmp.b	d1,d2
-	bne	.Mouse2YMove
-.CheckX:
-	move.b	$dff00b,d2
-	move.b	OldMouse1X(a6),d1
-	cmp.b	d1,d2
-	bne.w	.Mouse1XMove
-.Check2X:
-	move.b	$dff00d,d2
-	move.b	OldMouse2X(a6),d1
-	cmp.b	d1,d2
-	bne.w	.Mouse2XMove
-		; ok now we have a raw "mouse" data from either port.
-		; but maybe time to convert it to a real X, Y cursor instead.
-		; that goes between 0 and 640 on X, and 0 and 512 on Y.
-	clr.l	d0
-	clr.l	d1
-	move.b	MouseX(a6),d0			; Store X pos in d0
-	move.b	OldMouseX(a6),d1		; Store old X pos value in d1
-	cmp.b	d1,d0				; Compare them to check if we have mousemovement
-	bne	.XMove				; We have mousemovements in the X Axis
-.CheckY:
-	clr.l	d0
-	clr.l	d1
-	move.b	MouseY(a6),d0			; Store Y pos in d0
-	move.b	OldMouseY(a6),d1		; Store old Y pos value in d1
-	cmp.b	d1,d0				; Compare them to check if we have mousemovement
-	bne	.YMove				; We have mousemovements in the Y Axis
-.DoneM:
-	move.l	d4,d0				; Restore d0 to keep flags
-.paulabad:
-	rts
-.XMove:
-	bset	#0,d4				; Set flag that we have mousemovements, d4 is temporary
-	move.b	#1,MOUSE(a6)
-	move.b	d0,OldMouseX(a6)		; Store current to old.
-						; OK , we have a movement, but what direction?
-	bsr	.GetMouseDir
-	cmp.b	#1,d1				; Check what direction
-	beq	.backX
-	add.w	d0,CurX(a6)
-	move.w	d0,CurAddX(a6)
-	cmp.w	#640,CurX(a6)
-	bge	.highX
-	bra	.DoneX
-.highX:
-	move	#640,CurX(a6)
-	bra	.DoneX
-.backX:
-	sub.w	d0,CurX(a6)
-	move.w	d0,CurSubX(a6)
-	cmp.w	#0,CurX(a6)
-	blt	.MaxX
-	bra	.DoneX
-.MaxX:
-	move.w	#0,CurX(a6)
-	bra	.DoneX
-.DoneX:
-	bra	.CheckY
-.YMove:
-	bset	#0,d4				; Set flag that we have mousemovements, d4 is temporary
-	move.b	#1,MOUSE(a6)
-	move.b	d0,OldMouseY(a6)		; Store current to old.
-						; OK , we have a movement, but what direction?
-	bsr	.GetMouseDir
-	cmp.b	#1,d1				; Check what direction
-	beq	.backY
-	add.w	d0,CurY(a6)
-	move.w	d0,CurAddY(a6)
-	cmp.w	#512,CurY(a6)
-	bge	.highY
-	bra	.DoneY
-.highY:
-	move	#512,CurY(a6)
-	bra	.DoneY
-.backY:
-	move.w	d0,CurSubY(a6)
-	sub.w	d0,CurY(a6)
-	cmp.w	#0,CurY(a6)
-	blt	.MaxY
-	bra	.DoneY
-.MaxY:
-	move.w	#0,CurY(a6)
-	bra	.DoneY
-.DoneY:
-	bra	.DoneM
-.GetMouseDir:
-		; INDATA:
-		;	D0 = Old pos
-		;	D1 = New pos
-		; OUTDATA:
-		;	D0 = Number of steps
-		;	D1 = if 0 = "backwards"
-	move.l	d0,d2
-	move.l	d1,d3				; Store values
-	cmp.b	d0,d1				; Check what direction mousemovement is
-	blt	.Lower				; ok we have a lower value
-	sub.b	d0,d1				; Calculate how big the movement was.
-	move.l	d1,d0				; put it in d0
-	move.b	#1,d1				; Mark as "forward" movement
-	cmp.w	#128,d0				; Check if we had a BIG movement.
-	bge	.highadd			; yes.  so it must be the OPPOSITE direction instead
-	rts
-.highadd:
-	move.b	#255,d1
-	sub.b	d1,d0
-	clr.b	d1
-	rts	
-.Lower:
-	sub.b	d1,d0
-	clr.l	d1				; Mark as "backward"
-	cmp.w	#128,d0
-	bge	.highsub
-	rts	
-.highsub:
-	move.b	#255,d1
-	sub.b	d1,d0
-	move.b	#1,d1
-	rts
-.Mouse2XMove:
-	move.b	d2,OldMouse2X(a6)
-	sub.b	d2,d1
-	sub.b	d1,MouseX(a6)
-	bset	#0,d0
-	bra	.CheckButton
-.Mouse1XMove:
-	move.b	d2,OldMouse1X(a6)
-	sub.b	d2,d1
-	sub.b	d1,MouseX(a6)
-	bset	#0,d0
-	bra	.Check2X
-.Mouse1YMove:
-	move.b	d2,OldMouse1Y(a6)
-	sub.b	d2,d1				; Get delta from old value
-	sub.b	d1,MouseY(a6)
-	bset	#0,d0
-	bra	.Check2Y
-.Mouse2YMove:
-	move.b	d2,OldMouse2Y(a6)
-	sub.b	d2,d1
-	sub.b	d1,MouseY(a6)
-	bset	#0,d0
-	bra	.CheckX	
-.CheckButton:					; X and Y are now checked, lets check the buttons.
-	cmp.b	#0,STUCKP1LMB(a6)		; Check if button was marked as stuck, if so. skip it
-	bne	.nolmb1
-	btst	#6,$bfe001			; Check LMB
-	beq	.P1LMB
-.nolmb1:
-	cmp.b	#0,STUCKP2LMB(a6)
-	bne	.CheckRight
-	btst	#7,$bfe001
-	beq	.P2LMB
-.CheckRight:
-	cmp.b	#0,STUCKP1RMB(a6)
-	bne	.normb1
-	btst	#10,$dff016			; Check RMB port 1
-	beq	.P1RMB
-.normb1:
-	cmp.b	#0,STUCKP2RMB(a6)
-	bne	.CheckMiddle
-	btst	#14,$dff016			; Check RMB port 2
-	beq	.P2RMB
-.CheckMiddle
-	cmp.b	#0,STUCKP1MMB(a6)
-	bne	.nommb1
-	btst	#8,$dff016			; Check MMB
-	beq	.MMB
-.nommb1:
-	cmp.b	#0,STUCKP2MMB(a6)
-	bne	.Done
-	btst	#12,$dff016
-	beq	.MMB
-.Done:
-	rts	
-
-.P1LMB:
-	move.b	#1,P1LMB(a6)
-	bra	.LMB
-.P2LMB:
-	move.b	#1,P2LMB(a6)
-.LMB:
-	move.b	#1,BUTTON(a6)
-	move.b	#1,MBUTTON(a6)
-	move.b	#1,LMB(a6)			; Mark LMB as pressed
-	bset	#1,d0
-	bra	.CheckRight
-.P1RMB:
-	move.b	#1,P1RMB(a6)
-	bra	.RMB
-.P2RMB:
-	move.b	#1,P2RMB(a6)
-.RMB:
-	move.b	#1,MBUTTON(a6)
-	move.b	#1,BUTTON(a6)
-	move.b	#1,RMB(a6)
-	bset	#1,d0
-	rts
-.MMB:
-	move.b	#1,MBUTTON(a6)
-	move.b	#1,BUTTON(a6)
-	move.b	#1,MMB(a6)
-	bset	#1,d0
+	PUSH
+	jsr	_getMouseData
+	POP
+	move.l	InputRegister(a6),d0
 	rts
 
 GetChar:					; Reads keyboard and serialport and returns the value in D0
-	bsr	GetCharKey
-	cmp.b	#0,d0
-	bne	.noserial
-	bsr	GetCharSerial
-.noserial:
-	move.b	d0,GetCharData(a6)
+	PUSH
+	jsr	_getChar
+	POP
+	move.b	GetCharData(a6),d0
 	rts
 
+_GetCharSerial::
 GetCharSerial:
 	PUSH
-	clr.b	Serial(a6)
-	bsr	GetSerial			; Read Serialport
-	cmp.b	#1,SerAnsiFlag(a6)		; Are we in ANSI mode?
-	beq	.ansimode
+	jsr	_getCharSerial
 	POP
 	clr.l	d0
-	move.b	Serial(a6),d0			; Return what was in serial, if nothing it will be 0 (nothing happend)
-	cmp.b	#$1b,d0			; is it ESC? if so. we might be in ANSI mode.
-	beq	.ansion
-	cmp.b	#$d,d0				; is it a linefeed?
-	bne	.nolf
-	move.b	#$a,d0				; convert it to CR
-.nolf:
+	move.b	Serial(a6),d0
 	rts
-.ansion:
-	move.b	#1,SerAnsiFlag(a6)		; Set flag that we are in ANSImode
-	move.w	#0,SerAnsiChecks(a6)		; Clear ansicheck variable
-	move.b	#0,d0				; return that nothing was recieved
-	move.b	d0,Serial(a6)
-	rts
-.ansimode:
-	move.b	Serial(a6),d0			; Load the serialdata to d0
-	clr.l	d1				; clear d1 to make sure we do not get crapdata
-	cmp.b	#0,d0				; did we get a 0 from serialport?
-	beq	.sernull			; if so.. handle it
-	cmp.b	#$1b,d0
-	beq	.sernull
-	cmp.b	#32,d0				; Strip away all nonascii chars
-	blt	.noascii
-	cmp.b	#1,SerAnsi35Flag(a6)
-	beq	.ansimode35on
-	cmp.b	#1,SerAnsi36Flag(a6)
-	beq	.ansimode36on
-	cmp.b	#$38,d0
-	beq	.pgup
-	cmp.b	#$36,d0
-	beq	.pgdown
-	cmp.b	#$41,d0			;UP
-	beq	.up
-	cmp.b	#$42,d0			;DOWN
-	beq	.down
-	cmp.b	#$43,d0			;RIGHT
-	beq	.right
-	cmp.b	#$44,d0			;LEFT
-	beq	.left
-	cmp.b	#$36,d0			;possible pgdwn
-	beq	.ansimode36
-	cmp.b	#$35,d0
-	beq	.ansimode35			;possible pgup
-.noascii:
-	clr.b	d0
-	bra	.ansiexit
-.ansichar
-	move.b	#0,SerAnsiFlag(a6)
-	bra	.ansiexit
-.ansimode35:
-	move.b	#1,SerAnsi35Flag(a6)
-	bra	.ansiexit
-.ansimode36:
-	move.b	#1,SerAnsi36Flag(a6)
-	bra	.ansiexit
-.ansimode35on:
-	clr.b	SerAnsi35Flag(a6)
-	cmp.b	#$7e,d0			; we have pgup
-	beq	.pgup
-	clr.b	SerAnsiFlag(a6)
-	rts
-.ansimode36on:
-	clr.b	SerAnsi36Flag(a6)
-	cmp.b	#$7e,d0			; we have pgdown
-	beq	.pgdown
-	clr.b	SerAnsiFlag(a6)
-	rts
-.pgup:
-	clr.b	SerAnsiFlag(a6)
-	move.b	#1,skipnextkey(a6)
-	move.l	#1,d0
-	bra	.ansiexit
-.pgdown:
-	clr.b	SerAnsiFlag(a6)
-	move.b	#1,skipnextkey(a6)
-	move.l	#2,d0
-	bra	.ansiexit
-.up:
-	clr.b	SerAnsiFlag(a6)
-	move.l	#30,d0
-	bra	.ansiexit
-.down:
-	clr.b	SerAnsiFlag(a6)
-	move.l	#31,d0
-	bra	.ansiexit
-.right:
-	clr.b	SerAnsiFlag(a6)
-	move.l	#28,d0
-	bra	.ansiexit
-.left:
-	clr.b	SerAnsiFlag(a6)
-	move.l	#29,d0
-	bra	.ansiexit
-.exitchar:
-	POP
-	clr.l	d0
-	rts
-.nochar:
-	move.b	#$1b,d0
-	move.b	#0,SerAnsiFlag(a6)
-.ansiexit:
-	move.b 	d0,Serial(a6)
-.ansidone:
-	POP
-	clr.l	d0
-	move.b	Serial(a6),d0			; Return what was in serial, if nothing it will be 0 (nothing happend)
-	rts
-.sernull:
-	clr.b	d0				; OK we had a binary 0 as result
-	add.w	#1,SerAnsiChecks(a6)		; add number of times we run through this
-	cmp.w	#$f,SerAnsiChecks(a6)		; is it max?
-	bne	.ansiexit			; if not. just exit with 0
-	TOGGLEPWRLED
-	move.w	#0,SerAnsiChecks(a6)		; ok we had too many checks. guess nothing happened. so exit with an ESC.
-	bra	.nochar		
 
+_GetCharKey::
 GetCharKey:
-		; Keyboard have priority
 	PUSH
-	move.b	#0,keyresult(a6)
-	bsr	GetKey				; Read keyboard
-	cmp.b	#1,keynew(a6)			; Did we have a new keypress on the keyboard?
-	bne	.no				; no, do serialstuff instead
-	lea	keymap(a6),a0
-	move.l	(a0),a0			; Set wanted keymap.
-	bsr	ConvertKey			; Convert keyscan to actual ASCII
-	cmp.b	#0,skipnextkey(a6)		; Check if skipnextkey is set
-	bne	.skipnextkey
-.no:
+	jsr	_getCharKey
 	POP
 	clr.l	d0
 	move.b	keyresult(a6),d0
 	rts
-.skipnextkey:					; ok we are instructed to simply skip this keypress.
-	move.b	#0,BUTTON(a6)
-	move.b	#0,keyresult(a6)
-	move.b	#0,skipnextkey(a6)
-	beq	.no
 
+_GetKey::
 GetKey:
-	PUSH					; Read keyboard
-	clr.b	keynew(a6)			; Clear keynew variable, will be set if we have a new keypress
-	clr.b	keyup(a6)
-	clr.b	keydown(a6)
-	btst	#3,$bfed01			; Check if keyboard data ready (SP bit in ICR)
-	beq	.nodata				; No new data - exit early
-	move.b	$bfec01,d0			; Read keyboard
-	move.b	d0,scancode(a6)		; Store the original scancode
-	ror.b	#1,d0
-	not.b	d0
-	move.b	d0,key(a6)			; after rotates etc, store the keycode
-	btst	#7,d0				; Test if key is up or down
-	beq	.down
-	move.b	#1,keyup(a6)			; Set that a key was released
-	clr.b	keystatus(a6)
-	bra	.handshake
-.down:
-	move.b	#1,keydown(a6)		; Set that a key was pressed
-	move.b	#1,keystatus(a6)
-	move.b	#1,keynew(a6)
-.handshake:
-	bset	#6,$bfee01			; Set handshakebit
-	bsr	WaitShort			; Wait for keyboard to see handshake
-	bsr	WaitShort
-	bclr	#6,$bfee01			; Clear the handshakebit
-						; OK.  we have read the buffer and also cleared it. Lets handle it.
-	bclr	#7,d0				; We clear the up/down bit, so we know what key we handled
-	cmp.b	#$60,d0
-	beq	.shift
-	cmp.b	#$61,d0
-	beq	.shift
-	cmp.b	#$62,d0
-	beq	.capsshift			; Now we have handled shift
-	cmp.b	#$64,d0
-	beq	.alt
-	cmp.b	#$65,d0
-	beq	.alt				; Now we have handled alt
-	cmp.b	#$63,d0
-	beq	.ctrl
-	cmp.b	#$67,d0
-	beq	.ctrl				; Now we have handled ctrl
-.keydone:
+	PUSH
+	jsr	_getKey
 	POP
 	move.b	key(a6),d0
 	rts
-.alt:
-	move.b	keystatus(a6),keyalt(a6)
-	move.b	#0,key(a6)
-	bra	.keydone
-.ctrl:
-	move.b	keystatus(a6),keyctrl(a6)
-	move.b	#0,key(a6)
-	bra	.keydone
-.shift:					; we have a happening on the SHIFT key
-	cmp.b	#0,keycaps(a6)		; Check if caps is pressed
-	bne	.caps
-	move.b	#0,key(a6)
-	move.b	keystatus(a6),keyshift(a6)
-.caps:
-	bra	.keydone
-.capsshift:
-	move.b	keystatus(a6),keycaps(a6)
-	move.b	keystatus(a6),keyshift(a6)
-	move.b	#0,key(a6)
-	bra	.keydone
-.nodata:
-	POP
-	move.b	key(a6),d0			; Return previous key (no new data)
-	rts
 
 GetHex:					; Takes an ASCII and returns only valid chars for hex. (and backspace/enter)
+	jsr	_getHex
+	rts
 
-						; Input:
-						;	D0 = Char
-
-						; Output:
-						; 	D0 = Char
-	cmp.b	#"0",d0
-	blt	.nonumber
-	cmp.b	#"9",d0
-	bgt	.nonumber
-	rts
-.nonumber:
-	bclr	#5,d0				; Make it uppercase
-	cmp.b	#"A",d0
-	blt	.nochar
-	cmp.b	#"F",d0
-	bgt	.nochar
-	rts
-.nochar:
-	cmp.b	#8,d0
-	bne	.nobackspace
-	rts
-.nobackspace:
-	cmp.b	#$d,d0
-	bne	.checkenter
-						; we had linefeed? convert to an enter :)
-	move.b	#$a,d0
-.checkenter:
-	cmp.b	#$a,d0
-	bne	.noenter
-	rts
-.noenter:
-	cmp.b	#27,d0
-	bne	.noesc
-	rts
-.noesc:
-	move.b	#0,d0
-	rts
-	
 GetDec:					; Takes an ASCII and returns only valid chars for dec. (and backspace/enter)
-	; Input:
-	;	D0 = Char
-
-	; Output:
-	; 	D0 = Char
-	cmp.b	#"0",d0
-	blt	.nonumber
-	cmp.b	#"9",d0
-	bgt	.nonumber
-	rts
-.nonumber:
-	cmp.b	#8,d0
-	bne	.nobackspace
-	rts
-.nobackspace:
-	cmp.b	#$d,d0
-	bne	.checkenter
-	; we had linefeed? convert to an enter :)
-	move.b	#$a,d0
-.checkenter:
-	cmp.b	#$a,d0
-	bne	.noenter
-	rts
-.noenter:
-	cmp.b	#27,d0
-	bne	.noesc
-	rts
-.noesc:
-	move.b	#0,d0
+	jsr	_getDec
 	rts
 
 
-ConvertKey:					; Converts keystroke to char.
-	; INDATA:
-	; a0=pointer to keymap
-	move.b	(a0,d0),d1
-	move.b	d1,keypressed(a6)
-	move.b	d1,keyresult(a6)
-	move.b	(EnglishKeyShifted-EnglishKey)(a0,d0),d1
-	move.b	d1,keypressedshifted(a6)
-	cmp.b	#0,keyshift(a6)
-	beq	.notshift
-	move.b	d1,keyresult(a6)
-.notshift:
-	rts	
+; --- ConvertKey removed: converted to C convertKey() ---
 
 ; --- PrintCPU removed: converted to C PrintCPU() ---
 
 WaitLong:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have detected working raster)
 	PUSH
-	cmp.b	#1,RASTER(a6)			; Check if we have a confirmed working raster
-	beq	.raster
-	move.w	#3,d1
-	bsr	ReadSerial			; as we have no IRQs..  read serialport just in case
-.loop2
-	move.l	#$fff,d0			; if now.  lets try to wait some anyway.
-.loop:
-	move.b	$bfe001,d2			; Dummyread from slow memory
-	move.b	$dff006,d2
-	dbf	d0,.loop
-	dbf	d1,.loop2
-	POP
-	rts
-.raster:
-	cmp.b	#$90,$dff006
-	bne.s	.raster			; Wait for rasterline $90
-	bsr	ReadSerial			; as we have no IRQs..  read serialport just in case
-.rasterloop:
-	cmp.b	#$8f,$dff006
-	bne.s	 .rasterloop			; Wait for rasterline $8f, meaning we have waited for one frame
+	jsr	_waitLong
 	POP
 	rts
 
 GetMemory:					; Get memory from workmem.  Fastmem prio.
-						; IN:
-						;	D0 = size wanted
-						; OUT:
-						;	A0 = startaddress of memory, if 0=no memory
 	PUSH
-	move.l	d0,d6				; We move size to d6...
-	clr.l	d7
-	move.l	FastStart(a6),d0		; D0 now contains start of fastmem
-	move.l	FastEnd(a6),d1		; D1 now contains end of fastmem
-	move.l	d1,d2
-	sub.l	d0,d2				; D2 now contains fastmemsize
-	move.l	ChipStart(a6),d3		; D3 now contains start of chipmem
-	move.l	ChipEnd(a6),d4		; D4 now contains end of chipmem
-	move.l	d4,d5
-	sub.l	d3,d5				; D6 now contains chipmemsize
-	cmp.l	#0,d0
-	beq	.nofast
-	cmp.l	d6,d2				; Check if we had enough
-	blt	.nofast			; we did not have enough fast..
-						; ok we had enough ram..
-	bra	.hadmem			; so go to "hadmem" to handle last part
-.nofast:
-	cmp.l	#0,d3
-	beq	.nochip			; we had nochip! out of mem!
-	cmp.l	d6,d5
-	blt	.nochip			; we had not enough chip!  out of mem!
-						; ok we had mem. to be lazy we copy over chipmem registers to where fastmem regs was
-	move.l	d3,d0
-	move.l	d4,d1				; Start and end is all we need
-	bra	.hadmem
-.nochip:					; ok sorry!  out of memory!we are screwed return 0 as memory
-	clr.l	MemAdr(a6)
-	bra	.memdone
-.hadmem:					; We had memory, just figure out if we should give from start or end of ram
-	move.b	WorkOrder(a6),d7		; if d7 is 0=work from back, if not work from start.
-	cmp.b	#0,d7				; Check status
-	beq	.FromBack
-	move.l	d0,MemAdr(a6)
-	bra	.memdone
-.FromBack:
-	sub.l	d6,d1
-	sub.l	#1,d1				; Subtract with 1 more or it will be an odd address
-	move.l	d1,MemAdr(a6)			; Store it and return it
-.memdone:
+	jsr	_getMemory
 	POP
-	move.l	MemAdr(a6),a0			; Return answer
+	move.l	MemAdr(a6),a0
 	rts
 
 _GetChip:
-	bsr	GetChip
-	cmp	#1,d0
+	jsr	_getChip
+	cmp.l	#1,d0
 	bne	.noone
-	clr.l	d0				; Get rid of that "not enough chipmem" idea for C code  but not in asm to keep compability.
+	clr.l	d0
 .noone:
 	rts
 GetChip:					; Gets extra chipmem below the reserved workarea.
-						; IN = D0=Size requested
-						; OUT = D0=Startaddress of chipmem.  1=not enough, 0=no chipmem
 	PUSH
-	clr.l	GetChipAddr(a6)		; Clear the address returned.
-	cmp.l	#0,TotalChip(a6)		; if there are no chipmem, exit
-	beq	.exit	
-	move.l	ChipUnreserved(a6),d1	; Get total amount of nonused chipmem
-	cmp.l	d0,d1				; Compare it with amount of mem wanted
-	blt	.low				; we did not have enough. exit
-	move.l	ChipUnreservedAddr(a6),d1	; ok load d1 with value of last usable noreserved chipmemarea
-	sub.l	d0,d1				; Subtract with amount of memory wanted
-	move.l	d1,GetChipAddr(a6)		; Store it to returnvalue
-	move.l	d1,a0				; Now lets clear the ram
-	asr.l	#2,d0
-.loop:
-	clr.l	(a0)+
-	dbf	d0,.loop	
-	bra	.exit
-.low:
-	move.l	#1,GetChipAddr(a6)		; put 1 into returnvalue, telling we did not have enough mem.
-.exit: 
+	jsr	_getChip
 	POP
-	move.l	GetChipAddr(a6),d0		; Return the value
+	move.l	GetChipAddr(a6),d0
 	rts
 
 
 RunCode:					; Copy a routine to RAM, run it from there and return.
-						; IN =	A0 = link to routine
-						; 	D0 = length of routine (max 64K)
 	PUSH
-	add.l	#4,d0				; add 4 bytes to be sure
-	move.l	a0,a1				; copy link to routine to a0
-	move.l	a0,a5
-	move.l	d0,d7
-	bsr	GetMemory			; get memory
-	cmp.l	#0,a0				; if A0 is 0, we was out of memory, exit
-	beq	RunCodeInRom
-	move.l	a0,d1				; store memaddress to d0
-	add.l	#4,d1				; add 4 to be sure
-	asr.l	#2,d1				; as this migight put start 2 bytes before
-	asl.l	#2,d1				; Make sure start is on a even 32 bit location!
-	move.l	d1,a0
-						; A0 now contains pointer where to copy routine
-	lea	$0,a0				; kuk.  disable rum!!
-	move.l	a0,RunCodeStart(a6)		; Store first address of where code is
-	move.l	a0,a2				; make a backup of address
-	move.l	a1,a3
-	move.l	d0,d3
-.loop:
-	move.b	(a1)+,(a0)+
-	dbf	d0,.loop			; copy routine to RAM
-						; lets verify so the data is readable (working mem)
-	move.l	a2,a0
-	move.l	a3,a1
-	sub.l	#4,d3
-.loopa:
-	move.b	(a0)+,d6
-	move.b	(a1)+,d5
-	cmp.b	d5,d6				; Compare memory
-	bne	RunCodeInRom			; we failed
-	dbf	d3,.loopa
-						; memtest succeeded.  so lets run in ram.
-	move.l	a0,RunCodeEnd(a6)		; Store where end of code is
-.run:
-	jsr	(a2)				; jump to routine
+	jsr	_runCode
 	POP
 	rts
-RunCodeInRom:
-	move.l	a5,RunCodeStart(a6)
-	move.l	a5,a4
-	add.l	d7,a4
-	move.l	a4,RunCodeEnd(a6)
-	jsr	(a5)	
-	POP
-	rts
-
 ToKB:						; Convert D0 to KB (divide by 1024)
-	asr.l	#8,d0
-	asr.l	#2,d0
+	jsr	_toKB
 	rts
-
 
 Random:					;  out: d0 will contain a "random" number
-	add.l	d3,d0
-	add.l	d4,d0
-	add.b	$dff006,d0
-	add.l	d1,d0
-	swap	d0
-	add.b	$dff007,d0
-	add.l	d2,d0
-	add.l	d5,d0
-	add.l	d6,d0
-	add.l	d7,d0
+	jsr	_random
 	rts
 	
 
 DeleteLine:					; Delete line D0 on screen, scrolls everything under it up one line
 	PUSH
-	move.b	Xpos(a6),d6			; Make a backup of XPos.
-	move.b	Ypos(a6),d7			; Make a backup of YPos
-	clr.l	d1
-	move.b	d0,d1				; set Y pos. (we used d0 to be lazy and logic)
-	move.l	d1,d5
-	move.l	#0,d0				; Set 0 to X pos. we already have Y pos in d0
-	bsr	SetPos
-	lea	DELLINE,a0			; Send ANSI command to delete line and scroll up
-	move.l	#3,d1
-	bsr	Print
-	cmp.b	#0,NoDraw(a6)			; Check if we should draw
-	bne	.exit
-						; Lets Scroll up physical screen
-	move.l	Bpl1Ptr(a6),a0		; load A0 with address of BPL1
-	move.l	Bpl2Ptr(a6),a1		; load A1 with address of BPL2
-	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
-	move.l	#31,d4				; Last line is 31
-	sub.l	d5,d4				; subtract number of lines to where we was
-	mulu	#640,d4			; calculate where in memory this is
-	mulu	#640,d5			; calulate where to start scroll
-	add.l	d5,a0
-	add.l	d5,a1
-	add.l	d5,a2
-	move.l	#-1,(a0)
-	move.l	#-1,(a1)
-	move.l	#-1,(a2)
-	divu	#4,d4
-.loop:
-	move.l	640(a0),(a0)+
-	move.l	640(a1),(a1)+
-	move.l	640(a2),(a2)+	
-	dbf	d4,.loop
-	move.w	#159,d4
-.loop2:
-	clr.l	(a0)+
-	clr.l	(a1)+
-	clr.l	(a2)+				; Clear last row
-	dbf	d4,.loop2
-.exit:
-	clr.l	d0				; Restore old X and Y cordinates
-	clr.l	d1
-	move.b	d6,d0
-	move.b	d7,d1
-	bsr	SetPos
+	jsr	_deleteLine
 	POP
 	rts
 
@@ -1332,206 +516,23 @@ DetectMemory:
 	jmp	(a3)
 
 InputHexNum:					; Inputs a 32 bit hexnumber
-						; INDATA
-						;	A0 = Defualtaddress
 	PUSH
-	move.b	Xpos(a6),CheckMemManualX(a6)
-	move.b	Ypos(a6),CheckMemManualY(a6); Store X and Y positions
-	move.l	a0,d0				; Store the defaultaddress in d0
-	jsr	binhex				; Convert it to hex
-	add.l	#1,a0				; Skip first $ sign in string
-	move.l	#8,d0
-	lea	CheckMemStartAdrTxt(a6),a1	; Clear workspace
-.clearloop:
-	clr.b	(a1,d0)
-	dbf	d0,.clearloop
-	move.l	#7,d0
-	clr.l	d7				; Clear d7, if this is 0 later we had not had any 0 yet
-.hexloop:
-	move.b	(a0)+,d1			; Store char in d1
-	cmp.b	#"0",d1				; is it a 0?
-	bne	.nozero
-	cmp.b	#0,d7				; Check if d7 is 0. if so, we will skip this
-	beq	.zero
-.nozero:
-	move.b	d1,(a1)+			; Copy to where a1 points to
-	move.b	#1,d7				; We had a nonzero.  set d7 to 1 so we handle 0 in the future
-.zero:
-	dbf	d0,.hexloop			; Copy string to defaultadress to be shown
-	lea	CheckMemStartAdrTxt(a6),a5	; Store pointer to string at a5
-	move.l	a5,a0
-	move.l	#7,d1
-	jsr	Print				; Print it
-	jsr	StrLen				; Get Stringlength
-	move.l	d0,d6
-	clr.l	d7				; Clear d7, this is the current position of the string
-	sub.b	#1,d7				; Change d7 so we will force a update of cursor first time
-.loop:
-	jsr	GetMouse
-	cmp.b	#1,RMB(a6)
-	beq	.exit
-	cmp.b	#1,LMB(a6)
-	beq	.exit
-	bsr	WaitShort
-	jsr	GetChar			; Get a char from keyboard/serial
-	bsr	WaitLong
-	cmp.b	#"x",d0			; did user press X?
-	beq	.xpressed
-	cmp.b	#$7f,d0			; did we have backspace from serial?
-	beq	.backspace
-.gethex:
-	jsr	GetHex				; Strip it to hexnumbers
-	cmp.b	#0,d0				; if returned value is 0, we had no keypress
-	beq	.no
-	cmp.b	#$1b,d0			; Was ESC pressed?
-	beq	.exit				; if so, Exit
-	cmp.b	#$a,d0				; did user press enter?
-	beq	.enter				; if so, we are done
-	cmp.b	#$8,d0				; Did we have a backspace?
-	bne	.nobackspace			; no
-						; oh. we had. lets erase one char
-.backspace:
-	move.b	#$0,(a5,d6)			; Store a null at that position
-	cmp.b	#0,d6				; check if we are at the back?
-	beq	.backmax			; yes, do not remove
-	move.b	#" ",d0
-	sub.b	#1,d6				; Subtract one
-	move.b	d0,(a5,d6)			; Put char in memory
-	bra	.back
-.nobackspace:
-	cmp.b	#8,d6				; Check if we have max number of chars
-	beq	.nomore
-	move.b	d0,(a5,d6)			; Put char in memory
-	add.b	#1,d6
-.back:
-	move.l	#7,d1
-	jsr	PrintChar			; Print the char
-.backmax:
-.nomore:
-.no:	cmp.b	d6,d7				; Check if d6 and d7 is same, if not, update cursor
-	beq	.same
-	move.b	d6,d7
-	bsr	.putcursor			; Put cursor
-.same:
-	bra	.loop
-.exit:
+	jsr	_inputHexNum
+	move.l	d0,temp(a6)
 	POP
-	move.l	#-1,d0				; Show we had an exit
+	move.l	temp(a6),d0
 	rts
-.xpressed:					; X is pressed, lets clear the whole area.
-	clr.l	d6
-	move.l	#7,d0
-.xloop:
-	move.b	#" ",(a5,d0)
-	dbf	d0,.xloop
-	clr.l	d7
-	bsr	.putcursor
-	lea	space8,a0
-	move.l	#7,d1
-	jsr	Print
-	clr.l	d7
-	bsr	.putcursor
-	clr.l	d6
-	clr.l	d0
-	bra.w	.gethex
-.enter:
-	cmp.b	#0,d6				; was cursor at 0? then we had nothing
-	beq	.exit
-	bsr	.putcursor
-	move.l	#" ",d0
-	jsr	PrintChar			; Print a space to remove the old cursor
-
-	clr.l	d6				; Clear d6, we need to check how many numbers we have
-.countloop:
-	move.b	(a5,d6),d0			; load char in string
-	cmp.b	#0,d0				; is it a null?
-	beq	.null
-	cmp.b	#" ",d0			; same with space
-	beq	.null
-	add.b	#1,d6				; nope, so lets add 1 to the counter
-	cmp.b	#8,d6				; Check if we actually DID have 8 chars, then no rotate of data is needed
-	beq	.norotate
-	bra	.countloop			; do it all over again
-.null:						; ok we had a null, before doing 8 chars.
-						; We had less then 8 chars, meaning we need to trimp it to 8 chars.
-	move.l	d6,d7
-	sub.b	#1,d7
-	move.l	#7,d0
-.copyloop2:
-	move.b	(a5,d7),(a5,d0)
-	sub.b	#1,d0
-	dbf	d7,.copyloop2
-						; ok now we have moved the data to the end of the string, lets fill up with 0
-	move.l	#8,d0
-	sub.b	d6,d0				; d0 now contains of how many 0 to put in
-	sub.b	#1,d0
-.fill:
-	move.b	#"0",(a5,d0)
-	dbf	d0,.fill
-.norotate:
-	move.b	CheckMemManualX(a6),d0
-	move.b	CheckMemManualY(a6),d1
-	sub.l	#1,d0				; Set cursor to the first adress, minus pone
-	jsr	SetPos
-	lea	CheckMemStartAdrTxt(a6),a0
-	jsr	hexbin
-	POP
-	move.l	HexBinBin(a6),d0		; return the value
-	rts
-.putcursor:
-	PUSH
-	move.b	CheckMemManualX(a6),d0
-	add.b	d7,d0				; Add postion to X pos to get correct position
-	move.b	CheckMemManualY(a6),d1
-	jsr	SetPos
-	clr.l	d0
-	move.b	(a5,d7),d0			; Load current char from string
-	move.l	#11,d1
-	jsr	PrintChar			; Print it reversed
-	move.b	CheckMemManualX(a6),d0
-	add.b	d7,d0				; Add postion to X pos to get correct position
-	move.b	CheckMemManualY(a6),d1
-	jsr	SetPos
-	POP
-	rts	
-
 StrLen:
-						; Returns length of string
-						; IN:
-						;	A0 = Pointer to nullterminated string
-						; OUT:
-						;	D0 = Length of string
 	PUSH
-	clr.l	d0				; Clear d0
-.loop:
-	move.b	(a0)+,d7			; Load d7 with char
-	cmp.b	#0,d7
-	beq	.exit				; Exit if we found a null
-	cmp.b	#2,d7				; if centercommand, skip char
-	beq	.skip
-	add.l	#1,d0				; add 1 to stringlength
-.skip:
-	bra	.loop
-.exit:
-	move.l	d0,temp(a6)			; Store length in temp. as we will restore all registers
+	jsr	_strLen
+	move.l	d0,temp(a6)
 	POP
-	move.l	temp(a6),d0			; So back to D0 again
+	move.l	temp(a6),d0
 	rts
 
 GetMouse:
 	PUSH
-	clr.l	d0				; Clear d0..
-	move.b	#0,BUTTON(a6)			; Clear the generic "Button" variable
-	move.b	#0,LMB(a6)			; I use move as clr actually does a read first
-	move.b	#0,P1LMB(a6)
-	move.b	#0,P2LMB(a6)
-	move.b	#0,RMB(a6)
-	move.b	#0,P1RMB(a6)
-	move.b	#0,P2RMB(a6)
-	move.b	#0,MBUTTON(a6)		; Clear the generic "Mbutton" variable
-	clr.l	d1
-	bsr	GetMouseData
-	move.l	d0,InputRegister(a6)
+	jsr	_getMouse
 	POP
 	move.l	InputRegister(a6),d0
 	rts
@@ -1550,148 +551,16 @@ hexbin:						; Converts a hex string to binary
 	rts
 
 InputDecNum:					; Inputs a 32 bit hexnumber
-						; INDATA
-						;	A0 = Defualtaddress
 	PUSH
-	move.b	Xpos(a6),CheckMemManualX(a6)
-	move.b	Ypos(a6),CheckMemManualY(a6); Store X and Y positions
-	move.l	a0,d0				; Store the defaultaddress in d0
-	jsr	bindec				; Convert it to hex
-	move.l	#8,d0
-	lea	CheckMemStartAdrTxt(a6),a1	; Clear workspace
-.clearloop:
-	clr.b	(a1,d0)
-	dbf	d0,.clearloop
-	move.l	#7,d0
-.decloop:
-	move.b	(a0)+,d1			; Store char in d1
-	cmp.b	#0,d1				; Check if d7 is 0. if so, we will skip this
-	beq	.zero
-	move.b	d1,(a1)+			; Copy to where a1 points to
-	dbf	d0,.decloop
-.zero:
-	lea	CheckMemStartAdrTxt(a6),a5	; Store pointer to string at a5
-	move.l	a5,a0
-	move.l	#7,d1
-	jsr	Print				; Print it
-	jsr	StrLen				; Get Stringlength
-	move.l	d0,d6
-	clr.l	d7				; Clear d7, this is the current position of the string
-	sub.b	#1,d7				; Change d7 so we will force a update of cursor first time
-.loop:
-	jsr	GetMouse
-	cmp.b	#1,RMB(a6)
-	beq	.exit
-	cmp.b	#1,LMB(a6)
-	beq	.exit
-	bsr	WaitShort
-	jsr	GetChar			; Get a char from keyboard/serial
-	bsr	WaitLong
-	cmp.b	#"x",d0			; did user press X?
-	beq	.xpressed
-	cmp.b	#$7f,d0			; did we have backspace from serial?
-	beq	.backspace
-.getdec:
-	jsr	GetDec				; Strip it to hexnumbers
-	cmp.b	#0,d0				; if returned value is 0, we had no keypress
-	beq	.no
-	cmp.b	#$1b,d0			; Was ESC pressed?
-	beq	.exit				; if so, Exit
-	cmp.b	#$a,d0				; did user press enter?
-	beq	.enter				; if so, we are done
-	cmp.b	#$8,d0				; Did we have a backspace?
-	bne	.nobackspace			; no
-						; oh. we had. lets erase one char
-.backspace:
-	move.b	#$0,(a5,d6)			; Store a null at that position
-	cmp.b	#0,d6				; check if we are at the back?
-	beq	.backmax			; yes, do not remove
-	move.b	#" ",d0
-	sub.b	#1,d6				; Subtract one
-	move.b	d0,(a5,d6)			; Put char in memory
-	bra	.back
-.nobackspace:
-	cmp.b	#8,d6				; Check if we have max number of chars
-	beq	.nomore
-	move.b	d0,(a5,d6)			; Put char in memory
-	add.b	#1,d6
-.back:
-	move.l	#7,d1
-	jsr	PrintChar			; Print the char
-.backmax:
-.nomore:
-.no:	cmp.b	d6,d7				; Check if d6 and d7 is same, if not, update cursor
-	beq	.same
-	move.b	d6,d7
-	bsr	.putcursor			; Put cursor
-.same:
-	bra	.loop
-.exit:
+	jsr	_inputDecNum
+	move.l	d0,temp(a6)
 	POP
-	move.l	#-1,d0				; Show we had an exit
+	move.l	temp(a6),d0
 	rts
-.xpressed:					; X is pressed, lets clear the whole area.
-	clr.l	d6
-	move.l	#7,d0
-.xloop:
-	move.b	#" ",(a5,d0)
-	dbf	d0,.xloop
-	clr.l	d7
-	bsr	.putcursor
-	lea	space8,a0
-	move.l	#7,d1
-	jsr	Print
-	clr.l	d7
-	bsr	.putcursor
-	clr.l	d6
-	clr.l	d0
-	bra.w	.getdec
-
-.enter:
-	cmp.b	#0,d6				; was cursor at 0? then we had nothing
-	beq	.exit
-	bsr	.putcursor
-	move.l	#" ",d0
-	jsr	PrintChar			; Print a space to remove the old cursor
-	clr.l	d6				; Clear d6, we need to check how many numbers we have
-	move.l	a5,a0
-	jsr	decbin
-	POP
-	move.l	DecBinBin(a6),d0		; return the value
-	rts
-.putcursor:
-	PUSH
-	move.b	CheckMemManualX(a6),d0
-	add.b	d7,d0				; Add postion to X pos to get correct position
-	move.b	CheckMemManualY(a6),d1
-	jsr	SetPos
-	clr.l	d0
-	move.b	(a5,d7),d0			; Load current char from string
-	move.l	#11,d1
-	jsr	PrintChar			; Print it reversed
-	move.b	CheckMemManualX(a6),d0
-	add.b	d7,d0				; Add postion to X pos to get correct position
-	move.b	CheckMemManualY(a6),d1
-	jsr	SetPos
-	POP
-	rts	
 
 hexbytetobin:
-	clr.l	d2				; Clear D2 that holds the ASCII code
-	move.b	(a0)+,d2			; Read one byte of the string
-	bsr	.tobin				; Convert to binary
-	move.l	d2,d1				; Store the value in D1
-	move.b	(a0)+,d2			; Read next char to complete this byte
-	bsr	.tobin				; Convert to binary
-	asl.l	#4,d1				; Rotate the first char 4 bits
-	add.l	d1,d2				; add d1 to d2, d2 will now contain this byte in binary
-	rts
-.tobin:
-	cmp.b	#"A",d2			; Check if it is "A"
-	blt	.nochar			; Lower then A, this is not a char
-	sub.l	#7,d2				; ok we have a char, subtract 7
-.nochar:
-	sub.l	#$30,d2			; Subtract $30, converting it to binary.
+	jsr	_hexByteToBin
+	move.l	d0,d2
 	rts
 _decbin:
 decbin:					; Convert a decimal string to binary number
@@ -1708,11 +577,7 @@ decbin:					; Convert a decimal string to binary number
 
 MakePrintable:
 						; Makes the char in D0 printable. remove controlchars etc.
-	cmp.b	#" ",d0
-	ble	.lessthenspace		; is less then space.. make it space.
-	rts
-.lessthenspace:
-	move.b	#" ",d0
+	jsr	_makePrintable
 	rts
 
 binstringbyte:
@@ -1722,18 +587,7 @@ binstringbyte:
 						; OUTDATA:
 						;	A0 = Poiner to outputstring
 	PUSH
-	move.l	#7,d7
-	lea	binstringoutput(a6),a0
-.loop:
-	btst	d7,d0
-	beq	.notset
-	move.b	#"1",(a0)+
-	bra	.done
-.notset:
-	move.b	#"0",(a0)+
-.done:
-	dbf	d7,.loop
-	move.b	#0,(a0)
+	jsr	_binStringByte
 	POP
 	lea	binstringoutput(a6),a0
 	rts
@@ -1758,29 +612,17 @@ DisableCache:
 	rts
 
 SameRow:
-						; Changes so we print on the same row. just clears the X column
 	PUSH
-	clr.b	Xpos(a6)
-	move.b	#$d,d0
-	bsr	rs232_out
+	jsr	_sameRow
 	POP
 	rts
 
 DevPrint:
-	clr.l	d0
-	move.l	#25,d1
-	jsr	SetPos
-	lea	UnderDevTxt,a0
-	move.l	#1,d1
-	jsr	Print
-	clr.l	d0
-	clr.l	d1
-	jsr	SetPos
+	jsr	_devPrint
 	rts
 
 DefaultVars:					; Set defualtvalues
-	move.l	$400,CheckMemEditScreenAdr(a6)
-	move.b	#0,skipnextkey(a6)
+	jsr	_defaultVars
 	rts
 
 _PAUSE:
@@ -1788,32 +630,8 @@ _PAUSE:
 	rts
 
 
-_scrollScreen:
 ScrollScreen:
-	cmp.b	#0,NoDraw(a6)			; Check if we should draw
-	bne	.exit
-
-	PUSH
-	move.l	Bpl1Ptr(a6),a0		; load A0 with address of BPL1
-	move.l	Bpl2Ptr(a6),a1		; load A1 with address of BPL2
-	move.l	Bpl3Ptr(a6),a2		; load A2 with address of BPL3
-	move.l	BPLSIZE(a6),d0		; How much data is one screen
-	sub.l	#640,d0			; Subtract 8 pixels
-	divu	#4,d0				; Divide by 4 to get longwords.
-.loop:
-	move.l	640(a0),(a0)+
-	move.l	640(a1),(a1)+
-	move.l	640(a2),(a2)+	
-	dbf	d0,.loop
-
-	move.w	#159,d0
-.loop2:
-	clr.l	(a0)+
-	clr.l	(a1)+
-	clr.l	(a2)+				; Clear last row
-	dbf	d0,.loop2
-	POP
-.exit:
+	jsr	_scrollScreen
 	rts
 
 GetPos:
@@ -2043,14 +861,33 @@ CopyMem:
 	; Copy one block memory to another
 	; INDATA:
 	;	A0 = Source
-	;	D0 = Bytes to copy. (YES. being lazy, we do this bytestyle)
+	;	D0 = Bytes to copy.
 	;	A1 = Destination
-	clr.l	d7
-.loop:
-	move.b	(a0)+,(a1)+
-	add.l	#1,d7
-	cmp.l	d7,d0
-	bgt	.loop				; YES a DBF would do just fine. but i want to support more then 64k
+	jsr	_copyMem
+	rts
+
+binhexbyte:
+	; D0 = byte value, returns A0 = pointer to 2-char hex string in binhexoutput+7
+	PUSH
+	jsr	_binHexByte
+	POP
+	lea	binhexoutput+7(a6),a0
+	rts
+
+binhexword:
+	; D0 = word value, returns A0 = pointer to "$XXXX" string in binhexoutput+4
+	PUSH
+	jsr	_binHexWord
+	POP
+	lea	binhexoutput+4(a6),a0
+	rts
+
+binstring:
+	; D0 = 32-bit value, returns A0 = pointer to 32-char binary string
+	PUSH
+	jsr	_binString
+	POP
+	lea	binstringoutput(a6),a0
 	rts
 
 
@@ -2058,6 +895,7 @@ hextab:
 	dc.b	"0123456789ABCDEF"		; For bin->hex convertion
 
 	EVEN
+_EnglishKey::
 EnglishKey::
 	dc.b	" 1234567890-=| 0"
 	dc.b	"qwertyuiop[] "; 1c
@@ -2089,6 +927,7 @@ EnglishKey::
 	dc.b	"0" ;f10
 	dc.b	"()/*+"
 	dc.b	0 ; Help
+_EnglishKeyShifted::
 EnglishKeyShifted::
 	; Shifted
 	dc.b	"~!@#$%^& ()_+| 0QWERTYUIOP{} 123ASDFGHJKL:",34,"  456 ZXCVBNM<>? .789          - "

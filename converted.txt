@@ -1,0 +1,197 @@
+DiagROMV2 - ASM → C Converted Functions
+=========================================
+
+All functions listed as: C name (ASM name) — location
+
+─── Serial / Output ───────────────────────────────────────────────────────────
+rs232_out       (rs232_out)         genericc.c
+readSerial      (ReadSerial)        genericc.c  — wrapper in generic.s
+sendSerial      (SendSerial)        genericc.c  — wrapper in generic.s
+initSerial      (Init_Serial)       genericc.c
+
+─── Screen / Text Output ──────────────────────────────────────────────────────
+putChar         (PutChar)           genericc.c  — wrapper in generic.s
+printChar       (PrintChar)         genericc.c  — wrapper in generic.s
+setPos          (SetPos)            genericc.c  — wrapper in generic.s
+print           (Print)             genericc.c  — wrapper in generic.s
+clearScreen     (ClearScreen)       genericc.c  — wrapper in generic.s
+
+─── Binary Conversion ─────────────────────────────────────────────────────────
+binHex          (binhex)            genericc.c  — wrapper in generic.s
+binHexByte      (binhexbyte)        genericc.c  — wrapper in generic.s
+binHexWord      (binhexword)        genericc.c  — wrapper in generic.s
+binString       (binstring)         genericc.c  — wrapper in generic.s
+binDec          (bindec)            genericc.c  — ASM bridge _bindec still exists (a0→d0 fixup)
+hexBin          (hexbin)            genericc.c
+decBin          (decbin)            genericc.c
+
+─── Input Subsystem ───────────────────────────────────────────────────────────
+waitShort       (WaitShort)         genericc.c  — wrapper in generic.s
+getSerial       (GetSerial)         genericc.c  — wrapper in generic.s
+getCharSerial   (GetCharSerial)     genericc.c  — wrapper in generic.s
+getKey          (GetKey)            genericc.c  — wrapper in generic.s  [_GetKey:: added]
+getCharKey      (GetCharKey)        genericc.c  — wrapper in generic.s
+convertKey      (ConvertKey)        genericc.c  — wrapper in generic.s
+getChar         (GetChar)           genericc.c  — wrapper in generic.s
+getMouseData    (GetMouseData)      genericc.c  — wrapper in generic.s  [_GetMouseData:: added]
+getInput        (GetInput)          genericc.c  — wrapper in generic.s
+clearInput      (ClearInput)        genericc.c  — ASM body still exists as _ClearInput alias
+
+─── Input static helpers (no ASM equivalent) ──────────────────────────────────
+calcMouseDir    (was .GetMouseDir)  genericc.c  — static, file-private
+checkButton     (was .CheckButton)  genericc.c  — static, file-private
+WaitPressed     (was WaitPressed)   genericc.c  — static, called by WaitButton
+WaitReleased    (was WaitReleased)  genericc.c  — static, called by WaitButton
+
+─── High-level / UI ───────────────────────────────────────────────────────────
+ClearBuffer     (ClearBuffer)       genericc.c  — wrapper in generic.s
+WaitButton      (WaitButton)        genericc.c  — wrapper in generic.s
+PrintCPU        (PrintCPU)          genericc.c  — wrapper in generic.s
+debugScreen     (DebugScreen)       genericc.c  — called by ErrorScreen asm prologue
+errorScreenC    (ErrorScreen)       genericc.c  — ErrorScreen asm saves regs, calls _errorScreenC
+
+─── Misc ──────────────────────────────────────────────────────────────────────
+getHWReg        (GetHWReg)          genericc.c
+romChecksum     (RomChecksum)       genericc.c  — wrapper in generic.s
+setBit          (setBit)            genericc.c
+clearBit        (clearBit)          genericc.c
+toggleBit       (toggleBit)         genericc.c
+initIRQ3        (initIRQ3)          genericc.c
+PAUSEC          (PAUSE)             genericc.c
+Log             (Log)               genericc.c
+
+─── Data tables copied to C (inactive, activated when ASM removed) ────────────
+EnglishKey_C[]          genericc.c  — activate: rename, remove static const, drop asm alias
+EnglishKeyShifted_C[]   genericc.c  — same
+
+=========================================
+Total converted functions: 37 (plus 2 static helpers + 2 data tables)
+
+
+=========================================
+STILL TO CONVERT (from generic.s)
+=========================================
+
+─── Simple / Easy wins ────────────────────────────────────────────────────────
+
+ToKB
+  D0 >>= 10 (two arithmetic shifts). One-liner.
+
+Random
+  Mixes register values + volatile reads of $dff006/$dff007. Pure arithmetic.
+
+MakePrintable
+  If D0 <= ' ', return ' '. Three lines.
+
+CopyMem
+  Byte-by-byte copy. Replace with a simple loop (or memcpy).
+
+GetPos
+  Read globals->Xpos into D0, globals->Ypos into D1. Two lines.
+
+DefaultVars
+  Set CheckMemEditScreenAdr = $400, skipnextkey = 0. Two assignments.
+
+SameRow
+  Clear globals->Xpos, call rs232_out('\r'). Three lines.
+
+DevPrint
+  setPos(0,25), print(UnderDevTxt, 1), setPos(0,0). Three calls.
+
+GetHex
+  Filter char in D0 to valid hex chars (0–9, A–F, backspace, enter, ESC).
+  Return 0 for anything else. Simple if/else.
+
+GetDec
+  Same as GetHex but only 0–9.
+
+hexbytetobin
+  Read 2 hex ASCII bytes from A0, return binary byte in D2.
+  Helper .tobin: sub $30, sub 7 more if char >= 'A'.
+
+StrLen
+  Walk null-terminated string counting chars; skip char value 2 (center cmd).
+
+binstringbyte
+  Loop 8 bits, write '0'/'1' per bit into binstringoutput(a6).
+  There is already binString() for 32-bit — add an 8-bit variant.
+
+GetMouse
+  Clear BUTTON/LMB/P1LMB/P2LMB/RMB/P1RMB/P2RMB/MBUTTON, call
+  getMouseData(), store InputRegister. Simple wrapper.
+
+─── Medium (real logic, no exotic instructions) ───────────────────────────────
+
+WaitPressed                                    (~20 lines)
+  Loop up to $FFFF times calling getInput(); exit when BUTTON==1.
+  On timeout: copy P1LMB/P2LMB/P1RMB/P2RMB/P1MMB/P2MMB to STUCK* vars.
+  Note: in the asm the STUCK* stores after the first .timeout rts are
+  unreachable dead code — replicate only the reachable path.
+
+WaitReleased                                   (~20 lines)
+  Same loop but exits when BUTTON==0.
+  Each iteration also writes $dff006 → $dff180 (colour flash).
+  Same stuck-port logic on timeout.
+
+WaitLong                                       (~20 lines)
+  If RASTER==1: wait for rasterline $90, call readSerial(), wait for
+  rasterline $8F (one full frame). Uses volatile uint8_t at $dff006.
+  Else: busy-loop ~$fff * 3, call readSerial() once.
+  Also reads $bfe001 as a slow-mem dummy read.
+
+GetChip                                        (~25 lines)
+  Allocate from unreserved chipmem (ChipUnreservedAddr / ChipUnreserved).
+  IN: D0 = size. OUT: D0 = start address; 0 = no chipmem; 1 = not enough.
+  Zeros the block after allocation. Stores result in GetChipAddr(a6).
+  _GetChip wrapper maps return 1 → 0 for C callers.
+
+GetMemory                                      (~40 lines)
+  Allocate from workmem: prefer FastMem, fall back to ChipMem.
+  WorkOrder flag selects front vs back of pool.
+  Stores result in MemAdr(a6), returns it in A0.
+
+ScrollScreen / _scrollScreen                   (~20 lines)
+  Skip if NoDraw(a6) != 0.
+  Shift bitplanes 1/2/3 up one char row (640 bytes) using Bpl1/2/3Ptr
+  and BPLSIZE globals. Clear last row (160 longwords per plane).
+
+DeleteLine                                     (~40 lines)
+  Save Xpos/Ypos. Move cursor to col 0 on given row, send ANSI DELLINE
+  via print(). Physically scroll bitplanes from that row to row 31.
+  Restore cursor.
+
+InputHexNum                                    (~120 lines)
+  Interactive 8-char hex input widget. Shows current value (via binHex),
+  reads getChar()/GetHex(), handles backspace, ESC (return -1), Enter
+  (calls hexBin, returns binary). Draws highlighted cursor.
+  Workspace: CheckMemStartAdrTxt(a6), CheckMemManualX/Y(a6).
+
+InputDecNum                                    (~110 lines)
+  Same as InputHexNum but for decimal. Uses GetDec() and decBin().
+
+─── Hard / Recommend keeping in ASM ───────────────────────────────────────────
+
+bindec  (body still pure ASM — _bindec is just an a0→d0 bridge)
+  Uses 68k ABCD instruction; no direct C equivalent.
+  Option A: write a clean C itoa-style decimal converter and swap in.
+  Option B: keep asm body, add a proper _bindec C wrapper that calls it.
+
+EnableCache / DisableCache                     (~6 lines each)
+  Require privileged MOVEC CACR (68020+).
+  Doable in C with __asm volatile("movec %0,%%cacr" : : "d"(val)).
+
+DetectCPU                                      (~200 lines)
+  Manipulates exception vectors at $8/$10/$2c/$80 directly.
+  Uses inline dc.l opcodes: movec VBR, movec CACR, FSAVE, Pmove.
+  Caller places resume address in A5 (non-standard).
+  Leave in ASM.
+
+DetectMemory                                   (~90 lines)
+  Non-standard calling convention: return address passed in A3, ends
+  with JMP (A3) — no stack frame, no rts. Called before stack exists.
+  Leave in ASM.
+
+RunCode                                        (~45 lines)
+  Copies routine to RAM, verifies copy, then JSR (A2) to execute.
+  Falls back to ROM execution on verify failure.
+  Leave in ASM for now.

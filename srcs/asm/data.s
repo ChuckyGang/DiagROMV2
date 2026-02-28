@@ -1170,6 +1170,7 @@ DELLINE::
 	dc.b	27,"[1M",0
 space8::
 	dc.b	"        ",0
+_UnderDevTxt::
 UnderDevTxt::
 	dc.b	2,"This function is under development, output can be weird, strange and false",$a,$d,$a,$d,0
 GFXtestNoSerial::
