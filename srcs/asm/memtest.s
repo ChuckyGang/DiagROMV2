@@ -10,13 +10,17 @@
        xdef   Detectallmemory
        xdef   CheckMemManual
        xdef   CheckMemEdit
-    	
+	xref	_initScreen
+	xref	_mainLoop
+
 MemtestMenu:
 	jsr	_ClearBuffer
-	bsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	move.w	#3,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
-	bra	MainLoop
+	jmp	_mainLoop
 
 CheckDetectedChip:
 	bsr	ClearScreen

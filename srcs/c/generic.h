@@ -49,7 +49,6 @@ uint32_t getInput(void);
 
 // Below is defintions for ASM code
 void print(char *string __asm("a0"), uint8_t color __asm("d1"));
-void InitScreen();
 void GetInput();
 char *binHex(uint32_t value __asm("d0"));
 char *binHexByte(uint32_t value __asm("d0"));

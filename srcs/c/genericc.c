@@ -1482,6 +1482,12 @@ int32_t inputHexNum(void *defaultAddr __asm("a0"))
                 inputPutCursor(ws, (uint8_t)d7);
                 printChar(' ', WHITE);
                 setPos(globals->CheckMemManualX - 1, globals->CheckMemManualY);
+                // Left-pad with zeros so hexBin always sees 8 digits
+                if (d6 < 8) {
+                    int pad = 8 - d6;
+                    for (int i = 7; i >= pad; i--) ws[i] = ws[i - pad];
+                    for (int i = 0; i < pad; i++) ws[i] = '0';
+                }
                 return (int32_t)hexBin(ws);
             } else if (ch == 0x08 || raw == 0x7f) {
                 ws[d6] = 0;

@@ -4,6 +4,7 @@
 	xdef	AutoConfig
 	xdef	AutoConfigDetail
 	xdef	DoAutoconfig
+	xref	_mainMenu
 
 AutoConfig:	
 				; Do Autoconfigmagic
@@ -40,7 +41,7 @@ AutoConfigDetail:				; Do Autoconfigmagic
 	move.l	#3,d1
 	jsr	Print
 	jsr	_WaitButton
-	jmp	MainMenu
+	jmp	_mainMenu
 
 
 ; Autoconfigcode.  based much Terriblefires code, Added support for several cards

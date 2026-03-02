@@ -5,7 +5,7 @@ void floppyTestC(VARS)
 {
        volatile struct CIA *ciaa = (struct CIA *)0xbfe001;
        volatile struct CIA *ciab = (struct CIA *)0xbfd000;
-       InitScreen();
+       initScreen();
        print("\002Floppytest (New Experimental)\n\n",CYAN);
        print("This test will run much better with working CIA Timer.\nIs CIA Timers tested ok: ",CYAN);
        if(globals->ODDCIATIMEROK==1)

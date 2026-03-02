@@ -7,17 +7,22 @@
        xdef   RTCTest
        xdef   ShowMemAddress
        xdef   SystemInfoTest
+	xref	_initScreen
+	xref	_mainLoop
+	xref	_mainMenu
 
 
 OtherTest:
-	jsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	move.w	#7,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
-	jmp	MainLoop
+	jmp	_mainLoop
 
 RTCTestC::
 	jsr	_RTCTestC
-	jmp	MainMenu
+	jmp	_mainMenu
 
 RTCTest:
 	jsr	ClearScreen
@@ -391,7 +396,9 @@ oki:
 	rts
 
 ShowMemAddress:
-	jsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	lea	ShowMemAdrTxt,a0
 	move.l	#6,d1
 	jsr	Print
@@ -492,10 +499,10 @@ ShowMemAddress:
 	bra	OtherTest	
 
 TF1260:
-       jmp    MainMenu
+       jmp    _mainMenu
 
 Setup:
-       jmp    MainMenu
+       jmp    _mainMenu
 
 About:
 	jsr	ClearScreen
@@ -508,10 +515,12 @@ About:
 	jsr	_ClearBuffer
 	jsr	WaitPressed
 	jsr	WaitReleased
-	jmp	MainMenu
+	jmp	_mainMenu
 
 SystemInfoTest:
-       jsr	InitScreen
+       PUSH
+       jsr	_initScreen
+       POP
        lea	SystemInfoTxt,a0
        move.w	#2,d1
        jsr	Print
@@ -788,7 +797,7 @@ SystemInfoTest:
 	move.L	#3,d1
 	jsr	Print
        jsr	_WaitButton
-       jmp	MainMenu
+       jmp	_mainMenu
 
 PrintHWReg:
        lea	BLTDDATTxt,a0

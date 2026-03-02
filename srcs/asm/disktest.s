@@ -7,13 +7,20 @@
        xdef   GayleExp
 	xdef	PrintYes
 	xdef	PrintNo
+	xref	_initScreen
+	xref	_mainLoop
+	xref	_mainMenu
+	xref	_printMenu
+	xref	_exitDiag
 
 
 DiskTest:
-	bsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	move.w	#8,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
-	jmp	MainLoop
+	jmp	_mainLoop
 
 
 
@@ -208,7 +215,9 @@ DiskdriveTest:
 	move.l	#6,d1
 	jsr	Print
 .noupdate:
-	jsr	PrintMenu
+	PUSH
+	jsr	_printMenu
+	POP
 	jsr	GetInput
 	jsr	WaitLong
 	cmp.b	#0,d0
@@ -241,7 +250,7 @@ DiskdriveTest:
 	beq	.Exitjump
 	bra	.no
 .Exitjump:
-	jmp	Exit
+	jmp	_exitDiag
 .action:
 	jsr	WaitReleased
 	clr.l	d0
@@ -267,7 +276,8 @@ DiskdriveTest:
 	cmp.b	#9,d0
 	beq	.ShowMem
 	cmp.b	#11,d0
-	beq	MainMenu
+	bne	.no
+	jmp	_mainMenu
 .no:
 	bra	.loop
 .ChangeDrive:
@@ -522,7 +532,7 @@ DiskdriveTest:
 ; 	bne.w	.Showmems
 	bra	.DiskdriveTester
 .exit:
-	jmp	MainMenu
+	jmp	_mainMenu
 .decodebuffer:					; Decodes a small part of the MFM buffer to be able to print it.
 	move.l	#$55555555,d7
 	move.l	#3,d4
@@ -692,7 +702,7 @@ GayleTest:
 	jsr	Print
 .done:
 	jsr	WaitPressed
-	jmp	MainMenu
+	jmp	_mainMenu
 .no_hw:
 	lea	GayleNoIDETxt,a0
 	move.w	#1,d1
@@ -964,7 +974,7 @@ GayleExp:
 	jsr	Print
 	jsr	WaitPressed
 .no_hw:
-	jmp	MainMenu
+	jmp	_mainMenu
 
 WaitRDY:
 	move.w	#50,d0
@@ -1075,4 +1085,4 @@ IDEReadData:
 
 floppyTestC::
 	bsr	_floppyTestC
-       bra    MainMenu
+       jmp    _mainMenu

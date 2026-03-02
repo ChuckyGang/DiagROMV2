@@ -6,12 +6,16 @@
        xdef   PortTestSer
        xdef   PortTestJoystick
        xref   _SerText
+	xref	_initScreen
+	xref	_mainLoop
 
 PortTestMenu:
-	jsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	move.w	#6,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
-	bra	MainLoop
+	jmp	_mainLoop
 
 
 PortTestPar:

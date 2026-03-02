@@ -2,9 +2,13 @@
        include "build/srcs/globalvars.i"
        section "keyboardtest",code_p
        xdef   KeyBoardTest
+	xref	_initScreen
+	xref	_mainMenu
 
 KeyBoardTest:
-	jsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	lea	KeyBoardTestText,a0
 	move.l	#7,d1
 	jsr	Print
@@ -112,5 +116,5 @@ KeyBoardTest:
 	bne.w	.loop
 .exit:
 
-	jmp	MainMenu
+	jmp	_mainMenu
 

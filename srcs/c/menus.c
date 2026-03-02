@@ -107,7 +107,7 @@ static uint8_t mainMenuKey[] = { '0','1','2','3','4','5','6','7','8','s','a',' '
 // ---------------------------------------------------------------------------
 // Audio Menu  (MenuNumber 2)
 // ---------------------------------------------------------------------------
-static const char audioMenuText[] = "\x02Audiotests\n\n";
+static const char audioMenuText[] = "\002Audiotests\n\n";
 static const char audioMenu1[]    = "1 - Simple waveformtest";
 static const char audioMenu2[]    = "2 - Play test-module";
 static const char audioMenu3[]    = "9 - MainMenu";
@@ -231,7 +231,7 @@ static uint8_t otherMenuKey[] = { '1','2','3','4','8','9',0 };
 // ---------------------------------------------------------------------------
 // Disk Test Menu  (MenuNumber 8)
 // ---------------------------------------------------------------------------
-static const char diskText[]   = "\x02Disktests\n\n";
+static const char diskText[]   = "\002Disktests\n\n";
 static const char diskMenu1[]  = "1 - Diskdrivetest (old experimental)";
 static const char diskMenu2[]  = "2 - Gayletest (A600/1200 etc IDE)";
 static const char diskMenu3[]  = "3 - Gary-IDE test (A4000)";

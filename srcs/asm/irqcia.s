@@ -9,18 +9,25 @@
 	xdef	CIALevTst
 	xdef	_CIALevTst
 	xdef	IRQTestC
+	xref	_initScreen
+	xref	_mainLoop
+	xref	_mainMenu
 
 CIATIME	EQU	174
 ;	equ	174			(10000ms / 1.3968255 for PAL)
 
 IRQCIAtestMenu:
-	bsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	move.w	#4,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
-	bra	MainLoop
+	jmp	_mainLoop
 
 IRQCIAIRQTest:
-	bsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	lea	IRQCIAIRQTestText,a0
 	move.w	#2,d1
 	bsr	Print
@@ -204,7 +211,9 @@ IRQCIACIATest:
 
 	cmp.b	#1,RASTER(a6)			; Check if we have a working raster, if not we are unable to
 	bne	.noraster			; count frames (for timing) so not possible to perform tests
-	bsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	lea	CIATestTxt,a0
 	move.w	#2,d1
 	bsr	Print
@@ -265,7 +274,9 @@ IRQCIACIATest:
 	bne.s	 .keyloop
 	bra	IRQCIAtestMenu
 .noraster:					; We had no working raster, print errormessage
-	bsr	InitScreen			; and prompt for keypress to go back to mainmenu.
+	PUSH
+	jsr	_initScreen
+	POP				; and prompt for keypress to go back to mainmenu.
 	lea	CIANoRasterTxt,a0
 	move.w	#1,d1
 	bsr	Print
@@ -276,7 +287,7 @@ IRQCIACIATest:
 	bsr	GetInput
 	cmp.b	#1,BUTTON(a6)
 	bne.s	.nrloop
-	bra	MainMenu
+	jmp	_mainMenu
 
 .TestCIA:
 	clr.l	d0

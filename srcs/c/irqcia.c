@@ -722,7 +722,7 @@ void IRQTestC(VARS)
 {
        struct CIA *ciaa = (struct CIA *)0xbfe001;
     int counter=0;
-       InitScreen();
+       initScreen();
               print("\002IRQ Test EXPERIMENTAL Written in C\n",WHITE);
               print("\nTo start IRQ test press any key, ESC or Right Mousebutton to cancel",GREEN);
 
@@ -784,7 +784,7 @@ void IRQTestC(VARS)
 
 void IRQCIATestC(VARS)
 {
-       InitScreen();
+       initScreen();
        struct CIA *ciaa = (struct CIA *)0xbfe001;
        struct CIA *ciab = (struct CIA *)0xbfd000;
 

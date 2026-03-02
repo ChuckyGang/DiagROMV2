@@ -479,7 +479,7 @@ void makeECS(int maxColors, uint32_t palette[], int16_t ecsPalette[])
 
 void gfxC(VARS)
 {
-    InitScreen();
+    initScreen();
         printGfxtst(globals);
     int chipMemSize=0;
     chipMemSize=(sizeof(romEcsLowResCopper))+4+(40*512*5);        // Calculate amount of chipmem needed
@@ -532,7 +532,7 @@ void gfxC(VARS)
 
 void gfxCAga(VARS)
 {
-    InitScreen();
+    initScreen();
     printGfxtst(globals);
     int chipMemSize=0;
     chipMemSize=(sizeof(romAgaLowResCopper))+4+(40*512*8);        // Calculate amount of chipmem needed
@@ -588,7 +588,7 @@ void gfxCAga(VARS)
 
 void gfxCAgaHigh(VARS)
 {
-    InitScreen();
+    initScreen();
     printGfxtst(globals);
     int chipMemSize=0;
     chipMemSize=(sizeof(romAgaHiResCopper))+4+(80*512*8);        // Calculate amount of chipmem needed
@@ -677,7 +677,7 @@ void printGfxtst(VARS)
 
 void gfxChigh(VARS)
 {
-    InitScreen();
+    initScreen();
     printGfxtst(globals);
     int chipMemSize=0;
     chipMemSize=(sizeof(romEcsHiResCopper))+4+(80*512*4);        // Calculate amount of chipmem needed
@@ -732,7 +732,7 @@ void gfxChigh(VARS)
       if (vposr & 0x8000) {
           // Odd field (LOF=1) - start at line 0
           for (int i = 0; i < 4; i++) {
-              SetBplPtr(copperlist, i, bplPointers[i] + 80);
+              SetBplPtr(copperlist, i, bplPointers[i]+80);
           }
       } else {
           // Even field (LOF=0) - start at line 1 (+80 bytes)

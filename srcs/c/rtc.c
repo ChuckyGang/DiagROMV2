@@ -40,7 +40,7 @@ void RTCTestC(VARS)
                                // Writing non-zero here puts chip in fast-count test mode!
        *(rtc + 0x37) = 0x08;  // Mode register (Reg 13): start timer (TE=1, Bank 0)
 
-       InitScreen();
+       initScreen();
        // Detect chip: read Reg10 (Ricoh month-tens) and Reg9 (Ricoh month-units)
        // using +3 offset within each 4-byte block, matching ASM read convention
        uint8_t ricochMonth = ((*(rtc+43)&0xf)*10)+(*(rtc+39)&0xf); // Reg10*10+Reg9, offset +3

@@ -5,12 +5,20 @@
        xdef AudioSimple
        xdef AudioMod
        xref _Menus
+	xref	_initScreen
+	xref	_mainLoop
+	xref	_printMenu
+	xref	_filterON
+	xref	_filterOFF
+	xref	_exitDiag
 
 AudioMenu:
-       bsr	InitScreen
+       PUSH
+       jsr	_initScreen
+       POP
        move.w	#2,MenuNumber(a6)
        move.b	#1,PrintMenuFlag(a6)
-       bra	MainLoop
+       jmp	_mainLoop
 
 AudioSimple:
        bsr	ClearScreen
@@ -34,7 +42,9 @@ AudioSimple:
        bsr	.setvar
 .loop:
        bsr	.Playaudio
-       bsr	PrintMenu
+       PUSH
+       jsr	_printMenu
+       POP
        bsr	GetInput
        bsr	WaitLong
        cmp.b	#0,d0
@@ -64,9 +74,11 @@ AudioSimple:
 .goaction:
        move.b	d0,MenuPos(a6)
        bra	.action
-.nokey:	
+.nokey:
        cmp.b	#1,RMB
-       beq	Exit
+       bne	.noexit
+       jmp	_exitDiag
+.noexit:
        btst	#1,d0
        beq	.no
 .action:
@@ -361,7 +373,7 @@ CheckOnOff:					; Checks if a0 is pointing to a variable that is on or off
 
 
 AudioMod:
-       bsr	FilterOFF
+       jsr	_filterOFF
        bsr	ClearScreen
 	lea	AudioModStatData(a6),a1	; Get statusvariable
 	clr.l	(a1)+
@@ -613,13 +625,13 @@ AudioModStatus:
 	bsr	SetPos
 	cmp.b	#0,(a1)			; if it is 0, channel is on
 	bne	.filteroff
-	bsr	FilterON
+	jsr	_filterON
 	lea	ON,a0			; Print ON
 	move.l	#2,d1
 	bsr	Print
 	beq	.donefilter
 .filteroff:
-	bsr	FilterOFF
+	jsr	_filterOFF
 	lea	OFF,a0			; Print OFF
 	move.l	#1,d1
 	bsr	Print

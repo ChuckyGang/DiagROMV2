@@ -6,15 +6,19 @@
        xdef   GFXTestScroll
        xdef   GFXTestRaster
        xdef   GFXTestRGB
- 
+	xref	_initScreen
+	xref	_mainLoop
+
 LOWRESSize:	equ	40*256
 HIRESSize:	equ	80*512
 
 GFXtestMenu:
-	bsr	InitScreen
+	PUSH
+	jsr	_initScreen
+	POP
 	move.w	#5,MenuNumber(a6)
 	move.b	#1,PrintMenuFlag(a6)
-	bra	MainLoop      
+	jmp	_mainLoop
 
 GFXTestScreen:
 	jsr	ClearScreen

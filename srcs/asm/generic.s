@@ -71,6 +71,7 @@
 	xdef	SameRow
 	xdef	DevPrint
 	xdef	_PAUSE
+	xref	_mainMenu
 
 WaitShort:					; Wait a short time, aprox 10 rasterlines. (or exact IF we have detected working raster)
 	PUSH
@@ -270,7 +271,7 @@ ErrorScreen:
 	move.l	a6,DebA6(a6)
 	move.l	a7,DebA7(a6)
 	jsr	_errorScreenC			; a0 still has error title (register param)
-	bra	MainMenu
+	jmp	_mainMenu
 
 ; --- DebugScreen removed: converted to C debugScreen() ---
 ; --- ClearBuffer removed: converted to C ClearBuffer() ---
