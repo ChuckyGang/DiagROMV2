@@ -197,35 +197,10 @@ void mainLoop(void)
 // Externally visible functions (asm wrappers in mainmenu.s call these)
 // ---------------------------------------------------------------------------
 
-void filterON(void)
-{
-    *(volatile uint8_t *)0xbfe001 &= ~(1 << 1);    // bclr #1,$bfe001
-}
-
-void filterOFF(void)
-{
-    *(volatile uint8_t *)0xbfe001 |= (1 << 1);     // bset #1,$bfe001
-}
-
 void swapMode(void)
 {
-    globals->NTSC    = 0;
-    *(volatile uint16_t *)0xdff180 = 0xfff;        // white flash
-    globals->SCRNMODE ^= 0x20;
-    if (globals->SCRNMODE == 0x20)
-        globals->NTSC = 1;
-    *(volatile uint16_t *)0xdff1dc = globals->SCRNMODE;  // BEAMCON0
+    swapVideoMode();
     mainMenu();
-}
-
-void exitDiag(void)
-{
-    // Flash screen indefinitely (intentional infinite loop)
-    for (;;) {
-        *(volatile uint16_t *)0xdff180 = 0;
-        while (*(volatile uint8_t *)0xdff006 != 0xf0);
-        *(volatile uint16_t *)0xdff180 = 0xfff;
-    }
 }
 
 void initScreen(void)

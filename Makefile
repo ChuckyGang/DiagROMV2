@@ -12,17 +12,17 @@ MD = mkdir -p $(1) > /dev/null
 endif
 NDK_INC := ./ndk/Include_H 
 AS := /opt/amiga/bin/vasmm68k_mot
-ASOPTS := -DDEBUG=0 -quiet -m68851 -m68882 -m68020up  -no-opt -Fhunk -I. -I$(OUTDIR)/srcs 
+ASOPTS := -DDEBUG=0 -quiet -m68851 -m68882 -m68020up  -no-opt -Fhunk -I. -I$(OUTDIR)/srcs -Isrcs/asm/amiga
 CC := /opt/amiga/bin/m68k-amigaos-gcc 
 #CFLAGS := -DDEBUG=2 -mcpu=68000 -O2 -g -mregparm=4 -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
-CFLAGS := -DDEBUG=2 -mcpu=68000 -O0 -g -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
+CFLAGS := -DDEBUG=2 -DROM_BASE=0xF80000 -mcpu=68000 -O0 -g -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
 
 $(info NDK is $(NDK_INC))
 LN := /opt/amiga/bin/m68k-amigaos-gcc
 #LNFLAGS := -t -M
 OC := /opt/amiga/bin/m68k-amigaos-objcopy
 
-SRCS =$(wildcard srcs/**/*.c) $(wildcard srcs/**/*.s)
+SRCS =$(wildcard srcs/**/*.c) $(wildcard srcs/c/amiga/*.c) $(wildcard srcs/**/*.s)
 OBJS =$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.c=.o)))
 OBJS+=$(addprefix $(OUTDIR)/,$(filter %.o,$(SRCS:.s=.o)))
 OBJS+=$(OUTDIR)/data/TopazFont.o
@@ -35,6 +35,8 @@ $(foreach dir,$(DIRS),$(shell $(call MD,$(dir))))
 $(shell date $(DATEOPS) > $(OUTDIR)/srcs/builddate.i)
 
 all: diagrom.rom $(OUTDIR)/diagrom.exe
+	@mkdir -p roms/a1200
+	cp $< roms/a1200/DiagROM
 
 diagrom.rom: $(OUTDIR)/diagrom_nosum.bin $(OUTDIR)/checksum
 	$(OUTDIR)/checksum $< $@

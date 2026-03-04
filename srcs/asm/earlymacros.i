@@ -21,34 +21,7 @@ POP:	MACRO
 	movem.l (a7)+,a0-a6/d0-d7	;Restore the registers from the stack
 	ENDM
 
-TOGGLEPWRLED: MACRO
-	bchg	#1,$bfe001
-	ENDM
-	
-PAROUT: MACRO
-	move.b	\1,$bfe101
-	ENDM
-	
-VBLT:		MACRO
-.vblt\@		btst	#14,$dff002
-		bne.s	.vblt\@
-		ENDM
-
-PAUSE:		MACRO
-.waitdown\@	move.b	$dff006,$dff181
-		btst	#6,$bfe001
-		bne.s	.waitdown\@
-.waitup\@	btst	#6,$bfe001
-		beq.s	.waitup\@
-		ENDM
-
-PAUSE2:	MACRO
-.waitdown\@	move.b	$dff007,$dff181
-		btst	#6,$bfe001
-		bne.s	.waitdown\@
-.waitup\@	btst	#6,$bfe001
-		beq.s	.waitup\@
-		ENDM
+	INCLUDE "platform.i"
 
 DBINHEX: MACRO
 		; A0 points to string of content of D0 (byte)

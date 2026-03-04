@@ -51,7 +51,6 @@ extern void callDetectMemory(uint32_t randVal  __asm("d0"),
 extern void callDetectCPU(void);
 
 // C function accessed via asm wrapper RealLoopbacktest in new initcode.s
-int realLoopbackTest(char testChar __asm("d0"));
 
 #define INITBAUD  373
 #define STACKSIZE 16384
@@ -484,7 +483,7 @@ void initCode(void)
     // -----------------------------------------------------------------------
     // Hardware register snapshot, base addresses
     // -----------------------------------------------------------------------
-    getHWReg(globals);
+    getHWReg();
 
     globals->BaseStart = globals;
     globals->BaseEnd   = (uint8_t *)globals + RAMUSAGE;
@@ -722,7 +721,7 @@ void initCode(void)
         sendSerial("\x1b[0m\r\nNo key pressed, disabling any serialcommunications.\r\n");
         globals->SerialSpeed = 0;
     } else if (globals->NoDraw) {
-        TOGGLEPWR;
+        togglePwrLED();
         globals->SerialSpeed = 2;
         sendSerial("We are in a nonchip/nodraw mode. Serialoutput is all we got.\r\n");
     }
