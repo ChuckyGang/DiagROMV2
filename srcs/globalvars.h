@@ -14,7 +14,8 @@ typedef struct GlobalVars
 	void*		BaseStart;
 	void*		BaseEnd;
 	void*		ChipmemBlock;			// Pointer to the Chipmem bock
-	void*		keymap;			// Keymap used
+	void*		keymap;			// Keymap used (unshifted)
+	void*		keymapShifted;		// Keymap used (shifted)
 	void*		BPL;				// Pointer to bitplaneblock
 	void*		Bpl1Ptr;			// Pointer to Bitplane1 // Those 3 must be stored in a row
 	void*		Bpl2Ptr;			// Pointer to Bitplane2

@@ -67,7 +67,7 @@ int clearBit(int value, int bit);
 void ClearBuffer();
 void WaitButton(void);
 
-void convertKey(uint8_t keycode __asm("d0"), uint8_t *keymap __asm("a0"));
+void convertKey(uint8_t keycode __asm("d0"), uint8_t *keymap __asm("a0"), uint8_t *keymapShifted __asm("a1"));
 void PrintCPU(void);
 void debugScreen(void);
 void errorScreenC(char *errorTitle __asm("a0"));
