@@ -15,7 +15,7 @@ AS := /opt/amiga/bin/vasmm68k_mot
 ASOPTS := -DDEBUG=0 -quiet -m68851 -m68882 -m68020up  -no-opt -Fhunk -I. -I$(OUTDIR)/srcs 
 CC := /opt/amiga/bin/m68k-amigaos-gcc 
 #CFLAGS := -DDEBUG=2 -mcpu=68000 -O2 -g -mregparm=4 -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
-CFLAGS := -DDEBUG=2 -mcpu=68000 -O0 -g -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
+CFLAGS := -DDEBUG=2 -mcpu=68000 -O0 -g -mregparm=4 -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
 
 $(info NDK is $(NDK_INC))
 LN := /opt/amiga/bin/m68k-amigaos-gcc
