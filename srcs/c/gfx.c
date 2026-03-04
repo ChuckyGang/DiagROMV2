@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <exec/types.h>
 #include <hardware/custom.h>
+#define custom ((volatile struct Custom*)0xdff000)
 #include <hardware/dmabits.h>
 #include <hardware/blit.h>
 #include "c/gfx.i"

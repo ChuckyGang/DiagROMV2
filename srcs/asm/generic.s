@@ -593,6 +593,7 @@ binstringbyte:
 	lea	binstringoutput(a6),a0
 	rts
 
+	machine 68020
 EnableCache:
 	PUSH
 	move.l	#$0808,d1
@@ -611,6 +612,7 @@ DisableCache:
 	movec	d1,CACR
 	POP
 	rts
+	machine 68000
 
 SameRow:
 	PUSH
@@ -664,6 +666,7 @@ DetectCPU:					; Detects CPU, FPU etc.
 .no24bit:
 	moveq	#$0,d1				; Set CPU detected.  begin with "0" as 68000
 	move.l	#.notabove68k,$10		; Set illegal instruction to this
+	machine 68060
 	movec	VBR,d3				; Supported by 010+	dc.l	$4e7a3801		;movec VBR,d3	- move VBR to d3
 	moveq	#$10,d2
 	move.l	d2,a1
@@ -712,6 +715,7 @@ DetectCPU:					; Detects CPU, FPU etc.
 	move.l	d2,(a1)
 	move.l	d3,(a2)
 	move.l	a3,a7
+	machine 68000
 .notabove68k:
 	move.l	#BusError,$8
 	move.l	#IllegalError,$10

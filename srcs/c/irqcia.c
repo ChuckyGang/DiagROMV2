@@ -1,6 +1,8 @@
 // C Version of the IRQ CIA Tests
 #include "globalvars.h"
 #include "generic.h"
+#include <hardware/custom.h>
+#define custom ((volatile struct Custom*)0xdff000)
 #include <hardware/cia.h>
 #include "c/irqcia.i"
 // YES I know this is a messy file..  I am just screwing around with ideas and tests now..
@@ -205,7 +207,7 @@ void polledcia(VARS)
                      }
                      ciadone = ((volatile uint8_t)ciaa->ciaicr&1)==0;
        } while (!failed&&ciadone);
-       TOGGLEPWR;
+       togglePwrLED();
        custom->color[0]=0x550;
                             timeout = globals->Frames;
               } while (globals->Frames<=122);
@@ -249,7 +251,7 @@ void polledcia(VARS)
                      }
                      ciadone = ((volatile uint8_t)ciaa->ciaicr&2)==0;
        } while (!failed&&ciadone);
-              TOGGLEPWR;
+              togglePwrLED();
               custom->color[0]=0x660;
                             timeout = globals->Frames;
               } while (globals->Frames<=122);
@@ -327,7 +329,7 @@ void polledcia(VARS)
                      }
                      ciadone = ((volatile uint8_t)ciab->ciaicr&1)==0;
        } while (!failed&&ciadone);
-              TOGGLEPWR;
+              togglePwrLED();
               custom->color[0]=0x660;
                             timeout = globals->Frames;
               } while (globals->Frames<=122);
@@ -370,7 +372,7 @@ void polledcia(VARS)
                      }
                      ciadone = ((volatile uint8_t)ciab->ciaicr&2)==0;
        } while (!failed&&ciadone);
-              TOGGLEPWR;
+              togglePwrLED();
               custom->color[0]=0x660;
                             timeout = globals->Frames;
               } while (globals->Frames<=122);
