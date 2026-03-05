@@ -134,7 +134,7 @@ void printChar(char character __asm("d0"), uint8_t color __asm("d1"))           
         if(color>7)                         // If color is more then 7, it should be inverted
         {
             globals->Inverted = 1;
-            invCol=color-8;
+            invCol=color-7;
             sendSerial("\x1b[30m");          // Black foreground
             sendSerial("\x1b[");
             rs232_out('4');
