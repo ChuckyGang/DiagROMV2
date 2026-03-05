@@ -379,6 +379,11 @@ CheckMemEdit:
 	move.b	#0,CheckMemEditYpos(a6)	; Clear X and Y positions
 	move.b	#0,CheckMemEditOldXpos(a6)
 	move.b	#0,CheckMemEditOldYpos(a6)	; Clear X and Y positions
+	move.b	#1,CheckMemEditDirty(a6)
+	; Install safe bus error handler for unmapped memory reads
+	move.l	$8,-(sp)
+	move.l	#.memedit_buserr,$8
+	clr.b	MemEditBusErr(a6)
 	clr.l	d0
 	move.l	#3,d1
 	bsr	SetPos
@@ -434,20 +439,37 @@ CheckMemEdit:
 	move.b	CheckMemEditYpos(a6),d1
 	bsr	.getcursoradr			; a0 will now contain the address of memoryadress where cursor is
 	clr.l	d7
-	move.b	(a0),d7				; and D7 will contain what that address contains
+	clr.b	MemEditBusErr(a6)
+	move.l	sp,MemEditSavedSP(a6)
+	lea	.edit_read_resume(pc),a2
+	move.l	a2,MemEditResumePC(a6)
+	move.b	(a0),d7				; may bus error — read current byte
+.edit_read_resume:
+	tst.b	MemEditBusErr(a6)
+	bne	.nohex				; unmapped — silently skip the edit
 	move.l	d2,d0				; Restore d2
 	cmp.b	#0,CheckMemEditCharPos(a6)
 	bne	.nocurleft
 	and.b	#$f,d7				; Strip out high nibble from d7
 	asl	#4,d0				; rotate input data to high nibble
 	add.b	d0,d7				; add them together
-	move.b	d7,(a0)				; store in memory
+	clr.b	MemEditBusErr(a6)
+	move.l	sp,MemEditSavedSP(a6)
+	lea	.edit_write_resume1(pc),a2
+	move.l	a2,MemEditResumePC(a6)
+	move.b	d7,(a0)				; may bus error — store in memory
+.edit_write_resume1:
 	add.b	#1,CheckMemEditCharPos(a6)	; add 1 to pos, for next nibble
 	bra	.editdone
 .nocurleft:
 	and.b	#$f0,d7				; Strip out low nibble
 	add.b	d0,d7				; add indata with the rest of d7
-	move.b	d7,(a0)				; store in memory
+	clr.b	MemEditBusErr(a6)
+	move.l	sp,MemEditSavedSP(a6)
+	lea	.edit_write_resume2(pc),a2
+	move.l	a2,MemEditResumePC(a6)
+	move.b	d7,(a0)				; may bus error — store in memory
+.edit_write_resume2:
 	clr.b	CheckMemEditCharPos(a6)	; Clear charpos
 	cmp.b	#15,CheckMemEditXpos(a6)
 	beq	.noright
@@ -485,18 +507,47 @@ CheckMemEdit:
 	cmp.b	d3,d5
 	bne	.notequal			; ok cursorpos have changed.. lets put a nonrevesed char in spot
 .equal:
+	; Read current byte at cursor position (with bus error protection)
+	move.b	CheckMemEditXpos(a6),d0
+	move.b	CheckMemEditYpos(a6),d1
+	bsr	.getcursoradr
+	clr.l	d0
+	clr.b	MemEditBusErr(a6)
+	move.l	sp,MemEditSavedSP(a6)
+	lea	.cur_resume(pc),a2
+	move.l	a2,MemEditResumePC(a6)
+	move.b	(a0),d0				; may bus error
+.cur_resume:
+	tst.b	MemEditBusErr(a6)
+	beq.s	.cur_mapped
+	; Bus error — skip redraw if already showing unmapped
+	tst.b	CheckMemEditDirty(a6)
+	bne	.cur_unmapped
+	cmp.b	#$FF,CheckMemEditOldByte(a6)
+	beq	.skipdraw
+	bra	.cur_unmapped
+.cur_mapped:
+
+	; Check dirty flag first (set on cursor move / screen change)
+	tst.b	CheckMemEditDirty(a6)
+	bne.s	.doredraw
+
+	; Compare with cached value - skip if unchanged
+	cmp.b	CheckMemEditOldByte(a6),d0
+	beq	.skipdraw
+
+.doredraw:
+	clr.b	CheckMemEditDirty(a6)
+	move.b	d0,CheckMemEditOldByte(a6)
+	move.l	d0,d7				; Store d0 to d7 temporary
+
 	move.l	#10,d0
 	move.l	#4,d1
 	mulu	#3,d2
 	add.l	d2,d0
 	add.l	d3,d1
 	bsr	SetPos				; First byte
-	move.b	CheckMemEditXpos(a6),d0
-	move.b	CheckMemEditYpos(a6),d1
-	bsr	.getcursoradr
-	clr.l	d0
-	move.b	(a0),d0
-	move.l	d0,d7				; Store d0 to d7 temporary
+	move.l	d7,d0
 	bsr	binhexbyte
 	move.l	#11,d1
 	bsr	Print				; Print what is in current memorypos as a HEX digit and yellow.
@@ -505,21 +556,20 @@ CheckMemEdit:
 	add.b	CheckMemEditXpos(a6),d0
 	add.b	CheckMemEditYpos(a6),d1
 	bsr	SetPos
-	move.b	CheckMemEditXpos(a6),d0
-	move.b	CheckMemEditYpos(a6),d1
-	bsr	.getcursoradr
-	clr.l	d0
-	move.b	(a0),d0
+	move.l	d7,d0
 	bsr	MakePrintable
 	move.l	#11,d1
 	bsr	PrintChar
 	move.l	#17,d0
 	move.l	#25,d1
 	bsr	SetPos
+	move.b	CheckMemEditXpos(a6),d0
+	move.b	CheckMemEditYpos(a6),d1
+	bsr	.getcursoradr
 	move.l	a0,d0
 	bsr	binhex
 	move.l	#3,d1
-	bsr	Print	
+	bsr	Print
 	move.l	#52,d0
 	move.l	#25,d1
 	bsr	SetPos
@@ -527,8 +577,51 @@ CheckMemEdit:
 	bsr	binstringbyte
 	move.l	#3,d1
 	bsr	Print
+.skipdraw:
+	rts
+
+	; Cursor is on unmapped memory — show "xx" in reverse red
+.cur_unmapped:
+	clr.b	MemEditBusErr(a6)
+	clr.b	CheckMemEditDirty(a6)
+	move.b	#$FF,CheckMemEditOldByte(a6)	; Force redraw next time
+
+	move.l	#10,d0
+	move.l	#4,d1
+	mulu	#3,d2
+	add.l	d2,d0
+	add.l	d3,d1
+	bsr	SetPos
+	lea	UnmappedByteTxt,a0
+	move.l	#8,d1				; R_RED (reverse red)
+	bsr	Print
+	move.l	#60,d0
+	move.l	#4,d1
+	add.b	CheckMemEditXpos(a6),d0
+	add.b	CheckMemEditYpos(a6),d1
+	bsr	SetPos
+	move.l	#'.',d0
+	move.l	#8,d1				; R_RED
+	bsr	PrintChar
+	move.l	#17,d0
+	move.l	#25,d1
+	bsr	SetPos
+	move.b	CheckMemEditXpos(a6),d0
+	move.b	CheckMemEditYpos(a6),d1
+	bsr	.getcursoradr
+	move.l	a0,d0
+	bsr	binhex
+	move.l	#3,d1
+	bsr	Print
+	move.l	#52,d0
+	move.l	#25,d1
+	bsr	SetPos
+	lea	UnmappedBinTxt,a0		; Show "xxxxxxxx" for binary
+	move.l	#1,d1				; RED
+	bsr	Print
 	rts
 .notequal:					; We had movement.  lets put stuff to "normal" case
+	move.b	#1,CheckMemEditDirty(a6)
 	clr.b	CheckMemEditCharPos(a6)	; Clear charpos
 	move.b	d2,CheckMemEditOldXpos(a6)
 	move.b	d3,CheckMemEditOldYpos(a6)	; Set current pos to "old" pos
@@ -544,10 +637,24 @@ CheckMemEdit:
 	move.l	d5,d1
 	bsr	.getcursoradr			; Get what memoryaddress we are pointing on
 	clr.l	d0
-	move.b	(a0),d0
+	clr.b	MemEditBusErr(a6)
+	move.l	sp,MemEditSavedSP(a6)
+	lea	.neq_hex_resume(pc),a2
+	move.l	a2,MemEditResumePC(a6)
+	move.b	(a0),d0				; may bus error
+.neq_hex_resume:
+	tst.b	MemEditBusErr(a6)
+	bne.s	.neq_hex_unmapped
 	bsr	binhexbyte
 	move.l	#7,d1
 	bsr	Print				; Print that byte.
+	bra.s	.neq_hex_done
+.neq_hex_unmapped:
+	clr.b	MemEditBusErr(a6)
+	lea	UnmappedByteTxt,a0
+	move.l	#1,d1				; RED
+	bsr	Print
+.neq_hex_done:
 	POP					; ok roll back stack, we will need this data again
 	move.l	d4,d0
 	move.l	d5,d1
@@ -558,24 +665,23 @@ CheckMemEdit:
 	move.l	d5,d1
 	bsr	.getcursoradr
 	clr.l	d0
-	move.b	(a0),d0
+	clr.b	MemEditBusErr(a6)
+	move.l	sp,MemEditSavedSP(a6)
+	lea	.neq_asc_resume(pc),a2
+	move.l	a2,MemEditResumePC(a6)
+	move.b	(a0),d0				; may bus error
+.neq_asc_resume:
+	tst.b	MemEditBusErr(a6)
+	bne.s	.neq_asc_unmapped
 	bsr	MakePrintable
 	move.l	#7,d1
 	bsr	PrintChar
 	bra	.equal
-	PUSH					; Store in stack
-	bsr	SetPos
-	POP					; ok. d4 and d5 still contains x and y
-	move.l	d4,d0
-	move.l	d5,d1
-	bsr	.getcursoradr
-	add.l	#10,d0
-	add.l	#4,d1
-	bsr	SetPos
-	move.b	(a0),d0
-	bsr	binhexbyte
-	move.l	#7,d1
-	bsr	Print
+.neq_asc_unmapped:
+	clr.b	MemEditBusErr(a6)
+	move.l	#'.',d0
+	move.l	#1,d1				; RED
+	bsr	PrintChar
 	bra	.equal
 .GotoMem:
 	clr.b	CheckMemEditCharPos(a6)	; Clear charpos
@@ -655,7 +761,13 @@ CheckMemEdit:
 	bsr	.ClearCommandRow		; Clear the "goto" row.
 	bra	.loop
 .exit:
+	move.l	(sp)+,$8			; Restore original bus error vector
 	bra	MemtestMenu
+.memedit_buserr:
+	move.b	#1,MemEditBusErr(a6)
+	move.l	MemEditSavedSP(a6),sp
+	move.l	MemEditResumePC(a6),a0
+	jmp	(a0)
 .pgup:
 	move.l	CheckMemEditScreenAdr(a6),d0	; Read the screenaddress currently showed
 	sub.l	#$150,d0
@@ -716,6 +828,7 @@ CheckMemEdit:
 CheckMemEditUpdateScreen:			; Updates the whole screen with memorydump
 						; INDATA:
 						;	A0 = Startaddress
+	move.b	#1,CheckMemEditDirty(a6)
 	move.l	#1,d0
 	move.l	#20,d7
 .loop:
@@ -753,29 +866,61 @@ CheckMemEditUpdateRow:
 	move.l	#6,d1
 	bsr	Print				; Print address
 	clr.l	d2				; Column to print
+	clr.l	d6				; Bus error bitmask (bit N = byte N unmapped)
 	move.l	#15,d7
 .loop:
 	lea	SpaceTxt,a0
 	bsr	Print
 	clr.l	d0				; Clear d0 just to be sure
-	move.b	(a1,d2),d0
+	clr.b	MemEditBusErr(a6)
+	move.l	sp,MemEditSavedSP(a6)
+	lea	.row_resume(pc),a0
+	move.l	a0,MemEditResumePC(a6)
+	move.b	(a1,d2),d0			; may bus error on unmapped memory
+.row_resume:
+	tst.b	MemEditBusErr(a6)
+	bne.s	.row_unmapped
 	bsr	binhexbyte			; Convert that byte to hex
 	move.l	#7,d1
 	bsr	Print				; Print it
+	bra.s	.row_next
+.row_unmapped:
+	clr.b	MemEditBusErr(a6)
+	bset	d2,d6				; Mark this column as unmapped
+	lea	UnmappedByteTxt,a0
+	move.l	#1,d1				; RED
+	bsr	Print
+.row_next:
 	add.l	#1,d2
 	dbf	d7,.loop
 	lea	ColonTxt,a0			; Print a Colon
 	move.l	#3,d1
 	bsr	Print
-	move.l	#15,d7				; Now print the same bytes.  as chars instead	
+	move.l	#15,d7				; Now print the same bytes as chars instead
 	clr.l	d2
 .loop2:
+	btst	d2,d6				; Was this byte unmapped?
+	bne.s	.ascii_unmapped
 	clr.l	d0
-	move.b	(a1,d2),d0
-	bsr	MakePrintable			; make the char printable.  strip controlstuff..
-	add.l	#1,d2
+	clr.b	MemEditBusErr(a6)
+	move.l	sp,MemEditSavedSP(a6)
+	lea	.ascii_resume(pc),a0
+	move.l	a0,MemEditResumePC(a6)
+	move.b	(a1,d2),d0			; may bus error
+.ascii_resume:
+	tst.b	MemEditBusErr(a6)
+	bne.s	.ascii_unmapped
+	bsr	MakePrintable			; make the char printable
 	move.l	#7,d1
 	bsr	PrintChar
+	bra.s	.ascii_next
+.ascii_unmapped:
+	clr.b	MemEditBusErr(a6)
+	move.l	#'.',d0
+	move.l	#1,d1				; RED
+	bsr	PrintChar
+.ascii_next:
+	add.l	#1,d2
 	dbf	d7,.loop2
 	POP
 	rts

@@ -319,6 +319,8 @@ typedef struct GlobalVars
 	uint8_t	CheckMemEditOldXpos;
 	uint8_t	CheckMemEditOldYpos;
 	uint8_t	CheckMemEditCharPos;
+	uint8_t	CheckMemEditOldByte;		// Cached byte value at cursor for change detection
+	uint8_t	CheckMemEditDirty;		// Force-redraw flag
 	uint8_t	CPUCache;
 	uint8_t	oldbfe001;			// Contains old value of bfe001
 	uint8_t	oldbfd100;
@@ -385,6 +387,9 @@ typedef struct GlobalVars
 	uint8_t	b2dString[12];		// Stringbuffer for bindec
 	uint8_t	binhexoutput[10];		// Buffer for binhex
 	uint8_t	b2dTemp[8];			// Tempbuffer for bindec
+	uint8_t	MemEditBusErr;			// Set by bus error handler during mem edit reads
+	uint32_t MemEditSavedSP;		// SP snapshot for bus error recovery
+	uint32_t MemEditResumePC;		// Resume PC after bus error
 	void*		EndVar;			// End of variables
 } GlobalVars;
 
