@@ -30,8 +30,9 @@ extern char NewLineTxt[];
 extern char KB[];
 extern char MinusTxt[];
 
-// Keymap from generic.s (already has _EnglishKey:: alias)
+// Keymaps from generic.s (already has _EnglishKey:: / _EnglishKeyShifted:: aliases)
 extern uint8_t EnglishKey[];
+extern uint8_t EnglishKeyShifted[];
 
 // Menus array from menus.c
 extern const char **Menus[];
@@ -571,6 +572,7 @@ void initCode(void)
     // Default keymap, chip/fast memory sizes via serial
     // -----------------------------------------------------------------------
     globals->keymap = EnglishKey;
+    globals->keymapShifted = EnglishKeyShifted;
     *(volatile uint16_t *)0xdff180 = 0x999;
 
     sendSerial("Detected Chipmem: ");

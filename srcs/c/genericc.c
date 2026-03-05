@@ -134,7 +134,7 @@ void printChar(char character __asm("d0"), uint8_t color __asm("d1"))           
         if(color>7)                         // If color is more then 7, it should be inverted
         {
             globals->Inverted = 1;
-            invCol=color-8;
+            invCol=color-7;
             sendSerial("\x1b[30m");          // Black foreground
             sendSerial("\x1b[");
             rs232_out('4');
@@ -643,14 +643,12 @@ static const uint8_t EnglishKeyShifted_C[] = {
     0            /* 0x5F Help shifted */
 };
 
-void convertKey(uint8_t keycode __asm("d0"), uint8_t *keymap __asm("a0"))
+void convertKey(uint8_t keycode __asm("d0"), uint8_t *keymap __asm("a0"), uint8_t *keymapShifted __asm("a1"))
 {
-    extern char EnglishKey[];
-    extern char EnglishKeyShifted[];
     uint8_t unshifted = keymap[keycode];
     globals->keypressed[0] = unshifted;
     globals->keyresult = unshifted;
-    uint8_t shifted = keymap[keycode + (EnglishKeyShifted - EnglishKey)];
+    uint8_t shifted = keymapShifted[keycode];
     globals->keypressedshifted[0] = shifted;
     if (globals->keyshift)
         globals->keyresult = shifted;
@@ -695,6 +693,7 @@ uint8_t getCharSerial(void)
     if (c == 0 || c == 0x1b) {
         c = 0;
         globals->SerAnsiChecks++;
+        waitShort();  // Normalize timeout across CPU speeds (~640µs per check)
         if (globals->SerAnsiChecks >= 0x0f) {
             togglePwrLED();
             globals->SerAnsiChecks = 0;
@@ -733,7 +732,7 @@ uint8_t getCharKey(void)
     globals->keyresult = 0;
     getKey();
     if (globals->keynew) {
-        convertKey(globals->key, (uint8_t *)globals->keymap);
+        convertKey(globals->key, (uint8_t *)globals->keymap, (uint8_t *)globals->keymapShifted);
         if (globals->skipnextkey) {
             globals->BUTTON = 0;
             globals->keyresult = 0;

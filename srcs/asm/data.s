@@ -898,6 +898,10 @@ RomCheckTxt::
 	dc.b	$a,$a,"Doing ROM Checksumtest: (64K blocks, Green OK, Red Failed)",$a,0
 SpaceTxt::
 	dc.b	" ",0
+UnmappedByteTxt::
+	dc.b	"xx",0
+UnmappedBinTxt::
+	dc.b	"xxxxxxxx",0
 CPUString::	dc.b	"68000 ",0,"68010 ",0,"68EC20",0,"68020 ",0,"68EC30",0,"68030 ",0,"68EC40",0,"68LC40",0,"68040 ",0,"68EC60",0,"68LC60",0,"68060 ",0,"68FAIL",0,"68???? ",0,"NOCHIP",0
 FPUString::	dc.b	"NONE ",0,"68881",0,"68882",0,"68040",0,"68060",0
 PCRFlagsTxt::
