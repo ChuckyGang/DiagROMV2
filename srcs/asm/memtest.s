@@ -519,7 +519,14 @@ CheckMemEdit:
 	move.b	(a0),d0				; may bus error
 .cur_resume:
 	tst.b	MemEditBusErr(a6)
+	beq.s	.cur_mapped
+	; Bus error — skip redraw if already showing unmapped
+	tst.b	CheckMemEditDirty(a6)
 	bne	.cur_unmapped
+	cmp.b	#$FF,CheckMemEditOldByte(a6)
+	beq	.skipdraw
+	bra	.cur_unmapped
+.cur_mapped:
 
 	; Check dirty flag first (set on cursor move / screen change)
 	tst.b	CheckMemEditDirty(a6)
