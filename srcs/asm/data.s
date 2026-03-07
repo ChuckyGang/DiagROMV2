@@ -1250,7 +1250,7 @@ MemtestManualTxt::
 	dc.b	"Pressing a mousebutton or ESC cancels this screen",$a,$a
 	dc.b	"Please enter startaddress to check from: $",0
 MemtestManualEndTxt::
-	dc.b	$a,$a,$a,"Please enter endadress to check to: $",0
+	dc.b	$a,$a,$a,"Please enter end address to check to: $",0
 MemtestManualBlockTxt::
 	dc.b	$a,$a,$a,"Please enter how many longwords to step to next test: ",0
 CheckMemCancelled::
@@ -1560,10 +1560,10 @@ AboutTxt2::
 	dc.b	"I love all kind of suggestions possible also if you have code-examples how to",$a
 	dc.b	"detect different issues etc, PLEASE contact me",$a,$a
 	dc.b	"Some good-to-know facts: Pressing mousebuttons at powerup (and release after a",$a
-	dc.b	"short while (or it will be misstaken as stuck and will be ignored)",$a,$a
+	dc.b	"short while (or it will be mistaken as stuck and will be ignored)",$a,$a
 	dc.b	"Mouseport 1: Left mouse, Disable screen output, if fastmem found use it",$a
 	dc.b	"             Right mouse, Instead of using end of mem as work, use start",$a,$a
-	dc.b	"Serial output HIGHLY recomended: 9600 BPS, 8N1, No handshaking used!",$a,$a
+	dc.b	"Serial output HIGHLY recommended: 9600 BPS, 8N1, No handshaking used!",$a,$a
 	dc.b	"Press any key or button!",0
 
 

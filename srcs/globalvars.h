@@ -128,7 +128,7 @@ typedef struct GlobalVars
 	uint32_t	CheckMemPassFailOLD;
 	uint32_t	CheckMemUsableOLD;
 	uint32_t	CheckMemNoErrors;		// Total number of memoryerrors
-	uint32_t	CheckMemAdrError2;		// Total number of adresserrors
+	uint32_t	CheckMemAdrError2;		// Total number of address errors
 	uint32_t	MemTestPass;			// Number of passes
 	uint32_t	DetectMemRnd;			// Used as a flag to tag for shadowram
 	uint32_t	FastmemBlock;			// Number of fastmem block found

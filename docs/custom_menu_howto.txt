@@ -1,0 +1,402 @@
+================================================================================
+  DiagROMV2 - How to set up a custom menu with dynamic variables
+  Reference: srcs/c/disk.c :: floppyTestC()
+================================================================================
+
+OVERVIEW
+--------
+Two kinds of menus exist in DiagROMV2:
+
+  A) Standard menus  - registered in Menus[], MenuCode[], MenuKeys[] in menus.c.
+                       mainLoop() drives them automatically.
+                       Use this for straightforward test launchers.
+
+  B) Custom menus    - the function owns its own event loop, calls printMenu()
+                       itself, and dispatches keys inline.
+                       Use this when you need per-iteration hardware work between
+                       menu redraws, or dynamic values shown beside menu items.
+                       floppyTestC() is the reference implementation.
+
+This document covers type B.
+
+
+--------------------------------------------------------------------------------
+PART 1 - MENU DATA
+--------------------------------------------------------------------------------
+
+Step 1: Define string constants BEFORE any array that references them.
+        All strings must be static const char[].
+
+    static const char MyMenuTitle[] = "\x02My Test Menu\n\n";
+    static const char MyMenuItem0[] = "0 - Do something";
+    static const char MyMenuItem1[] = "1 - Run test";
+    static const char MyMenuBack[]  = "9 - Main menu";
+
+    The \x02 byte at the start of the title triggers the centred-print
+    rendering path in print(). Use it only on the title line.
+    \n\n adds blank lines after the title.
+
+Step 2: Build the item pointer array.
+        Index 0 is always the title (not selectable).
+        Indices 1..N are the selectable items, in display order.
+        Terminate with NULL.
+
+    static const char *MyMenuItems[] = {
+        MyMenuTitle,
+        MyMenuItem0,    // sel == 0
+        MyMenuItem1,    // sel == 1
+        MyMenuBack,     // sel == 2
+        NULL
+    };
+
+Step 3: Build the menu table.
+        printMenu() indexes globals->Menu as (const char ***)Menu[MenuNumber].
+        Set MenuNumber = 0 and put your items array at slot [0].
+        Only one slot is needed; do NOT add extra NULL slots - they waste ROM.
+
+    const char **MyMenuTable[] = {
+        MyMenuItems,    // slot 0 - the only slot we use
+    };
+
+
+--------------------------------------------------------------------------------
+PART 2 - DYNAMIC VARIABLES (text printed after a menu item)
+--------------------------------------------------------------------------------
+
+MenuVar is a packed struct { uint16_t color; char *str; }.
+globals->MenuVariable points to an array of MenuVar, one entry per item
+(not counting the title). printMenu() prints vars[i].str in vars[i].color
+after item i, if str is non-NULL.
+
+Rules:
+  - Allocate MenuVar on the stack inside your function (see Part 3 for why).
+  - Set .str = NULL for items that need no dynamic text.
+  - You only need to set .color for entries where .str != NULL.
+  - Always set .str explicitly; never rely on uninitialised stack bytes.
+
+Example - show a counter after item 0, nothing after items 1 and 2:
+
+    char    myStr[12];           // buffer that holds the formatted value
+    MenuVar myVars[3];           // one entry per selectable item
+
+    myStr[0] = '0';              // initial value shown before first press
+    myStr[1] = '\0';
+
+    myVars[0].color = GREEN;
+    myVars[0].str   = myStr;     // item 0 shows the counter
+    myVars[1].str   = (char *)0; // item 1 - nothing
+    myVars[2].str   = (char *)0; // item 2 - nothing
+
+    // Wire into globals before calling printMenu():
+    globals->MenuVariable = (void *)myVars;
+
+To update the displayed value after an action:
+    Write directly into myStr[]. Because myVars[0].str already points at
+    myStr[], the next printMenu() call will pick up the new content automatically.
+    No need to reassign myVars[0].str.
+
+    Example - convert a counter to decimal and store in myStr:
+        char *s = bindec(myCount);   // bindec() returns pointer to its internal buf
+        char *d = myStr;
+        while ((*d++ = *s++) != '\0') {}   // copy before anything overwrites it
+
+    Avoid % (modulo) for decimal conversion - it needs __umodsi3 from stdlib
+    which is not available in this -nostdlib ROM build.
+    Use bindec() (already in the project) and copy the result as shown above.
+
+
+--------------------------------------------------------------------------------
+PART 3 - WHY LOCAL VARIABLES, NOT STATIC
+--------------------------------------------------------------------------------
+
+This ROM build has NO C runtime. That means:
+  - BSS section is NOT zeroed before code runs.
+  - .data section is NOT copied from ROM to RAM.
+
+Consequence: writable static variables (static uint32_t x = 0; etc.) start
+with garbage values, and writes to them may silently fail if the linker places
+them in the ROM region.
+
+Solution: declare mutable state as LOCAL variables inside the menu function.
+The compiler generates initialisation instructions (move #0, ...) at function
+entry, which always execute. The stack is writable RAM.
+
+This only works because the menu function NEVER RETURNS. It loops forever until
+mainMenu() is called, which itself never returns (it also loops). So the stack
+frame stays alive for the entire session and all pointers into it remain valid.
+
+    void myTestC(void)
+    {
+        uint32_t myCounter = 0;    // always starts at 0 - stack init runs
+        char     myStr[12];        // on stack - writable, no BSS dependency
+        MenuVar  myVars[3];        // on stack - same
+
+        // ... never returns from here ...
+    }
+
+
+--------------------------------------------------------------------------------
+PART 4 - PACKED STRUCT INITIALISATION WARNING
+--------------------------------------------------------------------------------
+
+MenuVar is __attribute__((packed)). Never use struct-initialiser syntax for
+local packed struct arrays:
+
+    MenuVar vars[] = { { GREEN, myStr }, ... };  // DANGEROUS on 68000
+
+GCC may emit a single move.l for the 4-byte pointer member. If the struct
+lands at an odd stack address, that instruction causes a 68000 address error
+(bus error) and crashes the machine immediately on function entry.
+
+Always initialise packed struct fields one by one:
+
+    myVars[0].color = GREEN;
+    myVars[0].str   = myStr;
+    myVars[1].str   = (char *)0;
+
+
+--------------------------------------------------------------------------------
+PART 5 - THE EVENT LOOP
+--------------------------------------------------------------------------------
+
+Full skeleton:
+
+    void myTestC(void)
+    {
+        // --- local state (see Part 3) ---
+        uint32_t myCount = 0;
+        char     myStr[12];
+        MenuVar  myVars[N];     // N = number of selectable items
+
+        // --- initialise dynamic display strings ---
+        myStr[0] = '0';  myStr[1] = '\0';
+
+        // --- initialise MenuVar entries (see Part 4) ---
+        myVars[0].color = GREEN;
+        myVars[0].str   = myStr;
+        myVars[1].str   = (char *)0;
+        // ... more entries if needed ...
+
+        // --- hook into the menu engine ---
+        initScreen();
+        globals->Menu         = (void *)MyMenuTable;
+        globals->MenuVariable = (void *)myVars;
+        globals->MenuNumber   = 0;
+        globals->PrintMenuFlag = 1;
+
+        for (;;) {
+            // --- optional: read hardware here before redrawing ---
+            // e.g. poll CIA registers, update myVars[x].str, etc.
+
+            printMenu();            // redraws menu if PrintMenuFlag != 0
+            getInput();             // fills GetCharData, sets LMB/RMB/BUTTON
+            waitLong();             // pacing delay (reads serial too)
+
+            uint8_t ch  = globals->GetCharData;
+            int8_t  sel = -1;
+
+            // Enter or left mouse button: run the highlighted item
+            if (ch == 0x0a || globals->LMB) {
+                sel = (int8_t)globals->MenuPos;
+            }
+            // Shortcut keys: map directly to item index
+            else if (ch == '0') sel = 0;
+            else if (ch == '1') sel = 1;
+            else if (ch == '9') sel = 2;   // back / exit item
+
+            // Right mouse button always exits to main menu
+            if (globals->RMB) { mainMenu(); return; }
+
+            if (sel >= 0) {
+                waitReleased();
+
+                switch (sel) {
+                    case 0:
+                        // inline action that uses local state:
+                        myCount++;
+                        { char *s = bindec(myCount); char *d = myStr;
+                          while ((*d++ = *s++) != '\0') {} }
+                        break;
+                    case 1:
+                        someTestFunction();   // external function, no local state
+                        break;
+                    case 2:
+                        mainMenu(); return;   // exits this menu permanently
+                }
+
+                // After any handler that returns, restore our menu context.
+                // Called functions may have changed Menu/MenuNumber/etc.
+                globals->Menu         = (void *)MyMenuTable;
+                globals->MenuNumber   = 0;
+                globals->MenuVariable = (void *)myVars;
+                globals->PrintMenuFlag = 1;
+            }
+        }
+    }
+
+Key points:
+  - printMenu() only redraws when PrintMenuFlag != 0. It clears the flag itself.
+  - getInput() updates GetCharData, LMB, RMB, BUTTON, MenuPos (arrow keys).
+  - waitLong() provides loop pacing and reads the serial port.
+  - After any sub-function returns, restore Menu/MenuNumber/MenuVariable/
+    PrintMenuFlag so the screen is redrawn correctly on the next iteration.
+  - Actions that use local state (counter, string buffer) must be inlined in
+    the switch. Actions that are standalone tests can be called as functions.
+  - The "back to main menu" case calls mainMenu() which never returns, so the
+    `return` after it is safety code only.
+
+
+--------------------------------------------------------------------------------
+PART 6 - ROM SIZE BUDGET
+--------------------------------------------------------------------------------
+
+The ROM is exactly 512 KB. The linker script (srcs/link.txt) places .autovec
+at KICKSTART_SIZE - 28. If code+data exceeds the available space, the ROM grows
+beyond 512 KB and the Amiga refuses to boot (completely silent failure).
+
+Rules to stay within budget:
+
+  1. Keep the menu table array to the minimum needed slots.
+     const char **MyTable[] = { MyMenuItems };   // only one slot, not three.
+
+  2. Do not keep a separate function-pointer array (MenuHandler MyCode[]) if
+     you can use a switch instead. Each pointer is 4 bytes.
+
+  3. Do not keep a separate key array (uint8_t MyKeys[]) if you have a small
+     fixed set. Direct else-if comparisons compile to smaller code.
+
+  4. Watch for linker long-jump trampolines. When new code shifts sections in
+     memory, previously in-range bsr calls may exceed +-32 KB and the linker
+     inserts a 6-8 byte relay stub. This can silently eat the savings from other
+     reductions. Look for "INFO: using long jump" in the build output; new
+     entries mean you are pushing code too far.
+
+  5. After any change, check: ls -la diagrom.rom
+     It must be exactly 524288 bytes (512 * 1024).
+
+
+--------------------------------------------------------------------------------
+PART 7 - WIRING THE FUNCTION INTO THE DISK TEST MENU
+--------------------------------------------------------------------------------
+
+The function is called from the standard disk test menu (MenuNumber 8) which
+is defined in menus.c. To add your function as a menu item there:
+
+  1. Add a forward declaration in menus.c:
+         extern void myTestC(void) __asm("myTestC");
+
+     Note: __asm("myTestC") tells GCC that the C name myTestC maps to the bare
+     asm symbol myTestC (no underscore). The asm wrapper in disktest.s provides
+     this symbol and calls _myTestC (the C function with the underscore GCC adds).
+
+  2. Add the item string in menus.c:
+         static const char diskMenuN[] = "N - My test description";
+
+  3. Add it to diskMenuItems[], diskMenuCode[], diskMenuKey[] at the same index.
+
+  4. Add the asm wrapper in disktest.s (needed as long as disktest.s exists):
+         myTestC::
+             PUSH
+             jsr  _myTestC
+             POP
+             rts
+     Or if your function never returns (calls mainMenu internally):
+         myTestC::
+             bsr  _myTestC
+             jmp  _mainMenu
+
+
+================================================================================
+
+
+--------------------------------------------------------------------------------
+APPENDIX - COMPLETE WORKING EXAMPLE  (srcs/c/disk.c :: floppyTestC)
+--------------------------------------------------------------------------------
+
+Copy-paste starting point. Replace "Floppy"/"floppy"/"disk" with your own names.
+
+--------------------------------------------------------------------------------
+
+#include "globalvars.h"
+#include "generic.h"
+#include "menus.h"
+
+/* ---- menu strings ---- */
+static const char DiskMenuText[] = "\x02My Test Menu\n\n";
+static const char DiskMenuT1[]   = "0 - AddOne";
+static const char DiskMenuT2[]   = "1 - Run test";
+static const char DiskMenuBack[] = "9 - Main menu";
+
+static const char *DiskMenuItems[] = {
+    DiskMenuText,
+    DiskMenuT1,    /* sel == 0 */
+    DiskMenuT2,    /* sel == 1 */
+    DiskMenuBack,  /* sel == 2 */
+    NULL
+};
+
+const char **DiskTestC[] = {
+    DiskMenuItems,  /* slot 0 - the only slot we use */
+};
+
+/* ---- the function ---- */
+void floppyTestC(void)
+{
+    uint32_t addOneCount = 0;
+    char     addOneStr[12];
+    MenuVar  diskMenuVars[3];
+
+    addOneStr[0] = '0';
+    addOneStr[1] = '\0';
+
+    diskMenuVars[0].color = GREEN;
+    diskMenuVars[0].str   = addOneStr;
+    diskMenuVars[1].str   = (char *)0;
+    diskMenuVars[2].str   = (char *)0;
+
+    initScreen();
+    globals->Menu          = (void *)DiskTestC;
+    globals->MenuVariable  = (void *)diskMenuVars;
+    globals->MenuNumber    = 0;
+    globals->PrintMenuFlag = 1;
+
+    for (;;) {
+        /* per-iteration hardware work goes here */
+
+        printMenu();
+        getInput();
+        waitLong();
+
+        uint8_t ch  = globals->GetCharData;
+        int8_t  sel = -1;
+
+        if      (ch == 0x0a || globals->LMB) sel = (int8_t)globals->MenuPos;
+        else if (ch == '0') sel = 0;
+        else if (ch == '1') sel = 1;
+        else if (ch == '9') sel = 2;
+
+        if (globals->RMB) { mainMenu(); return; }
+
+        if (sel >= 0) {
+            waitReleased();
+
+            if (sel == 0) {
+                addOneCount++;
+                char *s = bindec(addOneCount);
+                char *d = addOneStr;
+                while ((*d++ = *s++) != '\0') {}
+            } else if (sel == 1) {
+                someTestFunction();
+            } else {
+                mainMenu(); return;
+            }
+
+            globals->Menu          = (void *)DiskTestC;
+            globals->MenuNumber    = 0;
+            globals->MenuVariable  = (void *)diskMenuVars;
+            globals->PrintMenuFlag = 1;
+        }
+    }
+}
+
+================================================================================

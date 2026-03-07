@@ -580,7 +580,7 @@ IRQCIATest:
 
 TestIRQ:				; Test if IRQ was triggered
 					; OUT:
-					;	d0 = 0	== Everything sucessful
+					;	d0 = 0	== Everything successful
 					;	d0 = 1	== We have failure
 					;	d0 = 2	== User pressed cancel
 	clr.l	d0

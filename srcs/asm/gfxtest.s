@@ -440,7 +440,7 @@ DrawLine:
 	and.w	d0,d5			; Bottom four bits masked from x1
 	lsr.w	#3,d5			; Reminder divided by 8
 	add.w	d5,d4			; Y1 * bytes per line + x1/8
-	add.l	a0,d4			; Plus startong adress of the bitplanes
+	add.l	a0,d4			; Plus starting address of the bitplanes
 	clr.l	d5
 	sub.w	d1,d3			; Y2-Y1 DeltaY from D3
 	roxl.b	#1,d5			; Shift leading char from DeltaY in D5

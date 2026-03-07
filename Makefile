@@ -83,10 +83,10 @@ $(ASM_OBJS): $(OUTDIR)/srcs/globalvars.i
 # quick test run
 run_a500: diagrom.rom
 	# Use 'socat pty,raw,echo=0,link=/tmp/virtual-serial-port -,raw,echo=0,crlf' to read serial
-	fs-uae --kickstart_file=diagrom.rom --console_debugger=1 --serial_port=/tmp/virtual-serial-port  --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.
+	fs-uae --kickstart_file=diagrom.rom --console_debugger=1 --serial_port=/tmp/virtual-serial-port -joystick_port_0=none --joystick_port_1=none --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.
 
 # quick test run
 run: diagrom.rom
 	# Use 'socat pty,raw,echo=0,link=/tmp/virtual-serial-port -,raw,echo=0,crlf' to read serial
-	fs-uae --amiga-model=A1200 --cpu=68020 --chip_memory=2048 --fast_memory=8192 --kickstart_file=diagrom.rom --floppy_drive_0=data/Install31.adf --serial_port=/tmp/virtual-serial-port --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.0
+	fs-uae --amiga-model=A1200 --cpu=68020 --chip_memory=2048 --fast_memory=8192 --kickstart_file=diagrom.rom --floppy_drive_0=data/Install31.adf --serial_port=/tmp/virtual-serial-port -joystick_port_0=none --joystick_port_1=none --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.0
 	

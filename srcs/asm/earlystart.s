@@ -56,7 +56,7 @@ DIAG	dc.b	"DIAG"
 
 _strstart:
 		dc.b	"IHOL : :6U6U,A,B1U1U5767U,U,8181 1 0    "	; This string will make a readable text on each 32 bit
-		dc.b	"HILO: : U6U6A,B,U1U17576,U,U18181 0     "	; rom what socket to use. (SOME programmingsoftware does byteshift so both orders)
+		dc.b	"HILO: : U6U6A,B,U1U17576,U,U18181 0     "	; rom what socket to use. (SOME programming software does byteshift so both orders)
 	
 		dc.b	"$VER: DiagROM Amiga Diagnostic by John Hertell. "
 		VERSION
@@ -912,7 +912,7 @@ Adrcheck:					; Check for addresserrors
 	and.l	#$fffffffc,d3			; Make sure is is even to a longword
 	move.l	d3,a2
 	and.l	#$fffffffc,d0			; Make sure is is even to a longword
-	cmp.l	#$400,a2			; Check if begining is less then $400
+	cmp.l	#$400,a2			; Check if beginning is less then $400
 	bge	.nozero			; nope.. skip next
 	lea	$400,a2			; as we was at $0, set it to $400 not to screw up stuff
 .nozero:

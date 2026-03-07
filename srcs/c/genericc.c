@@ -121,7 +121,7 @@ void print(char *string __asm("a0"), uint8_t color __asm("d1"))                 
     }
 }
 
-void printChar(char character __asm("d0"), uint8_t color __asm("d1"))            // Prints a char on screen, handles X, Y postiion, scrolling etc.
+void printChar(char character __asm("d0"), uint8_t color __asm("d1"))            // Prints a char on screen, handles X, Y position, scrolling etc.
 {
     uint8_t invCol=0;
     if(character==0xd)
