@@ -38,9 +38,17 @@ all: diagrom.rom $(OUTDIR)/diagrom.exe
 	@mkdir -p roms/a1200
 	cp $< roms/a1200/DiagROM
 
+ROM_SIZE := 524288
+
 diagrom.rom: $(OUTDIR)/diagrom_nosum.bin $(OUTDIR)/checksum
 	$(OUTDIR)/checksum $< $@
 	python3 tools/mkrom.py $@
+	@SIZE=$$(wc -c < $@); \
+	if [ $$SIZE -ne $(ROM_SIZE) ]; then \
+		echo "WARNING: ROM size is $$SIZE bytes, expected $(ROM_SIZE) (512KB)!"; \
+	else \
+		echo "ROM size OK: $$SIZE bytes"; \
+	fi
 
 $(OUTDIR)/diagrom_nosum.exe: $(OBJS)
 	$(LN) -nostartfiles -nostdlib -Wl,-Map,$@.txt -T srcs/link.txt $(OBJS) -o $@ $(LNFLAGS)
