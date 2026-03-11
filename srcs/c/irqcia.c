@@ -299,7 +299,7 @@ void polledcia(VARS)
               print("\n",WHITE);
 
        print("\n Testing EVEN CIA Steps of 1ms each\n",WHITE);
-       print("\nCIAB Timer B:",GREEN);
+       print("\nCIAB Timer A:",GREEN);
        counter = 0;
        globals->Frames=0;
        print("             ",WHITE);

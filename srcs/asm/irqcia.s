@@ -541,7 +541,7 @@ TestBTOD:
 	bsr	Print
 	cmp.l	#30000,d6
 	ble	.tooslow
-	cmp.l	#32000,d6
+	cmp.l	#33000,d6
 	bge	.toofast
 	move.l	#70,d0
 	move.l	#12,d1
