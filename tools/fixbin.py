@@ -21,13 +21,16 @@ def main():
         print(f"fixbin: {ROM_SIZE} bytes, no fixup needed")
         return
 
-    # Autovecs are placed last in the output section, so they are the last 16 bytes
-    autovecs_bytes = data[-16:]
-    if autovecs_bytes != AUTOVEC:
-        print(f"fixbin ERROR: last 16 bytes are not autovecs: {autovecs_bytes.hex()}")
+    # Autovecs are placed last in the output section.
+    # The linker may add up to 3 trailing alignment bytes after them, so search
+    # for the pattern within the last 20 bytes of the binary.
+    pos = data.rfind(AUTOVEC, len(data) - 20)
+    if pos < 0:
+        print(f"fixbin ERROR: autovec pattern not found in last 20 bytes")
+        print(f"  last 20 bytes: {data[-20:].hex()}")
         sys.exit(1)
 
-    code = data[:-16]
+    code = data[:pos]
     if len(code) > ROM_SIZE - 16:
         print(f"fixbin ERROR: code too large: {len(code)} bytes, max {ROM_SIZE - 16}")
         sys.exit(1)
