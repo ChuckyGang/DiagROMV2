@@ -38,4 +38,6 @@ SECTIONS
     . = KICKSTART_SIZE - 28;
     *(.autovec)
   } > rom
+
+  /DISCARD/ : { *(.comment) *(.note*) *(.gnu*) *(.stab*) }
 }
