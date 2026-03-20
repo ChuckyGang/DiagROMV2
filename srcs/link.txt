@@ -34,10 +34,14 @@ SECTIONS
     *(.romAgaLowResCopper)
     *(.romAgaHiResCopper)
     *(.checksums)
-    *(EXCLUDE_FILE(*autovec.o) *)   /* absorb any remaining orphan sections */
-    . = KICKSTART_SIZE - 16;       /* autovec is 16 bytes, ends exactly at 512KB */
+    *(EXCLUDE_FILE(*autovec.o) *)   /* absorb any orphan sections */
+  } > rom
+
+  /* Force autovec to exactly the last 16 bytes of the 512KB ROM */
+  .autovec (KICKSTART_ADDR + KICKSTART_SIZE - 16) :
+  {
     *(.autovec)
   } > rom
 
-  /DISCARD/ : { *(*) }             /* discard anything not explicitly placed */
+  /DISCARD/ : { *(*) }
 }
