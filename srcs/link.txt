@@ -34,10 +34,10 @@ SECTIONS
     *(.romAgaLowResCopper)
     *(.romAgaHiResCopper)
     *(.checksums)
-
-    . = KICKSTART_SIZE - 28;
+    *(EXCLUDE_FILE(*autovec.o) *)   /* absorb any remaining orphan sections */
+    . = KICKSTART_SIZE - 16;       /* autovec is 16 bytes, ends exactly at 512KB */
     *(.autovec)
   } > rom
 
-  /DISCARD/ : { *(.comment) *(.note*) *(.gnu*) *(.stab*) }
+  /DISCARD/ : { *(*) }             /* discard anything not explicitly placed */
 }
