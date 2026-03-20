@@ -36,7 +36,6 @@ jobs:
           mkdir -p dist
           cp diagrom.rom dist/
           cp 16bit.bin 32bitHI.bin 32bitLO.bin CD32.bin dist/
-          cp build/diagrom.exe dist/
           zip -r DiagROM-V2.0-${{ github.ref_name }}.zip dist/
           ls -la DiagROM-V2.0-${{ github.ref_name }}.zip
 
