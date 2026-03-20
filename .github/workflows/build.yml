@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y python3 zip
+
       - name: Build
         run: make
 
