@@ -39,10 +39,10 @@ jobs:
 
       - name: Package binaries
         run: |
-          mkdir -p dist
-          cp diagrom.rom dist/
-          cp 16bit.bin 32bitHI.bin 32bitLO.bin CD32.bin dist/
-          zip -r DiagROM-V2.0-${{ github.ref_name }}.zip dist/
+          mkdir -p DiagROM
+          cp diagrom.rom DiagROM/
+          cp 16bit.bin 32bitHI.bin 32bitLO.bin CD32.bin DiagROM/
+          zip -r DiagROM-V2.0-${{ github.ref_name }}.zip DiagROM/
           ls -la DiagROM-V2.0-${{ github.ref_name }}.zip
 
       - name: Upload artifact

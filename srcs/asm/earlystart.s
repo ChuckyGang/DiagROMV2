@@ -291,7 +291,7 @@ _begin:
 	KPRINTC _diagRomCheckadrtxt
 _romadrcheck:
 	lea	_endofcode,a2			; Load address of last used address in rom of the code. located in checksums.s that is in the end of the rom-code
-	lea	_autovec,a1			; Load address of autovec from autovec.s that is placed dead-last on the rom. so we know last address
+	lea	$FFFFF0.l,a1			; Autovecs are always at the last 16 bytes of the 512KB ROM ($FFFFF0-$FFFFFF)
 	move.l	a2,d0
 	move.l	a1,d1
 	sub.l	d0,d1				; get the size of unused space in the rom, space that is padded with addressdata.
