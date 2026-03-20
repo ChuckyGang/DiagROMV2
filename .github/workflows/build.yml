@@ -19,7 +19,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y python3 python3-pip zip && pip3 install libclang==16.0.6
+        run: apt-get update && apt-get install -y python3 python3-pip zip make gcc && pip3 install libclang==16.0.6
+
+      - name: Update vasm
+        run: |
+          wget -q http://sun.hasenbraten.de/vasm/release/vasm.tar.gz
+          tar xzf vasm.tar.gz
+          make -C vasm CPU=m68k SYNTAX=mot
+          cp vasm/vasmm68k_mot /opt/amiga/bin/vasmm68k_mot
 
       - name: Build
         run: make
