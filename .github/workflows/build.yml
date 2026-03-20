@@ -37,13 +37,14 @@ jobs:
           cp diagrom.rom dist/
           cp 16bit.bin 32bitHI.bin 32bitLO.bin CD32.bin dist/
           cp build/diagrom.exe dist/
-          cd dist && zip -r ../DiagROM-V2.0-${{ github.ref_name }}.zip .
+          zip -r DiagROM-V2.0-${{ github.ref_name }}.zip dist/
+          ls -la DiagROM-V2.0-${{ github.ref_name }}.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: DiagROM-V2.0-${{ github.ref_name }}
-          path: DiagROM-*.zip
+          path: DiagROM-V2.0-${{ github.ref_name }}.zip
           retention-days: 90
 
       - name: Create GitHub Release
