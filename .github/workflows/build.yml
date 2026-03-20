@@ -31,7 +31,7 @@ jobs:
           cp vasm/vasmm68k_mot /opt/amiga/bin/vasmm68k_mot
 
       - name: Build
-        run: make CFLAGS="-DDEBUG=0 -DROM_BASE=0xF80000 -mcpu=68000 -O2 -ffixed-a6 -fomit-frame-pointer -I./ndk/Include_H -I. -Isrcs"
+        run: make CFLAGS="-DDEBUG=0 -DROM_BASE=0xF80000 -mcpu=68000 -O0 -ffixed-a6 -fomit-frame-pointer -I./ndk/Include_H -I. -Isrcs"
 
       - name: Package binaries
         run: |
