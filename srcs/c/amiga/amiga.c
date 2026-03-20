@@ -36,11 +36,9 @@ void clearDisplay(void)
 
 void swapVideoMode(void)
 {
-    globals->NTSC = 0;
     *(volatile uint16_t *)0xdff180 = 0xfff;        // white flash
     globals->SCRNMODE ^= 0x20;
-    if (globals->SCRNMODE == 0x20)
-        globals->NTSC = 1;
+    globals->NTSC = (globals->SCRNMODE & 0x20) ? 0 : 1;  // 0x20=PAL, 0x00=NTSC
     *(volatile uint16_t *)0xdff1dc = globals->SCRNMODE;  // BEAMCON0
 }
 

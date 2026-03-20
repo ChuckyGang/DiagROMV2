@@ -635,20 +635,21 @@ void gfxCAgaHigh(VARS)
        print("\n\nDONE. Press any key/button to exit",WHITE);
        do
        {
+              // Wait for LOF transition = vertical blank between fields.
+              // Updating the copper list here (before the copper restarts) ensures
+              // the correct bitplane pointer is set for the field that is about to start.
+              uint16_t lof_prev = custom->vposr & 0x8000;
+              uint16_t lof_curr;
+              do { lof_curr = custom->vposr & 0x8000; } while (lof_curr == lof_prev);
 
-                 uint16_t vposr = custom->vposr;
-
-      if (vposr & 0x8000) {
-          // Odd field (LOF=1) - start at line 0
-          for (int i = 0; i < 8; i++) {
-              SetBplPtrAga(copperlist, i, bplPointers[i] + 80);
-          }
-      } else {
-          // Even field (LOF=0) - start at line 1 (+80 bytes)
-          for (int i = 0; i < 8; i++) {
-              SetBplPtrAga(copperlist, i, bplPointers[i]);
-          }
-      }
+              // lof_curr reflects the new field now starting
+              if (lof_curr) {
+                  // LOF=1: long frame - display lines 0,2,4... -> start at bplPointers[i]
+                  for (int i = 0; i < 8; i++) SetBplPtrAga(copperlist, i, bplPointers[i]);
+              } else {
+                  // LOF=0: short frame - display lines 1,3,5... -> start at bplPointers[i]+80
+                  for (int i = 0; i < 8; i++) SetBplPtrAga(copperlist, i, bplPointers[i] + 80);
+              }
 
               GetInput();
        }    while(globals->BUTTON == 0);
@@ -727,20 +728,20 @@ void gfxChigh(VARS)
 
        do
        {
+              // Wait for LOF transition = vertical blank between fields.
+              // Update copper list here, before the copper restarts, so the
+              // correct bitplane pointer is in place for the field about to start.
+              uint16_t lof_prev = custom->vposr & 0x8000;
+              uint16_t lof_curr;
+              do { lof_curr = custom->vposr & 0x8000; } while (lof_curr == lof_prev);
 
-         uint16_t vposr = custom->vposr;
-
-      if (vposr & 0x8000) {
-          // Odd field (LOF=1) - start at line 0
-          for (int i = 0; i < 4; i++) {
-              SetBplPtr(copperlist, i, bplPointers[i]+80);
-          }
-      } else {
-          // Even field (LOF=0) - start at line 1 (+80 bytes)
-          for (int i = 0; i < 4; i++) {
-              SetBplPtr(copperlist, i, bplPointers[i]);
-          }
-      }
+              if (lof_curr) {
+                // LOF=0: short frame - display lines 1,3,5... -> bplPointers[i]
+                  for (int i = 0; i < 4; i++) SetBplPtr(copperlist, i, bplPointers[i]);
+              } else {
+                  // LOF=1: long frame - display lines 0,2,4... -> bplPointers[i]+80
+                  for (int i = 0; i < 4; i++) SetBplPtr(copperlist, i, bplPointers[i]+80);
+              }
               GetInput();
        }    while(globals->BUTTON == 0);
 

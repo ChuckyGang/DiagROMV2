@@ -45,18 +45,18 @@ jobs:
           mkdir -p DiagROM
           cp diagrom.rom DiagROM/
           cp 16bit.bin 32bitHI.bin 32bitLO.bin CD32.bin DiagROM/
-          zip -r DiagROM-V2.0-${{ github.ref_name }}.zip DiagROM/
-          ls -la DiagROM-V2.0-${{ github.ref_name }}.zip
+          zip -r DiagROM-${{ github.ref_name }}.zip DiagROM/
+          ls -la DiagROM-${{ github.ref_name }}.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DiagROM-V2.0-${{ github.ref_name }}
-          path: DiagROM-V2.0-${{ github.ref_name }}.zip
+          name: DiagROM-${{ github.ref_name }}
+          path: DiagROM-${{ github.ref_name }}.zip
           retention-days: 90
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: DiagROM-*.zip
+          files: DiagROM-${{ github.ref_name }}.zip

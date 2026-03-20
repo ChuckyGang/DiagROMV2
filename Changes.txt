@@ -1,0 +1,76 @@
+2026-03-20:
+	Removed BETA Tag of 2.0, First "Stable" release of 2.0
+	More internal fixes, slight bugfixes with interlaced gfx tests. Fix of build script that sometimes made rom file too large making it not to run on pistorm etc.
+	Better handling of NTSC modes and detection of machines starting at NTSC mode and not able to switch to PAL.
+	Added config into Github to automatically make a realease ZIP file.
+
+2026-03-01:
+	A BIG remake more or less all generic functions are moved to C. YES I must confess. Claude have been used as it made converting quicker.
+	I will dig into the code generated and check it out.  also now it is VERY important. PLEASE report any bugs now. so this can be a "Stable" version.
+	and working on new tests directly in C can be done proper. (NO Claude will not be used to vibe-code that :) )
+	ALSO! NOW Source is available as "read only" at: https://github.com/ChuckyGang/DiagROMV2  please use it as a way to report issues.
+
+2026-01-17:
+	Started to actually handle a new RTC test.  it WILL show wrong dates etc etc. please report different behaviour on
+	different machines, also fixed keyboardhandling.  now it should be way more responsive.
+	Using a new way to build the EPROM files. please report any issues.
+	
+2026-01-02:
+	Happy new year. yaddayadda :)
+	OLD CIA test will not work on 68000 and will soon be removed anyway so skipped!
+	Changed crashscreen to show build date, also show part of stack to help trace reason of crash.
+	Added AGA Testscreens
+	Changed so first word is $1114 again!  even if this technically is not needed but there are CPU cards with flashable kickstarts that
+	apparently REQUIRE it to be that exact value or it told it was not a legal Kickstart ROM.
+
+2025-12-23:
+	Merry Christmas. yaddayadda :)
+	Fixed a rouge IRQ on 68000 machines on new CIA Tests.
+	Added a note of old CIA/IRQ tests that they will soon be removed.
+	Added 2 testpictures.   this is generated not a still picture. it is slow on older machines. might speed things up.
+	as it actually now always generates the picture in 640 x 512 pixels resolution and scaled down. to be changed later.
+	but should be able to test things like A3000 Scandoubler etc now.
+
+2025-08-30:
+	Improved NTSC Support. Now should print statusline and keep text within NSTC borders during NTSC mode.
+	New RTC Test function.   We now have TWO highly experimental RTC tests. the old one will soon be removed.
+	Added a experimental way of timing time between seconds in RTC. not sure if useful yet :) requires working CIA.
+	Some changes in CIA test routine. working on finding a way to detect the TOD bug. do NOT rely on that at the moment.
+	more cleaning up in source.  planning to open up the source in time (VIEWING only!)  hopefully quite soon
+	Decided to go to BETA stage.  There are most likly still small bugs in this convertingstage! as always PLEASE report!
+	mail to: chucky@thegang.nu
+
+2025-08-05:
+	More changes to the new CIA test.  First fixed my small "oopsie" of naming ODD/EVEN CIAs incorrect. fixed now.
+	Added test for the TOD (Time of Day) ALARM Function. This requires INT2/6 to work aswell (from CIA)
+	Also added support for 60Hz screenmode in the test so now machines that are not able to switch to PAL will show if a CIA is OK
+	IF You have a NTSC machine reporting CIAs as not ok even if they are, please send me a screenshot. ( chucky@thegang.nu )
+	old CIA test will soon be removed when this test shown reliable!.  more improvements will come soon.
+2025-07-05:
+	ok sorry for being messy! Changed back baudrate to 9600 is I felt menus etc more unresponsive on slower machines. what do you think?
+	Send me a report if you want me to go back to 19200.
+	Added a new CIA test that I am still working on will be way more in depth now.  can find if a CIA cannot trigger IRQs.
+	something several youtubers have found missing but NOT REPORTING IT!.
+	to those I would like to send you a VERY VERY deep THANK YOU for NOT REPORTING!. as  why would you?
+	That would make me find out things and improve the software.  right?
+	anyway enough nagging!
+
+	also more internally swapped out VBCC to GCC as C Compiler as VBCC simply did not cut it.
+
+2025-03-19:
+	Fixed bug that if there was no ram at beginning it did not scan for more ram. not finding working ram later in block if there was any.
+	Fixed bug that if there was no ram at all it actually halts system and try to show biterrors on screen with rastertricks
+
+2025-03-03: People reported crashing on A500, found data on odd addresses, fixed it
+
+2025-03-01:
+	Sorry  more "undocumented issues" fixed
+	been working on new environment.
+	fixed detection of memory during startup, now as one example TF4060 256MB ram detected correctly.
+	Hopefully fixed sprite-bug that sometimes showed bars at startup.
+	Added a new IRQ test rouine, now completly written in C.  also detects rouge IRQs. meaning if you trigger IRQ1 but IRQ2 gets triggered it is detected.
+
+2024-10-04:
+	Fixed so if a too small amount of chipmem found, it will not end up in a eternal loop checking for more ram.
+
+For more information  https://www.diagrom.com

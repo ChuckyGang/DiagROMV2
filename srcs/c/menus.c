@@ -239,12 +239,15 @@ static const char diskMenu4[]  = "4 - Floppytest (New Experimental)";
 static const char diskMenu5[]  = "9 - Mainmenu";
 
 static const char *diskMenuItems[] = {
-    diskText, diskMenu1, diskMenu2, diskMenu3, diskMenu4, diskMenu5, NULL
+    //diskText, diskMenu1, diskMenu2, diskMenu3, diskMenu4, diskMenu5, NULL
+    diskText, diskMenu1, diskMenu2, diskMenu3, diskMenu5, NULL
 };
 static MenuHandler diskMenuCode[] = {
-    DiskdriveTest, GayleTest, GayleExp, floppyTestC, mainMenu
+    //DiskdriveTest, GayleTest, GayleExp, floppyTestC, mainMenu
+    DiskdriveTest, GayleTest, GayleExp, mainMenu
 };
-static uint8_t diskMenuKey[] = { '1','2','3','4','9',0 };
+//static uint8_t diskMenuKey[] = { '1','2','3','4','9',0 };
+static uint8_t diskMenuKey[] = { '1','2','3','9',0 };
 
 // ---------------------------------------------------------------------------
 // Top-level tables indexed by MenuNumber

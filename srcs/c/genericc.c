@@ -168,7 +168,7 @@ void printCharNewLine()
     rs232_out('\x0d');
     if(globals->NTSC)
     {
-        if(BYTE(globals->Ypos)>26)
+        if(BYTE(globals->Ypos)>24)
         {
             scrollScreen();
             BYTE(globals->Xpos)=0;

@@ -116,7 +116,7 @@ static void detFastMem(uint32_t randVal)
         if (*(volatile uint32_t *)0x700 != 0x32344254u) has32 = 1;
 
         if (has32) {
-            print(NO, RED);
+            print(NO, CYAN);
             print(NewLineTxt, RED);
 
             // A3000/A4000 motherboard memory ($1M - $128M)
@@ -480,6 +480,7 @@ void initCode(void)
     }
 
     sendSerial("\r\n---- Startupflags done\n\n");
+    globals->NTSC=0;                // Set NTSC as none just to be sure
 
     // -----------------------------------------------------------------------
     // Hardware register snapshot, base addresses
@@ -547,8 +548,8 @@ void initCode(void)
     int agnusIdx = 0;
     while (agnusID[agnusIdx] != 0xff && agnusID[agnusIdx] != agnusRaw)
         agnusIdx++;
-    if (agnusID[agnusIdx] == 0xff) agnusIdx--;   // unknown: use last entry
-    globals->NTSC = agnusIdx & 1;
+    if (agnusID[agnusIdx] == 0xff) agnusIdx--;   // unknown: use last entry for display text
+    globals->NTSC = (agnusRaw & 0x10) ? 1 : 0; // bit 4 = NTSC for all known chips + unknown
     sendSerial((char *)agnusTxt[agnusIdx]);
     sendSerial(NewLineTxt);
 
