@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y python3 python3-pip zip make gcc && pip3 install libclang==16.0.6
+        run: apt-get update && apt-get install -y python3 python3-pip zip make gcc curl && pip3 install libclang==16.0.6
 
       - name: Update vasm
         run: |
