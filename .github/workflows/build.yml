@@ -37,6 +37,9 @@ jobs:
         if: failure()
         run: cat build/diagrom_nosum.exe.txt || true
 
+      - name: Verify ROM checksums (host-side)
+        run: python3 tools/verify_checksums.py diagrom.rom
+
       - name: Package binaries
         run: |
           mkdir -p DiagROM

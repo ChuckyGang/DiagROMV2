@@ -51,42 +51,33 @@ void romChecksum()
 
     print("\n\nDoing ROM Checksumtest: (64K blocks, Green OK, Red Failed)\n", 3);
 
-    uint32_t *csPtr = checksums;
     uint32_t csStart = (uint32_t)checksums;
-    uint32_t csEnd = (uint32_t)&endchecksums;
+    uint32_t csEnd   = (uint32_t)&endchecksums;
 
     for(int block = 0; block < 8; block++)
     {
-        uint32_t *rom = (uint32_t *)(ROM_BASE + block * 0x10000);
+        uint32_t blockBase = (uint32_t)ROM_BASE + (uint32_t)block * (uint32_t)0x10000;
+        uint32_t blockEnd  = blockBase + (uint32_t)0x10000;
+        volatile uint32_t *rom = (volatile uint32_t *)blockBase;
         uint32_t sum = 0;
+        int i;
 
-        // Sum entire 64K block - tight loop, no branch per word
-        for(int i = 0; i < 0x4000; i += 8)
-        {
-            sum += rom[0]; sum += rom[1]; sum += rom[2]; sum += rom[3];
-            sum += rom[4]; sum += rom[5]; sum += rom[6]; sum += rom[7];
-            rom += 8;
-        }
+        // Sum entire 64K block (0x4000 longwords)
+        for(i = 0; i < 0x4000; i++)
+            sum += rom[i];
 
-        // Subtract out any checksum longwords that fell inside this block
-        uint32_t blockStart = 0xF80000 + block * 0x10000;
-        uint32_t blockEnd = blockStart + 0x10000;
-        if(csStart < blockEnd && csEnd > blockStart)
+        // Subtract any checksum longwords that fall inside this block.
+        // The checksum area (csStart..csEnd) is always 32 bytes in one block.
         {
-            uint32_t *cs = (uint32_t *)csStart;
-            while((uint32_t)cs < csEnd)
+            uint32_t csAddr;
+            for(csAddr = csStart; csAddr < csEnd; csAddr += 4)
             {
-                if((uint32_t)cs >= blockStart && (uint32_t)cs < blockEnd)
-                    sum -= *cs;
-                cs++;
+                if(csAddr >= blockBase && csAddr < blockEnd)
+                    sum -= *(volatile uint32_t *)csAddr;
             }
         }
 
-        uint8_t color;
-        if(sum == *csPtr++)
-            color = 2;                           // Green = OK
-        else
-            color = 1;                           // Red = Failed
+        uint8_t color = (sum == checksums[block]) ? 2 : 1;
 
         print(binHex(sum), color);
         print(" ", color);
