@@ -12,11 +12,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: bebbo/amiga-gcc:latest
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Amiga toolchain
+        run: |
+          sudo add-apt-repository -y ppa:bebbo/amiga
+          sudo apt-get update
+          sudo apt-get install -y amiga-gcc python3 zip
 
       - name: Build
         run: make
