@@ -35,7 +35,7 @@ SECTIONS
     *(.romAgaHiResCopper)
     *(.checksums)
 
-    . = KICKSTART_SIZE - 16;
+    . = KICKSTART_SIZE - 28;
     *(.autovec)
   } > rom
 }

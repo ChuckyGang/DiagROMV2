@@ -33,6 +33,10 @@ jobs:
       - name: Build
         run: make CFLAGS="-DDEBUG=0 -DROM_BASE=0xF80000 -mcpu=68000 -O0 -ffixed-a6 -fomit-frame-pointer -I./ndk/Include_H -I. -Isrcs"
 
+      - name: Dump linker map on failure
+        if: failure()
+        run: cat build/diagrom_nosum.exe.txt || true
+
       - name: Package binaries
         run: |
           mkdir -p dist
