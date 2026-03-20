@@ -45,6 +45,7 @@ jobs:
           mkdir -p DiagROM
           cp diagrom.rom DiagROM/
           cp 16bit.bin 32bitHI.bin 32bitLO.bin CD32.bin DiagROM/
+          cp Changes.txt README.md DiagROM/
           zip -r DiagROM-${{ github.ref_name }}.zip DiagROM/
           ls -la DiagROM-${{ github.ref_name }}.zip
 
