@@ -25,7 +25,7 @@ the project can live on. That is the only reason the source is public.
 
 ----------------------------------------------------------------------------------------
 No lawyers, no legalese - just common sense and respect. if you need to twist words etc:
-              YOU ARE AN ASSHOLE AND ARE NOT ALLOWED ANYWAY. MMKEY!?
+              no wordtwisting!  if you need to do it: NO you are wrong!
 ----------------------------------------------------------------------------------------
 
 
