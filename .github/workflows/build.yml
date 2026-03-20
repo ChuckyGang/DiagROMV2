@@ -23,7 +23,7 @@ jobs:
 
       - name: Update vasm
         run: |
-          wget -q http://sun.hasenbraten.de/vasm/release/vasm.tar.gz
+          curl -sO http://sun.hasenbraten.de/vasm/release/vasm.tar.gz
           tar xzf vasm.tar.gz
           make -C vasm CPU=m68k SYNTAX=mot
           cp vasm/vasmm68k_mot /opt/amiga/bin/vasmm68k_mot
