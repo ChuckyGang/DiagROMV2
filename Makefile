@@ -54,6 +54,10 @@ diagrom.rom: $(OUTDIR)/diagrom_nosum.bin $(OUTDIR)/checksum
 $(OUTDIR)/diagrom_nosum.exe: $(OBJS)
 	$(LN) -nostartfiles -nostdlib -Wl,-Map,$@.txt -T srcs/link.txt $(OBJS) -o $@ $(LNFLAGS)
 
+$(OUTDIR)/diagrom_nosum.bin: $(OUTDIR)/diagrom_nosum.exe
+	$(OC) -O binary $< $@
+	python3 tools/fixbin.py $@
+
 $(OUTDIR)/%.bin: $(OUTDIR)/%.exe
 	$(OC) -O binary $< $@
 
