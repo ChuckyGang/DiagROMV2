@@ -45,7 +45,8 @@ diagrom.rom: $(OUTDIR)/diagrom_nosum.bin $(OUTDIR)/checksum
 	python3 tools/mkrom.py $@
 	@SIZE=$$(wc -c < $@); \
 	if [ $$SIZE -ne $(ROM_SIZE) ]; then \
-		echo "WARNING: ROM size is $$SIZE bytes, expected $(ROM_SIZE) (512KB)!"; \
+		echo "ERROR: ROM size is $$SIZE bytes, expected $(ROM_SIZE) (512KB)!"; \
+		exit 1; \
 	else \
 		echo "ROM size OK: $$SIZE bytes"; \
 	fi
