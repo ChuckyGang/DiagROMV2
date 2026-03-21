@@ -69,20 +69,34 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Install gh CLI (may already be present, ignore errors)
-          apt-get install -y gh 2>/dev/null || true
-          # List and delete all releases whose tag starts with beta-
-          gh release list --repo ${{ github.repository }} --limit 100 --json tagName,name \
-            | python3 -c "
-          import json, sys, subprocess, os
-          releases = json.load(sys.stdin)
-          repo = os.environ['GITHUB_REPOSITORY']
-          for r in releases:
-              tag = r['tagName']
+          python3 - << 'EOF'
+          import json, os, urllib.request, urllib.error
+
+          token = os.environ['GH_TOKEN']
+          repo  = os.environ['GITHUB_REPOSITORY']
+          api   = f'https://api.github.com/repos/{repo}'
+          hdrs  = {'Authorization': f'Bearer {token}',
+                   'Accept': 'application/vnd.github+json',
+                   'X-GitHub-Api-Version': '2022-11-28'}
+
+          def gh(method, path, expect=(200, 204)):
+              req = urllib.request.Request(f'{api}{path}', headers=hdrs, method=method)
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.loads(r.read()) if r.status == 200 else None
+              except urllib.error.HTTPError as e:
+                  if e.code not in expect:
+                      print(f'  {method} {path} -> {e.code}')
+                  return None
+
+          releases = gh('GET', '/releases?per_page=100') or []
+          for rel in releases:
+              tag = rel['tag_name']
               if tag.startswith('beta-'):
-                  print(f'Deleting release {tag}')
-                  subprocess.run(['gh', 'release', 'delete', tag, '--repo', repo, '--yes', '--cleanup-tag'], check=False)
-          "
+                  print(f'Deleting release + tag: {tag}')
+                  gh('DELETE', f'/releases/{rel["id"]}', expect=(204,))
+                  gh('DELETE', f'/git/refs/tags/{tag}',  expect=(204,))
+          EOF
 
       - name: Create beta release (dev branch)
         if: github.ref == 'refs/heads/dev'
