@@ -43,9 +43,6 @@ void floppyTestC(void)
     char     addOneStr[12];
     MenuVar  diskMenuVars[3];
 
-    // Initialise explicitly — avoids GCC emitting memcpy/memset calls for
-    // string-literal array init, and avoids unaligned move.l from packed-struct
-    // initialiser syntax hitting an odd stack address on 68000.
     addOneStr[0] = '0';
     addOneStr[1] = '\0';
 
