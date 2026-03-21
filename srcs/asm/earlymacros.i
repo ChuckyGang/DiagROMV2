@@ -3,7 +3,7 @@ VER:	MACRO
 	dc.b "2"			; Versionnumber
 	ENDM
 REV:	MACRO
-	dc.b "0"	; BETA"			; Revisionmumber
+	dc.b "1 BETA"	; BETA"			; Revisionmumber
 	ENDM
 
 VERSION:	MACRO
