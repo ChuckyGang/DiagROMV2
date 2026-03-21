@@ -47,6 +47,37 @@ int main(int argc, const char** argv)
 	}
 	fclose(f);
 
+	// Find Checksum area first — we need the section start to correctly compute
+	// the section-relative CNOP alignment for _endofcode.
+	uint32_t checksum_area_start = 0;
+	uint32_t checksum_value_offset = 0;
+	uint32_t checksum_area_end = 0;
+
+	for (int i = 0; i < size; ++i)
+	{
+		const char check_str[] = "Checksums:";
+		if (mem[i] == check_str[0] && !memcmp(mem+i, check_str, sizeof(check_str)-1))
+		{
+			// Use fixed section-relative offset: "Checksums:"(10 bytes) +
+			// CNOP 0,4 section-relative padding(2 bytes) = 12 bytes to _checksums.
+			// Do NOT use absolute alignment ((i+12)&~3) — CNOP aligns relative to
+			// the section start, not to the absolute file offset.
+			checksum_area_start = i;
+			checksum_value_offset = i + 12;
+			checksum_area_end = checksum_value_offset + sizeof(uint32_t) * 8;
+			break;
+		}
+	}
+
+	if (checksum_area_start == 0)
+	{
+		printf("Checksum marker string not found!\n");
+		return -1;
+	}
+
+	// The .checksums section starts 4 bytes before "Checksums:" (the dc.l 0 at section top).
+	uint32_t section_start = checksum_area_start - 4;
+
 	// Find the end-of-code marker and patch the contents up until the end of the ROM
 	uint32_t address_area_start = 0;
 	uint32_t address_area_end = 0x00fffff0 - 0x00f80000; // ends at autovec area
@@ -55,10 +86,12 @@ int main(int argc, const char** argv)
 		const char end_str[] = "End of Code...";
 		if (mem[i] == end_str[0] && !memcmp(mem+i, end_str, sizeof(end_str)-1))
 		{
-			address_area_start = i;
-			address_area_start += sizeof(end_str);
-			address_area_start += 0x3;
-			address_area_start &= ~0x3;
+			// _endofcode is CNOP 0,4 aligned RELATIVE TO SECTION START after the null terminator.
+			// Use section-relative alignment (not absolute) to match exactly where the
+			// assembler places the _endofcode label — this is what earlystart.s checks from.
+			uint32_t after_null = i + (uint32_t)(sizeof(end_str) - 1) + 1; // skip string + null
+			uint32_t section_off = after_null - section_start;
+			address_area_start = section_start + ((section_off + 3) & ~3);
 			break;
 		}
 	}
@@ -70,33 +103,10 @@ int main(int argc, const char** argv)
 
 	printf("End-of-code : %08x\n", address_area_start);
 
-	for (uint32_t offset = address_area_start; offset != address_area_end; offset+=4)
+	for (uint32_t offset = address_area_start; offset < address_area_end; offset+=4)
 	{
 		uint32_t addr = 0xf80000 + offset;
 		WL(mem, offset, addr);
-	}
-
-	// Find Checksum area, and patch it
-	uint32_t checksum_area_start = 0;
-	uint32_t checksum_value_offset = 0;
-	uint32_t checksum_area_end = 0;
-
-	for (int i = 0; i < size; ++i)
-	{
-		const char check_str[] = "Checksums:";
-		if (mem[i] == check_str[0] && !memcmp(mem+i, check_str, sizeof(check_str)-1))
-		{
-			checksum_area_start = i;
-			checksum_value_offset = (i + (sizeof(check_str)-1) + 3) & ~0x3;
-			checksum_area_end = checksum_value_offset + sizeof(uint32_t) * 8;
-			break;
-		}
-	}
-
-	if (checksum_area_start == 0)
-	{
-		printf("Checksum marker string not found!\n");
-		return -1;
 	}
 
 	printf("Checksum area start  %08x\n", checksum_area_start);

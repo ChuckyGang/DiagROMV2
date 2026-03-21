@@ -5,15 +5,28 @@
 
 void crap();
 
-static const char DiskMenuText[] = "Memorytests\n";
-static const char DiskMenuT1[] = "0 - Memorytests";
-static const char DiskMenuT2[] = "1 - Memorytests";
+static const char DiskMenuText[] = "\002Floppy Test";
+static const char DiskMenuT1[] = "1 - Select Disk: ";
+static const char DiskMenuT2[] = "2 - Motor";
+static const char DiskMenuT3[] = "3 - Change side";
+static const char DiskMenuT4[] = "4 - Step out";
+static const char DiskMenuT5[] = "5 - Step in";
+static const char DiskMenuT6[] = "6 - Step out 10 tracks";
+static const char DiskMenuT7[] = "7 - Stel in 10 tracks";
+static const char DiskMenuT8[] = "8 - Read track to buffer";
+
 static const char DiskMenuBack[] = "9 - Main menu";
 
 static const char *DiskMenuItems[] = {
-       DiskMenuText,
-       DiskMenuT1,
-       DiskMenuT2,
+        DiskMenuText,
+        DiskMenuT1,
+        DiskMenuT2,
+        DiskMenuT3,
+        DiskMenuT4,
+        DiskMenuT5,
+        DiskMenuT6,
+        DiskMenuT7,
+        DiskMenuT8,
        DiskMenuBack,
        NULL
 };
@@ -26,11 +39,6 @@ const char **DiskTestC[] = {
 
 void floppyTestC(void)
 {
-    // Local variables — live on the stack for the lifetime of this function.
-    // floppyTestC never returns (it loops forever until mainMenu() is called),
-    // so the stack frame stays alive and all pointers into it remain valid.
-    // This avoids the ROM-environment problem with writable static variables
-    // (no C runtime zeros BSS or copies .data to RAM in this -nostdlib build).
     uint32_t addOneCount = 0;
     char     addOneStr[12];
     MenuVar  diskMenuVars[3];
@@ -51,6 +59,27 @@ void floppyTestC(void)
     globals->MenuVariable = (void *)diskMenuVars;
     globals->MenuNumber   = 0;
     globals->PrintMenuFlag = 1;
+    int bah = 0;
+
+    setPos(6,2);
+    print("Track:",YELLOW);
+    setPos(18,2);
+    print("Side:",YELLOW);
+    setPos(32,2);
+    print("Motor:",YELLOW);
+    setPos(45,2);
+    print("WProtection:",YELLOW);
+    setPos(64,2);
+    print("Disk:",YELLOW);
+
+    setPos(6,3);
+    print("Ready:",YELLOW);
+    setPos(18,3);
+    print("Track0:",YELLOW);
+    setPos(32,3);
+    print("$bfe001:",YELLOW);
+    setPos(52,3);
+    print("$bdf100:",YELLOW);
 
     for (;;) {
         // --- per-iteration hardware work goes here ---
@@ -58,7 +87,11 @@ void floppyTestC(void)
         printMenu();
         getInput();
         waitLong();
-
+        setPos(0,1);
+        print(bindec(globals->MenuPos),WHITE);
+               setPos(40,1);
+        print(bindec(bah++),WHITE);
+        updateFloppyData();
         uint8_t ch  = globals->GetCharData;
         int8_t  sel = -1;
 
@@ -91,6 +124,17 @@ void floppyTestC(void)
         }
     }
 }
+
+void updateFloppyData()
+{
+    volatile struct CIA *ciab = (struct CIA *)0xbfd000;
+    volatile struct CIA *ciaa = (struct CIA *)0xbfe001;
+    setPos(41,3);   // Print bfe001 value
+    print(binStringByte(ciaa->ciapra),PURPLE);
+    setPos(61,3);   // Print bfd100 value
+    print(binStringByte(ciab->ciaprb),PURPLE);
+}
+
 void crap()
 {
               initScreen();

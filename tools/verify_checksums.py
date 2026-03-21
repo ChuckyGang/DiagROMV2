@@ -32,7 +32,9 @@ def main():
     if i < 0:
         print("ERROR: 'Checksums:' marker not found")
         sys.exit(1)
-    cs_offset = (i + len(check_str) + 3) & ~3
+    # Fixed section-relative offset: "Checksums:"(10 bytes) + CNOP 0,4 padding(2 bytes) = 12.
+    # Do NOT use absolute alignment — CNOP aligns relative to section start, not absolute offset.
+    cs_offset = i + 12
     cs_end = cs_offset + 4 * 8
 
     print(f"'Checksums:' at file offset 0x{i:x} (ROM addr 0x{ROM_BASE+i:08x})")

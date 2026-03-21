@@ -4,6 +4,7 @@
 	XDEF	_endchecksums
 	xdef	EndRom
 
+	dc.l	0			; Forces 4-byte section alignment so CNOP 0,4 matches tool's offset calc
 	dc.b	"Checksums:"
 	CNOP	0,4			; Start at even LONGWORD
 _checksums:		; Numbers here fits my Kickstart 3.1 rom.

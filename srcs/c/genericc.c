@@ -57,24 +57,19 @@ void romChecksum()
     for(int block = 0; block < 8; block++)
     {
         uint32_t blockBase = (uint32_t)ROM_BASE + (uint32_t)block * (uint32_t)0x10000;
-        uint32_t blockEnd  = blockBase + (uint32_t)0x10000;
         volatile uint32_t *rom = (volatile uint32_t *)blockBase;
         uint32_t sum = 0;
         int i;
 
-        // Sum entire 64K block (0x4000 longwords)
+        // Sum all 4-aligned longwords in this block, skipping the checksum
+        // value array.  Matches checksum.c exactly: skip any 4-aligned address
+        // that falls in [csStart, csEnd).
         for(i = 0; i < 0x4000; i++)
-            sum += rom[i];
-
-        // Subtract any checksum longwords that fall inside this block.
-        // The checksum area (csStart..csEnd) is always 32 bytes in one block.
         {
-            uint32_t csAddr;
-            for(csAddr = csStart; csAddr < csEnd; csAddr += 4)
-            {
-                if(csAddr >= blockBase && csAddr < blockEnd)
-                    sum -= *(volatile uint32_t *)csAddr;
-            }
+            uint32_t addr = blockBase + (uint32_t)i * 4;
+            if (addr >= csStart && addr < csEnd)
+                continue;
+            sum += rom[i];
         }
 
         uint8_t color = (sum == checksums[block]) ? 2 : 1;
@@ -357,24 +352,28 @@ void initIRQ3(int code)
 }
 
 // WaitPressed: waits until any button is pressed (or $ffff-iteration timeout)
+// waitShort() normalizes ~640µs/iteration across CPU speeds (68000 through 060)
 static void WaitPressed(void)
 {
     uint32_t d7 = 0;
     for (;;) {
         d7++;
         if (d7 == 0xffff) return;
+        waitShort();
         getInput();
         if (globals->BUTTON == 1) return;
     }
 }
 
 // WaitReleased: waits until all buttons are released (or timeout, marks stuck inputs)
+// waitShort() normalizes ~640µs/iteration across CPU speeds (68000 through 060)
 static void WaitReleased(void)
 {
     uint32_t d7 = 0;
     for (;;) {
         rasterFeedback();
         d7++;
+        waitShort();
         if (d7 == 0xffff) {
             globals->STUCKP1LMB = globals->P1LMB;
             globals->STUCKP2LMB = globals->P2LMB;
@@ -866,6 +865,7 @@ uint32_t getMouse(void)
 void waitPressed(void)
 {
     for (uint32_t i = 1; i < 0xffff; i++) {
+        waitShort();
         getInput();
         if (globals->BUTTON == 1)
             return;
@@ -877,6 +877,7 @@ void waitReleased(void)
 {
     for (uint32_t i = 1; i < 0xffff; i++) {
         rasterFeedback();
+        waitShort();
         getInput();
         if (globals->BUTTON == 0)
             return;
