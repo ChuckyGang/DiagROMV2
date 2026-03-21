@@ -1,0 +1,11 @@
+This is the "Daily" build.  or nighty  or Whatever you want to call it.
+
+This will usually run. but there might be days it doesn't.  If you have an issue. do check github first and see if there are a newer version.
+if issue still exist, DO tell me on bugreport@diagrom.com  or create an issue on Github.
+
+https://github.com/ChuckyGang/DiagROMV2
+
+
+No warranty! yadda Yadda!
+
+/Chucky

@@ -51,6 +51,7 @@ jobs:
           cp 16bit.bin 32bitHI.bin 32bitLO.bin CD32.bin DiagROM/
           cp Changes.txt README.md DiagROM/
           if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            cp Daily.txt DiagROM/
             zip -r ${{ env.BETA_NAME }}.zip DiagROM/
           else
             zip -r DiagROM-${{ github.ref_name }}.zip DiagROM/
