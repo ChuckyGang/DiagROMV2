@@ -1083,7 +1083,7 @@ int32_t inputHexNum(void *defaultAddr __asm("a0"))
                 }
             }
         }
-
+        
         if (d6 != d7) {
             d7 = d6;
             inputPutCursor(ws, (uint8_t)d7);

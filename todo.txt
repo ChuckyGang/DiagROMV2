@@ -1,0 +1,3 @@
+Alicia ITX PCB when in PS/2 mode it will reboot.
+       alicia ps/2 solution apparently does a reset if there are a timeout..
+

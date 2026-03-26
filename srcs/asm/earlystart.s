@@ -128,6 +128,7 @@ _begin:
 	move.l	#POSTTrace,$24
 	move.l	#POSTUnimplInst,$28
 	move.l	#POSTUnimplInst,$2c
+
 ;	move.b	#$88,$bfed01
 ;	or.b	#$40,$bfee01		; For keyboard
 

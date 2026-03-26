@@ -368,7 +368,7 @@ typedef struct GlobalVars
 	uint8_t	EVENALARMOK;
 	uint8_t	EVENTODOK;
 
-	uint8_t	temp[10];
+	uint8_t	temp[10] __attribute__((aligned(2)));
 	uint8_t	CheckMemStartAdrTxt[9];
 	uint8_t	CheckMemEndAdrTxt[9];
 	uint8_t	keypressed[2];
