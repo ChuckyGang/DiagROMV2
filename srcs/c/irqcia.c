@@ -428,16 +428,18 @@ void polledcia(VARS)
 
               print("\nCheck if CIAA can trigger IRQ2: ",WHITE);
 
-       ciaa->ciacra = 0x00;
+       ciaa->ciacra = 0x00;          // Stop timer
+       ciaa->ciaicr = 0x7f;          // Clear all CIAA ICR enables (bit7=0 = clear mode)
+       (void)ciaa->ciaicr;           // Read ICR to clear any pending flags
+       custom->intreq = IR2;         // Clear any stale INTREQ bit 3 (leftover from polled tests)
+       globals->Frames=0;
+       globals->IRQ2=0;              // Reset flag before enabling interrupts
        ciaa->ciatalo = 0x10;
        ciaa->ciatahi = 0x00;
-       ciaa->ciaicr = 0x81;
-       ciaa->ciacra = 0x11;
-
+       ciaa->ciaicr = 0x81;          // Enable Timer A interrupt
        custom->intena = 0xc000+IR2+IR3;
        custom->intena = 0xc000+IR2+IR3;
-       globals->Frames=0;
-       globals->IRQ2=0;
+       ciaa->ciacra = 0x11;          // Start timer last (minimize race window)
               do
               {
                      custom->color[0]=0x006;
