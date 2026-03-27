@@ -336,7 +336,6 @@ DoAutoconfig:
 	clr.l	d0
 	move.b	er_Type(a2),d0
 	and	#7,d0
-	
 	cmp	#2,d0			; Check if space is more than 128K then allocate it to Z2 area instead. (but not ram)
 	bge	.readsetz2space
 
@@ -354,7 +353,7 @@ DoAutoconfig:
 	bra	.readsetz3
 .readsetz2space:			; To be assigned in Z2 space, but not RAM
 	move.b	#3,AutoConfType(a6)	; Set type to 3 = Z2Space no ram
-	bra	.readsetz3
+	bra	.readsetmem		; Detect Z2/Z3 properly (same as type 1/2)
 
 .readsetz2:
 	move.b	#0,AutoConfZorro(a6)
