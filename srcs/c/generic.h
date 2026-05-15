@@ -2,6 +2,10 @@
 #include "globalvars.h"
 #include <stddef.h>
 #include "platform.h"
+#include <hardware/cia.h>
+
+#define CIAA  ((volatile struct CIA *)0xbfe001)
+#define CIAB  ((volatile struct CIA *)0xbfd000)
 register volatile struct GlobalVars* globals __asm("a6");         // globals is always available via a6
 #define VARS volatile struct GlobalVars* globals __asm("a6")      // use this when transitioning from ASM to C, or from IRQs
 #define RED 1
