@@ -18,6 +18,13 @@
 ; Build with: vasmm68k_mot -DTARGET_DEMON=1 ...
 ; ============================================================================
 
+; The kickstart Makefile picks up every srcs/asm/*.s file via wildcard, so
+; this file IS assembled in both builds.  Without this guard the kickstart
+; link would fail with duplicate _start / _begin / rom_base symbols, and
+; the assembler would fail outright trying to incbin build_demon/srcs/
+; builddate.i (which only exists during the demon build).
+        ifd TARGET_DEMON
+
         include "earlymacros.i"
         include "globalvars.i"
 
@@ -478,4 +485,5 @@ _demon_banner:
         dc.b    '==========================================',13,10,0
         even
 
+        endc                          ; ifd TARGET_DEMON
         end

@@ -7,16 +7,20 @@
 		xdef	DumpSerial
 		xdef	DumpSerial9600
 
-;rom_base:	equ $f80000	
-;RAMUsage: EQU GlobalVars_sizeof+STACKSIZE+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
+	ifnd TARGET_DEMON
+; Kickstart build owns these.  In TARGET_DEMON mode demon_boot.s defines
+; them with cartridge-appropriate values ($a80000 instead of $f80000, etc.).
+rom_base:	equ $f80000
+RAMUsage: EQU GlobalVars_sizeof+STACKSIZE+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
 
 ;INITBAUD: EQU 183			; Init baudrate  115200
-;INITBAUD: EQU 373			; Init baudrate  9600
+INITBAUD: EQU 373			; Init baudrate  9600
 
-;		xdef RAMUsage
-;		xdef INITBAUD
-;		xdef rom_base
-;STACKSIZE:	EQU	16384						; Set the size of the stack
+		xdef RAMUsage
+		xdef INITBAUD
+		xdef rom_base
+STACKSIZE:	EQU	16384						; Set the size of the stack
+	endc
 
 	;	This is where it all starts
 	;	I use 7 as Tab size  as it fits better for asm..
