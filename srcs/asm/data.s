@@ -951,7 +951,7 @@ DebugPWR::
 DebugROM::
 	dc.b	"Is $1114 readable at addr $0 (ROM still at $0): ",0
 DebugROM2::	
-	dc.b	"Is $1114 readable at addr $f80000 (Real ROM addr): ",0
+	dc.b	"Is $4143 readable at addr $a80004 (DeMoN ROM addr): ",0
 DebugROM3::
 	dc.b	$a,"Is $1111 readable at addr $f00000 (expansion ROM addr): ",0
 StackTxt::

@@ -1,5 +1,5 @@
        include "earlymacros.i"
-       include "build/srcs/globalvars.i"
+       include "globalvars.i"
        section "disktest",code_p
        xdef   DiskTest
        xdef   DiskdriveTest

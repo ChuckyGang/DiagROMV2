@@ -1,5 +1,5 @@
        include "earlymacros.i"
-       include "build/srcs/globalvars.i"
+       include "globalvars.i"
        section "audiotest",code_p
        xdef AudioMenu
        xdef AudioSimple

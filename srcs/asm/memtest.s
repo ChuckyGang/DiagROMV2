@@ -1,5 +1,5 @@
        include "earlymacros.i"
-       include "build/srcs/globalvars.i"
+       include "globalvars.i"
        section "memtest",code_p
        xdef   MemtestMenu
        xdef   CheckDetectedChip
@@ -57,7 +57,12 @@ CheckDetectedMBMem:
 	add.w	#1,DetectMemRnd+2(a6)		; Increase by 1 to have a number that changes every call
 	clr.l	FastmemBlock(a6)
 	lea	$200000,a1
+	ifd	TARGET_DEMON
+	lea	$a00000,a4	; DeMoN: stop BEFORE our ROM at $A80000
+	endc
+	ifnd	TARGET_DEMON
 	lea	$d00000,a4	; endaddress of this pass
+	endc
 	bsr	.memloop	
 	cmp.b	#1,ADR24BIT(a6)	; Check if we had 24 bit cpu...
 	bne	.no24bit
@@ -200,7 +205,12 @@ Detectallmemory:
 	jsr	Print
 	clr.l	FastmemBlock(a6)
 	lea	$200000,a1
+	ifd	TARGET_DEMON
+	lea	$a00000,a4	; DeMoN: stop BEFORE our ROM at $A80000
+	endc
+	ifnd	TARGET_DEMON
 	lea	$d00000,a4	; endaddress of this pass
+	endc
 	bsr	.memloop	
 	lea	Det32bittxt,a0
 	move.l	#5,d1

@@ -160,6 +160,7 @@ void scrollScreen(void)
     }
 }
 
+#ifndef TARGET_DEMON
 void initSerial(void)
 {
     if (globals->NoSerial == 1)        // If No Serial is 1 exit
@@ -174,7 +175,9 @@ void initSerial(void)
     custom->intena = 0x0801;                                     // Clear TBE + EXTER interrupt enable bits
     custom->intreq = 0x0801;                                     // Clear TBE + EXTER interrupt request flags
 }
+#endif
 
+#ifndef TARGET_DEMON
 void rs232_out(char character __asm("d0"))
 {
     if (globals->SerialSpeed == 0 || globals->SerialSpeed == 5 || globals->NoSerial == 1)
@@ -197,7 +200,9 @@ void rs232_out(char character __asm("d0"))
     custom->serdat = 0x0100 | (uint8_t)character;    // Send byte (bit 8 = stop bit, lower 8 = data)
     custom->intreq = 0x0001;                         // Clear TBE interrupt flag
 }
+#endif
 
+#ifndef TARGET_DEMON
 void readSerial(void)
 {
     if (globals->SerialSpeed == 0 || globals->SerialSpeed == 5)
@@ -225,6 +230,7 @@ void readSerial(void)
     globals->SerBufLen = bufpos + 1;                 // Increment buffer length
     globals->SerBuf[bufpos] = data;                  // Store byte in buffer
 }
+#endif
 
 static inline bool LMB_is_down(void)
 {
@@ -368,6 +374,16 @@ static void calcMouseDir(uint8_t currPos, uint8_t oldPos, uint8_t* steps, uint8_
 
 static uint32_t checkButton(uint32_t flags)
 {
+#ifdef TARGET_DEMON
+    /* DeMoN cartridge: when chip RAM is broken/missing, POTINP and CIAAPRA
+     * read as $0000 / $00 (all pins low). The active-low button detection
+     * then sees ALL buttons as "pressed", which makes handleMenu loop forever
+     * waiting for a release that never comes. Skip button reads entirely
+     * in this configuration — Diagrom is keyboard/serial-driven anyway. */
+    if (globals->NotEnoughChip) {
+        return flags;
+    }
+#endif
     // P1LMB: CIA-A PRA bit 6, active low
     if (!globals->STUCKP1LMB && !(*(volatile uint8_t *)0xbfe001 & (1 << 6)))
     {

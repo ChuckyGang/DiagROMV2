@@ -6,7 +6,9 @@
 *.bin
 diagrom_nosum.bin
 /build
+/build_demon
 /vbcc
+*.orig
 /ndk
 /NDK3.2R4
 CLAUDE.md

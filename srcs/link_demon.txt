@@ -1,0 +1,76 @@
+/* ============================================================================
+ * link_demon.txt — Linker script for Diagrom on DeMoN II cartridge
+ *
+ * Cartridge memory map (from DeMoN.v CPLD):
+ *   $A80000-$ABFFFF  ROM space (256 KB, 2x 128KB Flash)
+ *   $AC0000-$BBFFFF  RAM space (1 MB - 16 bytes reserved registers)
+ *   $BBFFF0-$BBFFFF  DeMoN hardware registers (USB-C serial)
+ *
+ * Boot vector:
+ *   On NMI (triggered by CPLD post-reset or freeze button),
+ *   the 68000 reads a longword at $0000007C while OVR is asserted,
+ *   which physically maps to $A8007C in our ROM.
+ *   That longword must point to _begin (== _start in earlystart.s).
+ *
+ * The cartridge entry sequence is NOT a reset cold-boot:
+ *   - Kickstart has already initialised some hardware
+ *   - SSP points somewhere in chip RAM (must be replaced immediately)
+ *   - CPU is in supervisor mode with SR=$2700 (IPL=7 masked)
+ *   - OVR is released as soon as we fetch the first instruction from ROM
+ * ========================================================================== */
+
+CART_ROM_ADDR  = 0x00a80000;     /* DeMoN ROM space start */
+CART_ROM_SIZE  = 0x00040000;     /* 256 KB */
+CART_RAM_ADDR  = 0x00ac0000;     /* DeMoN RAM space start */
+CART_RAM_SIZE  = 0x000ffff0;     /* 1 MB - 16 bytes */
+
+MEMORY
+{
+  rom (rx) : ORIGIN = CART_ROM_ADDR, LENGTH = CART_ROM_SIZE
+  /* RAM is not used by the linker — workmem is set up at runtime
+     by demon_boot.s pointing A6 at $AC0000. C globals are
+     accessed as offset(A6), not via absolute addressing. */
+}
+
+SECTIONS
+{
+  .text :
+  {
+    /* DeMoN cartridge header.  Must be at $A80000 and contain
+       the NMI vector at offset $7C. */
+    *(demon_header)
+
+    /* Then the regular Diagrom code, same section order as link.txt
+       so we maximise reuse of existing object files. */
+    *(startup)
+    *(initstartup)
+    *(CODE)
+    *(generic)
+    *(mainmenu)
+    *(audiotest)
+    *(memtest)
+    *(irqcia)
+    *(gfxtest)
+    *(porttest)
+    *(disktest)
+    *(othertest)
+    *(keyboardtest)
+    *(autoconfig)
+    *(terriblefire)
+    *(.text)
+    *(module)
+    *(gfx)
+    *(data)
+    *(.data)
+    *(.copperlist)
+    *(.romEcsLowResCopper)
+    *(.romEcsHiResCopper)
+    *(.romAgaLowResCopper)
+    *(.romAgaHiResCopper)
+    *(.checksums)
+    *(EXCLUDE_FILE(*autovec.o) *)   /* absorb any orphan sections */
+    *(.autovec)                     /* autovecs always last */
+  } > rom
+
+  /DISCARD/ : { *(*) }
+}

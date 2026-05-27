@@ -1,5 +1,5 @@
        include "earlymacros.i"
-       include "build/srcs/globalvars.i"
+       include "globalvars.i"
        section "irqcia",code_p
        xdef   IRQCIAtestMenu
        xdef   IRQCIAIRQTest

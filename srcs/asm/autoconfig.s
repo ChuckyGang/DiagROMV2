@@ -1,5 +1,5 @@
 	include "earlymacros.i"
-	include "build/srcs/globalvars.i"
+	include "globalvars.i"
 	section "autoconfig",code_p
 	xdef	AutoConfig
 	xdef	AutoConfigDetail

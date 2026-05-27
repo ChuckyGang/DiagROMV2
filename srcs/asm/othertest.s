@@ -1,5 +1,5 @@
        include "earlymacros.i"
-       include "build/srcs/globalvars.i"        
+       include "globalvars.i"        
        section "othertest",code_p
        xdef   OtherTest
        xdef   Setup
@@ -708,7 +708,7 @@ SystemInfoTest:
        lea	DebugROM2,a0
        move.l	#3,d1
        jsr	Print
-       cmp.w	#$1114,$f80000
+       cmp.w	#$4143,$a80004
        bne	.no1114atf8
        lea	YES,a0
        move.l	#2,d1

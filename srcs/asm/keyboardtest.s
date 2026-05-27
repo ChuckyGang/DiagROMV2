@@ -1,5 +1,5 @@
        include "earlymacros.i"
-       include "build/srcs/globalvars.i"
+       include "globalvars.i"
        section "keyboardtest",code_p
        xdef   KeyBoardTest
 	xref	_initScreen

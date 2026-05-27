@@ -1,0 +1,142 @@
+# =============================================================================
+# Makefile.demon — Build DiagROM for the DeMoN II cartridge
+#
+# Drop this file at the top of the DiagROMV2-main repo and build with:
+#
+#     make -f Makefile.demon demon
+#
+# Output:
+#     build_demon/diagrom_demon.bin     — 256 KB full ROM image
+#     build_demon/diagrom_demon_hi.bin  — high-byte (U7), 128 KB
+#     build_demon/diagrom_demon_lo.bin  — low-byte  (U9), 128 KB
+#
+# Requirements:
+#     - Bebbo's amiga-gcc installed at /opt/amiga
+#     - The original DiagROMV2 source tree intact
+#     - demon_patch/ overlay applied (see README_DEMON.md):
+#         * srcs/asm/demon_boot.s             (new file)
+#         * srcs/c/demon/demon_serial.c       (new file)
+#         * srcs/c/amiga/amiga.c              (patched, see amiga_c.patch)
+#         * srcs/asm/earlystart.s             (one rename: _begin -> _diag_init)
+#         * srcs/link_demon.txt               (new file)
+#         * tools/mkrom_demon.py              (new file)
+#
+# =============================================================================
+
+.PHONY: clean_demon demon demon-flash
+
+OUTDIR_D = build_demon
+
+DATEOPS  = +"%Y-%m-%d"
+
+NDK_INC  := ./ndk/Include_H
+
+AS       := /opt/amiga/bin/vasmm68k_mot
+CC       := /opt/amiga/bin/m68k-amigaos-gcc
+LN       := /opt/amiga/bin/m68k-amigaos-gcc
+OC       := /opt/amiga/bin/m68k-amigaos-objcopy
+
+# ----- KEY DIFFERENCES from the kickstart Makefile -----
+# 1. -DTARGET_DEMON=1 propagated to C and asm (gates serial backend)
+# 2. -DROM_BASE=0xA80000 instead of 0xF80000
+# 3. Linker uses srcs/link_demon.txt instead of srcs/link.txt
+# 4. earlystart.s is EXCLUDED (its prologue is replaced by demon_boot.s);
+#    the rest of its routines are pulled in via the rename trick — see
+#    README_DEMON.md step "Patch earlystart.s".
+# --------------------------------------------------------
+
+ASOPTS_D := -DTARGET_DEMON=1 -DDEBUG=0 -quiet -m68000 -no-opt -Fhunk \
+            -I. -I$(OUTDIR_D)/srcs -Isrcs/asm/amiga
+
+CFLAGS_D := -DTARGET_DEMON=1 -DDEBUG=2 -DROM_BASE=0xA80000 \
+            -mcpu=68000 -O0 -ffixed-a6 -fomit-frame-pointer \
+            -I$(NDK_INC) -I. -Isrcs
+
+# Source discovery — same as kickstart Makefile PLUS demon_patch sources
+SRCS_C =  $(wildcard srcs/c/*.c)
+SRCS_C += $(wildcard srcs/c/amiga/*.c)
+SRCS_C += $(wildcard srcs/c/demon/*.c)
+
+SRCS_S =  $(wildcard srcs/asm/*.s)
+SRCS_S += $(wildcard srcs/asm/amiga/*.s)
+
+# We have BOTH demon_boot.s (new) AND earlystart.s (existing, with _begin
+# renamed).  Both must be compiled and linked — they cooperate, they
+# don't replace each other.  No exclusion needed; the renamed symbol
+# in earlystart.s prevents conflict.
+
+OBJS  = $(addprefix $(OUTDIR_D)/,$(SRCS_C:.c=.o))
+OBJS += $(addprefix $(OUTDIR_D)/,$(SRCS_S:.s=.o))
+OBJS += $(OUTDIR_D)/data/TopazFont.o
+
+DIRS := $(OUTDIR_D) $(patsubst %/,%,$(dir $(OBJS)))
+$(foreach dir,$(DIRS),$(shell mkdir -p $(dir) > /dev/null 2>&1))
+
+# always regenerate builddate
+$(shell date $(DATEOPS) > $(OUTDIR_D)/srcs/builddate.i)
+
+# Headers as .i for asm includes
+$(OUTDIR_D)/srcs/globalvars.i: srcs/globalvars.h
+	@mkdir -p $(dir $@)
+	python3 tools/h2i.py $< -o $@ -- -I libc
+
+# =============================================================================
+# Main targets
+# =============================================================================
+
+demon: $(OUTDIR_D)/diagrom_demon.bin
+	@echo ""
+	@echo "DeMoN ROM build OK:"
+	@ls -lh $(OUTDIR_D)/diagrom_demon.bin
+	@ls -lh $(OUTDIR_D)/diagrom_demon_hi.bin
+	@ls -lh $(OUTDIR_D)/diagrom_demon_lo.bin
+
+# Final flash-ready image (256KB padded + even/odd split files)
+$(OUTDIR_D)/diagrom_demon.bin: $(OUTDIR_D)/diagrom_demon_raw.bin tools/mkrom_demon.py
+	python3 tools/mkrom_demon.py $< $@
+
+# Raw binary from linker
+$(OUTDIR_D)/diagrom_demon_raw.bin: $(OUTDIR_D)/diagrom_demon.exe
+	$(OC) -O binary $< $@
+
+# Link step — uses our DeMoN linker script
+$(OUTDIR_D)/diagrom_demon.exe: $(OBJS)
+	$(LN) -nostartfiles -nostdlib -Wl,-Map,$@.txt \
+	    -T srcs/link_demon.txt $(OBJS) -o $@
+
+# Compile rules
+$(OUTDIR_D)/%.o: %.s $(OUTDIR_D)/srcs/globalvars.i
+	@mkdir -p $(dir $@)
+	$(AS) $(ASOPTS_D) $< -o $@
+
+$(OUTDIR_D)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_D) -o $@ -c $<
+
+$(OUTDIR_D)/data/TopazFont.o: data/TopazFont.bin
+	@mkdir -p $(dir $@)
+	$(OC) -I binary -O amiga -B m68k $< $@
+	$(OC) --redefine-sym _binary_data_TopazFont_bin_start=_RomFont $@
+
+# All objects depend on the Makefile so changing build options rebuilds
+$(OBJS): Makefile.demon
+
+# =============================================================================
+# Test in WinUAE (with your custom DeMoN-aware build)
+# =============================================================================
+
+run-demon: demon
+	@echo "Launching custom WinUAE with DeMoN cartridge ROM..."
+	@echo "Replace 'winuae-demon' with the actual path/cmd of your build:"
+	@echo "  winuae-demon -cart $(OUTDIR_D)/diagrom_demon.bin -model A500"
+	@echo ""
+	@echo "If FT245 emulation is not present, output appears only on the"
+	@echo "Amiga screen (yellow boot -> magenta probe -> green/red -> black"
+	@echo "+ Diagrom main menu)."
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+clean_demon:
+	rm -fr $(OUTDIR_D)

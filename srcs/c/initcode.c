@@ -95,6 +95,17 @@ static void detFastMem(uint32_t randVal)
     DetectResult r;
     globals->FastMem = 0;
 
+#ifdef TARGET_DEMON
+    /* DeMoN II: skip ALL fastmem detection.
+     * The original probe writes to addresses $40000000-$EE000000 which on a
+     * 24-bit 68000 wrap into chip RAM, custom registers ($DFFxxx), and our
+     * DeMoN ROM/RAM ($A80000-$BBFFFF), causing fatal corruption.
+     * Since DeMoN cartridge does not advertise Zorro fastmem, simply skip. */
+    print("(DeMoN: fastmem detection skipped)", YELLOW);
+    print(NewLineTxt, YELLOW);
+    return;
+#endif
+
     print("\nChecking if a 24 Bit address cpu is used: ", WHITE);
 
     int bppc      = (*(volatile uint32_t *)0xf00090 == 0x20505043u); // " PPC"
@@ -619,7 +630,7 @@ void initCode(void)
         a5 += 4;
     }
 
-    copyToChip();
+    if (!globals->NotEnoughChip) copyToChip();
 
     *(volatile uint16_t *)0xdff180 = 0x777;
     sendSerial("   - Bitplane 1 at: $");
@@ -633,7 +644,7 @@ void initCode(void)
     sendSerial(NewLineTxt);
 
     globals->BplNull = 0;
-    initStuff();
+    if (!globals->NotEnoughChip) initStuff();
 
     sendSerial(" - Initstuff done!\r\n\r\n");
 
@@ -659,9 +670,18 @@ void initCode(void)
     // -----------------------------------------------------------------------
     // ROM checksum + CPU detection
     // -----------------------------------------------------------------------
-    romChecksum();
-    callDetectCPU();
-    PrintCPU();
+    if (!globals->NotEnoughChip) {
+        romChecksum();
+        callDetectCPU();
+        PrintCPU();
+    } else {
+        /* NotEnoughChip: skip CPU detection (uses chip RAM scratch).
+         * Set safe pointers so any later PrintCPU call shows "NOT CHECKED". */
+        extern char NOTCHECKED[] __asm("NOTCHECKED");
+        globals->CPUPointer = NOTCHECKED;
+        globals->FPUPointer = NOTCHECKED;
+        sendSerial(" - (NotEnoughChip: skipping ROM checksum + CPU detection)\r\n");
+    }
 
     // -----------------------------------------------------------------------
     // Fast memory detection

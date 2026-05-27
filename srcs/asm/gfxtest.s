@@ -1,5 +1,5 @@
        include "earlymacros.i"
-       include "build/srcs/globalvars.i"
+       include "globalvars.i"
        section "gfxtest",code_p
        xdef   GFXtestMenu
        xdef   GFXTestScreen

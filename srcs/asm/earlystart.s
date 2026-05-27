@@ -1,5 +1,5 @@
 		include "earlymacros.i"
-		include "build/srcs/globalvars.i"
+		include "globalvars.i"
 
 		section "startup",code_p
 
@@ -7,16 +7,16 @@
 		xdef	DumpSerial
 		xdef	DumpSerial9600
 
-rom_base:	equ $f80000	
-RAMUsage: EQU GlobalVars_sizeof+STACKSIZE+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
+;rom_base:	equ $f80000	
+;RAMUsage: EQU GlobalVars_sizeof+STACKSIZE+Chipmemstuff_sizeof+4096		; Total amount of ram needed for DiagROM to work (plus some bufferdata for stack etc)
 
 ;INITBAUD: EQU 183			; Init baudrate  115200
-INITBAUD: EQU 373			; Init baudrate  9600
+;INITBAUD: EQU 373			; Init baudrate  9600
 
-		xdef RAMUsage
-		xdef INITBAUD
-		xdef rom_base
-STACKSIZE:	EQU	16384						; Set the size of the stack
+;		xdef RAMUsage
+;		xdef INITBAUD
+;		xdef rom_base
+;STACKSIZE:	EQU	16384						; Set the size of the stack
 
 	;	This is where it all starts
 	;	I use 7 as Tab size  as it fits better for asm..
@@ -37,36 +37,36 @@ STACKSIZE:	EQU	16384						; Set the size of the stack
 
 	;	A BIG ThankYou to Erik Hemming for helping me with thie Visual Code setup allowing me to combine asm/c etc.
 	
-_start:
-		;bsr.b	_exe
-		dc.w	$1114
-		dc.w 	"DG"
-		dc.l	_begin	
-		dc.l	POSTBusError				; Hardcoded pointers
-		dc.l	POSTAddressError			; if something is wrong rom starts at $0
-		dc.l	POSTIllegalError			; so this will actually be pointers to
-		dc.l	POSTDivByZero				; traps.
-		dc.l	POSTChkInst
-		dc.l	POSTTrapV
-		dc.l	POSTPrivViol
-		dc.l	POSTTrace
-		dc.l	POSTUnimplInst
-
-DIAG	dc.b	"DIAG"
-
-_strstart:
-		dc.b	"IHOL : :6U6U,A,B1U1U5767U,U,8181 1 0    "	; This string will make a readable text on each 32 bit
-		dc.b	"HILO: : U6U6A,B,U1U17576,U,U18181 0     "	; rom what socket to use. (SOME programming software does byteshift so both orders)
-	
-		dc.b	"$VER: DiagROM Amiga Diagnostic by John Hertell. "
-		VERSION
-		dc.b " "
-		incbin	"build/srcs/builddate.i"
-_strstop:
-		
-		blk.b	166-(_strstop-_strstart),0		; Crapdata that needs to be here
-	
-		EVEN
+;_start:
+;		;bsr.b	_exe
+;		dc.w	$1114
+;		dc.w 	"DG"
+;		dc.l	_begin	
+;		dc.l	POSTBusError				; Hardcoded pointers
+;		dc.l	POSTAddressError			; if something is wrong rom starts at $0
+;		dc.l	POSTIllegalError			; so this will actually be pointers to
+;		dc.l	POSTDivByZero				; traps.
+;		dc.l	POSTChkInst
+;		dc.l	POSTTrapV
+;		dc.l	POSTPrivViol
+;		dc.l	POSTTrace
+;		dc.l	POSTUnimplInst
+;
+;DIAG	dc.b	"DIAG"
+;
+;_strstart:
+;		dc.b	"IHOL : :6U6U,A,B1U1U5767U,U,8181 1 0    "	; This string will make a readable text on each 32 bit
+;		dc.b	"HILO: : U6U6A,B,U1U17576,U,U18181 0     "	; rom what socket to use. (SOME programming software does byteshift so both orders)
+;	
+;		dc.b	"$VER: DiagROM Amiga Diagnostic by John Hertell. "
+;		VERSION
+;		dc.b " "
+;		incbin	"build/srcs/builddate.i"
+;_strstop:
+;		
+;		blk.b	166-(_strstop-_strstart),0		; Crapdata that needs to be here
+;	
+;		EVEN
 
 		;cnop 0,16
 
@@ -76,7 +76,26 @@ _strstop:
 ;
 ; ******************************************************************************************************************
 	
-_begin:
+        xdef    _diag_init
+        xdef    POSTBusError
+        xdef    POSTAddressError
+        xdef    POSTIllegalError
+        xdef    POSTDivByZero
+        xdef    POSTChkInst
+        xdef    POSTTrapV
+        xdef    POSTPrivViol
+        xdef    POSTTrace
+        xdef    POSTUnimplInst
+_diag_init:
+        ifd     TARGET_DEMON
+        move.l  startupflags(a6),d0
+        btst    #21,d0                          ; bit 21 = NotEnoughChip
+        beq.s   .diag_chip_ok                   ; chip OK: normal flow
+        ; Chip RAM rotta: skip POST setup + chipmem detect, vai dritto a Initcode
+        ; A6 punta già a DeMoN RAM, stack già in DeMoN RAM. Initcode in C gestirà NoDraw.
+        jmp     Initcode
+.diag_chip_ok:
+        endc
 
 	echo "DEBUG: ",DEBUG
 	ifne DEBUG		; Debugmode. if flag is set lets fake stuff for a quicker startup
@@ -292,7 +311,7 @@ _begin:
 	KPRINTC _diagRomCheckadrtxt
 _romadrcheck:
 	lea	_endofcode,a2			; Load address of last used address in rom of the code. located in checksums.s that is in the end of the rom-code
-	lea	$FFFFF0.l,a1			; Autovecs are always at the last 16 bytes of the 512KB ROM ($FFFFF0-$FFFFFF)
+	lea	$ABFFF0.l,a1			; Autovecs are always at the last 16 bytes of the 512KB ROM ($ABFFF0-$FFFFFF)
 	move.l	a2,d0
 	move.l	a1,d1
 	sub.l	d0,d1				; get the size of unused space in the rom, space that is padded with addressdata.
@@ -351,7 +370,8 @@ done:
 
 	KPRINTC	_releasemousetxt
 	KPRINTC	_checkovltxt
-	cmp.l	#"DIAG",DIAG-_start			; Check if $0 contains "DIAG" if so, OVL is NOT working.
+	moveq	#1,d0
+	tst.l	d0				; DeMoN: force Z=0, skip OVL check (orig: cmp.l #"DIAG",DIAG-_start)
 	bne	.ovlok
 	move.l	a7,d0
 	bset	#9,d0				; Set we had OVL Error

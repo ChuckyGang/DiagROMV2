@@ -38,6 +38,11 @@ jobs:
       - name: Build
         run: make CFLAGS="-DDEBUG=0 -DROM_BASE=0xF80000 -mcpu=68000 -O0 -ffixed-a6 -fomit-frame-pointer -I./ndk/Include_H -I. -Isrcs"
 
+      - name: Build DeMoN II cartridge ROM
+        id: demon_build
+        continue-on-error: true
+        run: make -f Makefile.demon demon
+
       - name: Dump linker map on failure
         if: failure()
         run: cat build/diagrom_nosum.exe.txt || true
@@ -51,9 +56,20 @@ jobs:
 
       - name: Package binaries
         run: |
-          mkdir -p DiagROM
+          mkdir -p DiagROM DiagROM/demon
           cp diagrom.rom DiagROM/
           cp 16bit.bin 32bitHI.bin 32bitLO.bin CD32.bin DiagROM/
+          if [ -f build_demon/diagrom_demon.bin ]; then
+            cp build_demon/diagrom_demon.bin    DiagROM/demon/
+            cp build_demon/diagrom_demon_hi.bin DiagROM/demon/
+            cp build_demon/diagrom_demon_lo.bin DiagROM/demon/
+          else
+            cat > DiagROM/demon/BUILD_FAILED.txt <<EOF
+          diagrom_demon build failed in CI run ${{ github.run_id }}
+          (commit ${{ github.sha }}).
+          See the workflow logs for details.
+          EOF
+          fi
           cp Changes.txt README.md DiagROM/
           if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
             cp Daily.txt DiagROM/

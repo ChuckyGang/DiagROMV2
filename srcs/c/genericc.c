@@ -44,6 +44,17 @@ void setPos(uint32_t xPos __asm("d0"), uint32_t yPos __asm("d1"))
 #define ROM_BASE 0xF80000
 #endif
 
+#ifdef TARGET_DEMON
+  /* DeMoN cartridge: ROM is 256KB at $A80000 (4 blocks of 64KB).
+     We don't compare to precomputed checksums (no kickstart-style
+     checksum table in our build), just display them informationally. */
+  #define ROM_BLOCKS 4
+  #define ROM_CHECK_COLOR(sum, block) 3
+#else
+  #define ROM_BLOCKS 8
+  #define ROM_CHECK_COLOR(sum, block) ((sum == checksums[block]) ? 2 : 1)
+#endif
+
 void romChecksum()
 {
     extern uint32_t checksums[];
@@ -54,7 +65,7 @@ void romChecksum()
     uint32_t csStart = (uint32_t)checksums;
     uint32_t csEnd   = (uint32_t)&endchecksums;
 
-    for(int block = 0; block < 8; block++)
+    for(int block = 0; block < ROM_BLOCKS; block++)
     {
         uint32_t blockBase = (uint32_t)ROM_BASE + (uint32_t)block * (uint32_t)0x10000;
         volatile uint32_t *rom = (volatile uint32_t *)blockBase;
@@ -72,7 +83,7 @@ void romChecksum()
             sum += rom[i];
         }
 
-        uint8_t color = (sum == checksums[block]) ? 2 : 1;
+        uint8_t color = ROM_CHECK_COLOR(sum, block);
 
         print(binHex(sum), color);
         print(" ", color);
@@ -513,6 +524,19 @@ void debugScreen(void)
         print("\n\r", GREEN);
     }
 
+#ifdef TARGET_DEMON
+    print("Is $4143 readable at addr $a80004 (DeMoN ROM addr): ", YELLOW);
+    if(*(volatile uint16_t *)0xa80004 == 0x4143)
+    {
+        print("YES", GREEN);
+        print("\n\r", GREEN);
+    }
+    else
+    {
+        print("NO ", RED);
+        print("\n\r", RED);
+    }
+#else
     print("Is $1114 readable at addr $f80000 (Real ROM addr): ", YELLOW);
     if(*(volatile uint16_t *)0xf80000 == 0x1114)
     {
@@ -524,6 +548,7 @@ void debugScreen(void)
         print("NO ", RED);
         print("\n\r", RED);
     }
+#endif
 
     PrintCPU();
 
@@ -648,8 +673,14 @@ void convertKey(uint8_t keycode __asm("d0"), uint8_t *keymap __asm("a0"), uint8_
 
 void getSerial(void)
 {
+#ifdef TARGET_DEMON
+    /* DeMoN: USB-C/FT245 is always available — no "disable serial" semantics.
+     * Skip the SerialSpeed gate so RX is polled regardless of user choice
+     * at boot. */
+#else
     if (globals->SerialSpeed == 0 || globals->SerialSpeed == 5)
         return;
+#endif
     globals->SerData = 0;
     readSerial();
     if (globals->SerBufLen == 0)
