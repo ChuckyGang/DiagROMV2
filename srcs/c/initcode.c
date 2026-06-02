@@ -389,11 +389,22 @@ void copyToChip(void)
 
     // ProTracker replay routine
     sendSerial("   - Copy Protracker replayroutine from ROM to memory at: ");
+#ifdef TARGET_DEMON
+    /* MANTRA: the MOD player code must run from DeMoN RAM, not chip RAM.
+       Running it from chip RAM keeps the CPLD runningflag latched in the
+       wrong state, which silences the FT245 USB serial until a hardware
+       reset. Running from DeMoN RAM also lets the audio test work on an
+       Amiga whose chip RAM is faulty (only the module data + DMA need
+       chip RAM; the player code does not). */
+    extern uint8_t DEMON_PTPLAYER[] __asm("DEMON_PTPLAYER");
+    void *ptBase = DEMON_PTPLAYER;
+#else
     void *ptBase = chip->ptplayroutine;
+#endif
     globals->ptplay = ptBase;
     copyMem(MT_Init,
             (uint32_t)(mt_END - MT_Init),
-            chip->ptplayroutine);
+            ptBase);
     sendSerial(binHex((uint32_t)globals->ptplay));
     sendSerial(NewLineTxt);
 

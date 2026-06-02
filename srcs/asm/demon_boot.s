@@ -37,6 +37,7 @@ DEMON_RAM_END   equ $bbfff0           ; just before USB regs
 DEMON_USB_DATA  equ $bbfff1           ; byte access, LDS
 DEMON_USB_STAT  equ $bbfff2           ; word access
 DEMON_AR_REG    equ $a80000           ; hardware register (cause/config)
+DEMON_PTPLAYER  equ $bb0000           ; MOD player code buffer (4.5KB, RAM DeMoN)
 
 NMI_VECTOR_OFS  equ $7c               ; CPU autovector 31 = NMI level 7
 
@@ -48,6 +49,7 @@ NMI_VECTOR_OFS  equ $7c               ; CPU autovector 31 = NMI level 7
         xdef    rom_base
         xdef    RAMUsage
         xdef    INITBAUD
+        xdef    DEMON_PTPLAYER
         xref    _diag_init            ; renamed _begin in earlystart.s
         xref    DumpSerial
         xref    POSTBusError
