@@ -96,13 +96,39 @@ static void detFastMem(uint32_t randVal)
     globals->FastMem = 0;
 
 #ifdef TARGET_DEMON
-    /* DeMoN II: skip ALL fastmem detection.
-     * The original probe writes to addresses $40000000-$EE000000 which on a
-     * 24-bit 68000 wrap into chip RAM, custom registers ($DFFxxx), and our
-     * DeMoN ROM/RAM ($A80000-$BBFFFF), causing fatal corruption.
-     * Since DeMoN cartridge does not advertise Zorro fastmem, simply skip. */
-    print("(DeMoN: fastmem detection skipped)", YELLOW);
-    print(NewLineTxt, YELLOW);
+    /* DeMoN II: the original full probe writes to $40000000-$EE000000 which on
+     * a 24-bit 68000 (the only CPU DeMoN supports: A500/A2000) wraps into chip
+     * RAM, custom registers ($DFFxxx), and our own ROM/RAM ($A80000-$BBFFFF),
+     * causing fatal corruption.  So we skip ALL the 32-bit / high-address
+     * probes and run ONLY the two SAFE 24-bit probes that cannot wrap and do
+     * not touch DeMoN's space:
+     *   - $200000-$9FFFFF : Zorro II autoconfig fast RAM (ends below ROM $A80000)
+     *   - $C00000-$C80000 : A500/A2000 slow / Ranger RAM (above DeMoN RAM $BBFFFF)
+     * This makes kBFast in the status bar reflect host fast/slow RAM without
+     * the wraparound danger.  (Slow RAM is lumped into kBFast, as on stock DiagROM.) */
+    print(" - DeMoN: safe 24-bit fast probe ($200000-$9FFFFF, $C00000-$C80000)\n", YELLOW);
+
+    /* Zorro II autoconfig fast RAM */
+    randVal ^= 0x10010000u;
+    callDetectMemory(randVal, (void *)0x200000, (void *)0x9fffff, &r);
+    if (r.start != 0) {
+        globals->FastStart = r.start;
+        globals->FastEnd   = r.end;
+        globals->FastMem  += r.blocks;
+        printDetected((uint32_t)r.start, (uint32_t)r.end);
+    }
+
+    /* A500/A2000 slow ("Ranger" / bogomem) RAM at $C00000 */
+    randVal ^= 0x10110000u;
+    callDetectMemory(randVal, (void *)0xc00000, (void *)0xc80000, &r);
+    if (r.start != 0) {
+        if (globals->FastStart == 0) {
+            globals->FastStart = r.start;
+            globals->FastEnd   = r.end;
+        }
+        globals->FastMem += r.blocks;
+        printDetected((uint32_t)r.start, (uint32_t)r.end);
+    }
     return;
 #endif
 

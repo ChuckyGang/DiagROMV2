@@ -211,7 +211,12 @@ Detectallmemory:
 	ifnd	TARGET_DEMON
 	lea	$d00000,a4	; endaddress of this pass
 	endc
-	bsr	.memloop	
+	bsr	.memloop
+	ifd	TARGET_DEMON
+	lea	$c00000,a1	; DeMoN: also scan slow/Ranger RAM ($C00000-$C80000,
+	lea	$c80000,a4	;   above DeMoN RAM $BBFFFF). First pass stops at $A00000,
+	bsr	.memloop	;   so slow RAM would be missed here -> kBFast clobbered to 0
+	endc
 	lea	Det32bittxt,a0
 	move.l	#5,d1
 	jsr	Print

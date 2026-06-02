@@ -41,36 +41,40 @@ STACKSIZE:	EQU	16384						; Set the size of the stack
 
 	;	A BIG ThankYou to Erik Hemming for helping me with thie Visual Code setup allowing me to combine asm/c etc.
 	
-;_start:
-;		;bsr.b	_exe
-;		dc.w	$1114
-;		dc.w 	"DG"
-;		dc.l	_begin	
-;		dc.l	POSTBusError				; Hardcoded pointers
-;		dc.l	POSTAddressError			; if something is wrong rom starts at $0
-;		dc.l	POSTIllegalError			; so this will actually be pointers to
-;		dc.l	POSTDivByZero				; traps.
-;		dc.l	POSTChkInst
-;		dc.l	POSTTrapV
-;		dc.l	POSTPrivViol
-;		dc.l	POSTTrace
-;		dc.l	POSTUnimplInst
-;
-;DIAG	dc.b	"DIAG"
-;
-;_strstart:
-;		dc.b	"IHOL : :6U6U,A,B1U1U5767U,U,8181 1 0    "	; This string will make a readable text on each 32 bit
-;		dc.b	"HILO: : U6U6A,B,U1U17576,U,U18181 0     "	; rom what socket to use. (SOME programming software does byteshift so both orders)
-;	
-;		dc.b	"$VER: DiagROM Amiga Diagnostic by John Hertell. "
-;		VERSION
-;		dc.b " "
-;		incbin	"build/srcs/builddate.i"
-;_strstop:
-;		
-;		blk.b	166-(_strstop-_strstart),0		; Crapdata that needs to be here
-;	
-;		EVEN
+	ifnd	TARGET_DEMON
+; Kickstart build: ROM header + reset vector live here.
+; In TARGET_DEMON mode demon_boot.s provides the cartridge header instead.
+_start:
+			;bsr.b	_exe
+			dc.w	$1114
+			dc.w	"DG"
+			dc.l	_diag_init			; renamed from _begin by DeMoN port
+			dc.l	POSTBusError			; Hardcoded pointers
+			dc.l	POSTAddressError		; if something is wrong rom starts at $0
+			dc.l	POSTIllegalError		; so this will actually be pointers to
+			dc.l	POSTDivByZero			; traps.
+			dc.l	POSTChkInst
+			dc.l	POSTTrapV
+			dc.l	POSTPrivViol
+			dc.l	POSTTrace
+			dc.l	POSTUnimplInst
+
+DIAG	dc.b	"DIAG"
+
+_strstart:
+			dc.b	"IHOL : :6U6U,A,B1U1U5767U,U,8181 1 0    "	; This string will make a readable text on each 32 bit
+			dc.b	"HILO: : U6U6A,B,U1U17576,U,U18181 0     "	; rom what socket to use. (SOME programming software does byteshift so both orders)
+
+			dc.b	"$VER: DiagROM Amiga Diagnostic by John Hertell. "
+			VERSION
+			dc.b " "
+			incbin	"build/srcs/builddate.i"
+_strstop:
+
+			blk.b	166-(_strstop-_strstart),0		; Crapdata that needs to be here
+
+			EVEN
+	endc
 
 		;cnop 0,16
 
@@ -315,7 +319,12 @@ _diag_init:
 	KPRINTC _diagRomCheckadrtxt
 _romadrcheck:
 	lea	_endofcode,a2			; Load address of last used address in rom of the code. located in checksums.s that is in the end of the rom-code
-	lea	$ABFFF0.l,a1			; Autovecs are always at the last 16 bytes of the 512KB ROM ($ABFFF0-$FFFFFF)
+	ifd	TARGET_DEMON
+	lea	$ABFFF0.l,a1			; DeMoN: autovecs at end of 256KB cartridge ROM
+	endc
+	ifnd	TARGET_DEMON
+	lea	$FFFFF0.l,a1			; Kickstart: autovecs at end of 512KB ROM
+	endc
 	move.l	a2,d0
 	move.l	a1,d1
 	sub.l	d0,d1				; get the size of unused space in the rom, space that is padded with addressdata.

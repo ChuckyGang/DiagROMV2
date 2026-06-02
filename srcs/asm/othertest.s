@@ -10,6 +10,9 @@
 	xref	_initScreen
 	xref	_mainLoop
 	xref	_mainMenu
+        ifd     TARGET_DEMON
+        xref    _kickCheck
+        endc
 
 
 OtherTest:
@@ -23,6 +26,12 @@ OtherTest:
 RTCTestC::
 	jsr	_RTCTestC
 	jmp	_mainMenu
+
+        ifd     TARGET_DEMON
+kickCheck::
+        jsr     _kickCheck
+        jmp     _mainMenu
+        endc
 
 RTCTest:
 	jsr	ClearScreen
