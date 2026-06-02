@@ -51,9 +51,7 @@ extern void AutoConfigDetail(void)    __asm("AutoConfigDetail");
 extern void ShowMemAddress(void)      __asm("ShowMemAddress");
 extern void RTCTestC(void)            __asm("RTCTestC");
 extern void TF1260(void)              __asm("TF1260");
-#ifdef TARGET_DEMON
 extern void kickCheck(void)           __asm("kickCheck");
-#endif
 
 extern void DiskdriveTest(void)       __asm("DiskdriveTest");
 extern void GayleTest(void)           __asm("GayleTest");
@@ -220,31 +218,23 @@ static const char otherMenu3[] = "3 - ShowMemAddress Content";
 static const char otherMenu4[] = "4 - New RTC Test";
 #ifdef TARGET_DEMON
 static const char otherMenuK[] = "5 - Kickstart ROM check";
+#else
+static const char otherMenuK[] = "5 - Kickstart ROM check (DeMoN only)";
 #endif
 static const char otherMenu5[] = "8 - TF360/TF1260 Diag";
 static const char otherMenu6[] = "9 - Mainmenu";
 
 static const char *otherMenuItems[] = {
     otherText,
-    otherMenu1, otherMenu2, otherMenu3, otherMenu4,
-#ifdef TARGET_DEMON
-    otherMenuK,
-#endif
+    otherMenu1, otherMenu2, otherMenu3, otherMenu4, otherMenuK,
     otherMenu5, otherMenu6,
     NULL
 };
 static MenuHandler otherMenuCode[] = {
-    RTCTest, AutoConfigDetail, ShowMemAddress, RTCTestC,
-#ifdef TARGET_DEMON
-    kickCheck,
-#endif
+    RTCTest, AutoConfigDetail, ShowMemAddress, RTCTestC, kickCheck,
     TF1260, mainMenu
 };
-static uint8_t otherMenuKey[] = { '1','2','3','4',
-#ifdef TARGET_DEMON
-    '5',
-#endif
-    '8','9',0 };
+static uint8_t otherMenuKey[] = { '1','2','3','4','5','8','9',0 };
 
 // ---------------------------------------------------------------------------
 // Disk Test Menu  (MenuNumber 8)

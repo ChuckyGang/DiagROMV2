@@ -1,4 +1,3 @@
-#ifdef TARGET_DEMON
 /* ============================================================================
  * kickcheck.c — Kickstart ROM identification test
  *
@@ -19,9 +18,17 @@
  * the stack (DeMoN RAM) at runtime, so nothing relies on chip RAM or a
  * writable .bss. Reading the Kickstart is read-only, so there is no
  * runningflag/FT245 interaction.
+ *
+ * This test only makes sense on the DeMoN II cartridge, which runs ALONGSIDE
+ * the host Kickstart.  On a standard DiagROM build, DiagROM itself occupies
+ * the Kickstart socket ($F80000-$FFFFFF), so there is no separate Kickstart
+ * to read.  The menu entry is still shown there (flagged "DeMoN only") but
+ * selecting it just explains that — see the #else stub below.
  * ========================================================================== */
 #include "generic.h"
 #include "globalvars.h"
+
+#ifdef TARGET_DEMON
 
 #define KICK_BASE_512  0x00f80000u
 #define KICK_BASE_256  0x00fc0000u
@@ -131,4 +138,20 @@ void kickCheck(VARS)
         GetInput();
     } while (!globals->BUTTON);
 }
+
+#else /* !TARGET_DEMON */
+
+/* Standard (Kickstart-socket) build: DiagROM is the Kickstart, so there is
+ * nothing separate to check.  Show a short notice and return to the menu. */
+void kickCheck(VARS)
+{
+    clearScreen();
+    print("\002Kickstart ROM check\n\n", CYAN);
+    print("This option is available only for the DeMoN version of DiagROM.\n\n", YELLOW);
+    print("Press any key to continue and back to Others menu.\n", CYAN);
+    do {
+        GetInput();
+    } while (!globals->BUTTON);
+}
+
 #endif /* TARGET_DEMON */
