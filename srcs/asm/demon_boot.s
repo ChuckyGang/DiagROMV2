@@ -282,6 +282,8 @@ _begin:
         bsr     usb_putc_str
         dc.b    13,10,'!! No usable chip RAM — serial-only mode',13,10,0
         even
+        bsr     chip_bit_scan         ; determine which 16 data bits are faulty
+        bsr     show_chip_bits        ; show 16-band bit map (exits on serial key)
 
 .video_decision_done:
 
@@ -416,8 +418,9 @@ probe_chip_pages:
 ;   Input:  A0 = page base addr (must be in possible chip RAM)
 ;   Output: D0 = A0 if page is usable, 0 otherwise
 ;   Strategy:
-;     1. Shadow check: write SHDW at A0, verify $0 doesn't echo it
-;        (this catches "chip RAM unmapped, ROM mirrored to 0" condition)
+;     1. Active aliasing check: write V1 to A0 and a different value to $0,
+;        then verify A0 still reads V1 (catches a page that mirrors low
+;        memory / unmapped chip RAM, with no false positive on stale $0)
 ;     2. Walking-bit + complement test on 1024 bytes (NOT full 64K — we
 ;        just need confidence that the page works; the full test is for
 ;        the diagnostic menu later)
@@ -425,13 +428,22 @@ probe_chip_pages:
 probe_one_page:
         movem.l d1-d3/a1,-(sp)
 
-        ;--- Shadow check ---
-        move.l  #$53484457,(a0)       ; "SHDW"
-        move.l  #$43524150,4(a0)      ; "CRAP" (bus noise filler)
+        ;--- Active aliasing check ---
+        ;    Write V1 to the candidate and a DIFFERENT value to $0, then verify
+        ;    the candidate still reads V1.  This detects a candidate that
+        ;    mirrors low memory ($0) WITHOUT the false positives of the old
+        ;    passive "$0 == SHDW" test, which tripped whenever $0 already held
+        ;    SHDW (stale, left by a prior probe / retained across warm reset).
+        ;    $0 is saved and restored. ---
+        move.l  $0,d1                ; save $0
+        move.l  #$53484457,(a0)      ; V1 = "SHDW" -> candidate
+        move.l  #$deadc0de,$0        ; distinct value -> $0
         nop
         nop
-        cmp.l   #$53484457,$0         ; did "SHDW" appear at $0?
-        beq.s   .bad                  ; yes → ROM mirror, no chip RAM here
+        move.l  (a0),d3             ; read candidate back
+        move.l  d1,$0               ; restore $0 (cmp below re-sets flags)
+        cmp.l   #$53484457,d3       ; candidate still holds V1?
+        bne.s   .bad                ; no -> mirrors $0 -> reject
 
         ;--- Walking-bit test on 1KB at A0 ---
         move.l  a0,a1
@@ -475,6 +487,147 @@ probe_one_page:
 .out:   movem.l (sp)+,d1-d3/a1
         rts
 
+;=============================================================================
+; chip_bit_scan — determine which of the 16 chip-RAM data bits (D0..D15)
+;   are faulty, by writing/reading known patterns at one chip address.
+;   In Modalita' B no chip page is usable, but we still want to know WHICH
+;   bits fail (e.g. a removed RAM chip = one or more dead bits everywhere).
+;   Output: D4.W = fail mask (1 = bit faulty), D5.W = tested mask (1 = bit
+;           exercised). Clobbers D0-D2/A0.
+;=============================================================================
+chip_bit_scan:
+        movem.l d1-d2/a0,-(sp)
+        moveq   #0,d4                 ; fail mask
+        move.w  #$ffff,d5             ; tested mask (we exercise all 16 bits)
+        lea     $00010000,a0          ; chip test address (64K page)
+        ; pattern 1: all ones
+        move.w  #$ffff,(a0)
+        nop
+        nop
+        move.w  (a0),d0
+        eor.w   #$ffff,d0             ; bits that differ from $ffff
+        or.w    d0,d4
+        ; pattern 2: all zeros
+        move.w  #$0000,(a0)
+        nop
+        nop
+        move.w  (a0),d0
+        ; bits that differ from $0000 are simply the set bits
+        or.w    d0,d4
+        ; pattern 3: $AAAA
+        move.w  #$aaaa,(a0)
+        nop
+        nop
+        move.w  (a0),d0
+        eor.w   #$aaaa,d0
+        or.w    d0,d4
+        ; pattern 4: $5555
+        move.w  #$5555,(a0)
+        nop
+        nop
+        move.w  (a0),d0
+        eor.w   #$5555,d0
+        or.w    d0,d4
+        movem.l (sp)+,d1-d2/a0
+        rts
+;=============================================================================
+; show_chip_bits — draw 16 horizontal bands (one per data bit D0..D15)
+;   using raster-timed COLOR00 writes (works with NO chip RAM, like the
+;   raster test). D0=top band ... D15=bottom band.
+;     green = bit ok, red = bit faulty, blue = bit not tested.
+;   Exits when a key arrives on the FT245 serial OR after a safety timeout,
+;   so the serial menu still becomes available afterwards.
+;   Input: D4.W = fail mask, D5.W = tested mask. Clobbers D0-D3/A0.
+;=============================================================================
+SHOWBITS_TOP    equ $30               ; first visible rasterline used
+SHOWBITS_BANDH  equ 12                ; rasterlines per band (16*12 = 192)
+SHOWBITS_TIMEOUT equ 60*30            ; ~30 s at 60 fields/s safety timeout
+SHOWBITS_LSTART equ $10               ; first rasterline painted (black band above)
+show_chip_bits:
+        movem.l d1-d7/a0,-(sp)
+        bsr     usb_drain_rx          ; clear stale RX so we don't exit at once
+        bsr     usb_putc_str
+        dc.b    13,10,'Chip RAM data-bit map (D0=top..D15=bottom): '
+        dc.b    'green=ok red=bad blue=untested',13,10
+        dc.b    'Press any key on this terminal to continue to menu.',13,10,0
+        even
+        move.l  #SHOWBITS_TIMEOUT,d6  ; field countdown
+.field:
+        ; $dff006 exposes only the low 8 bits of the vertical beam position,
+        ; which wraps past line 255 (PAL has ~312 lines).  We therefore also
+        ; gate every line match on V8 == 0 (bit 0 of VPOSR $dff004), so a
+        ; target line is only accepted in the first half of the frame.
+        ; Sync: wait for second half (V8=1), then for the new frame (V8=0).
+.s1:    move.w  $dff004,d0
+        btst    #0,d0                ; wait until V8 == 1 (lower screen)
+        beq.s   .s1
+.s2:    move.w  $dff004,d0
+        btst    #0,d0                ; then wait until V8 == 0 (new frame)
+        bne.s   .s2
+        ; --- phase 1: black from LSTART to TOP-1 ---
+        move.w  #SHOWBITS_LSTART,d7
+.pre:
+.pw:    move.w  $dff004,d0
+        btst    #0,d0
+        bne.s   .pw                  ; ignore matches when V8=1
+        cmp.b   $dff006,d7
+        bne.s   .pw
+        move.w  #$000,$dff180
+        addq.w  #1,d7
+        cmp.w   #SHOWBITS_TOP,d7
+        blt.s   .pre
+        ; --- phase 2: 16 bands ---
+        moveq   #0,d3
+.nextband:
+        move.w  d5,d0
+        btst    d3,d0                ; tested?
+        beq.s   .bblue
+        move.w  d4,d0
+        btst    d3,d0                ; faulty?
+        bne.s   .bred
+        move.w  #$0f0,d2             ; green
+        bra.s   .bcol
+.bred:  move.w  #$f00,d2             ; red
+        bra.s   .bcol
+.bblue: move.w  #$00f,d2             ; blue
+.bcol:
+        moveq   #0,d1
+.bline:
+        move.w  d3,d0
+        mulu    #SHOWBITS_BANDH,d0
+        add.w   d1,d0
+        add.w   #SHOWBITS_TOP,d0     ; d0 = absolute target line
+.bw:    move.w  $dff004,d7
+        btst    #0,d7
+        bne.s   .bw                  ; ignore matches when V8=1
+        cmp.b   $dff006,d0
+        bne.s   .bw
+        tst.w   d1
+        bne.s   .bcolour
+        move.w  #$000,$dff180        ; separator
+        bra.s   .badv
+.bcolour:
+        move.w  d2,$dff180
+.badv:
+        addq.w  #1,d1
+        cmp.w   #SHOWBITS_BANDH,d1
+        blt.s   .bline
+        addq.w  #1,d3
+        cmp.w   #16,d3
+        blt.s   .nextband
+        ; frame done
+        move.w  #$000,$dff180
+        move.w  DEMON_USB_STAT,d0
+        btst    #1,d0
+        beq     .keypressed
+        subq.l  #1,d6
+        bne     .field
+        bra     .keypressed
+.keypressed:
+        move.b  DEMON_USB_DATA,d0     ; consume the key (ignore value)
+        move.w  #$000,$dff180         ; restore black background
+        movem.l (sp)+,d1-d7/a0
+        rts
 ;=============================================================================
 ; Boot banner
 ;=============================================================================

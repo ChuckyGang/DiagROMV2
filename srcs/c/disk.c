@@ -717,7 +717,8 @@ static int findSectorInTrack(uint8_t wanted, uint8_t **dataOut)
     return -1;
 }
 
-/* MFM-decode and show 320 bytes (20 rows × 16 bytes) of the sector data. */
+/* MFM-decode and show 320 bytes (20 rows × 16 bytes) of the sector data,
+ * hex on the left, ASCII on the right (non-printable → '.'). */
 static void decodeAndShowSector(uint8_t *dataPtr)
 {
     for (int row = 0; row < 20; row++) {
@@ -727,11 +728,22 @@ static void decodeAndShowSector(uint8_t *dataPtr)
         printChar(' ', WHITE);
         uint32_t *odd = (uint32_t *)(dataPtr + row * 16);
         uint32_t *evn = (uint32_t *)(dataPtr + row * 16 + 0x200);
+        uint8_t bytes[16];
         for (int i = 0; i < 4; i++) {
             uint32_t v = ((odd[i] & 0x55555555u) << 1) | (evn[i] & 0x55555555u);
             print(binHex(v), GREEN);
             printChar(' ', WHITE);
+            bytes[i*4    ] = (uint8_t)(v >> 24);
+            bytes[i*4 + 1] = (uint8_t)(v >> 16);
+            bytes[i*4 + 2] = (uint8_t)(v >>  8);
+            bytes[i*4 + 3] = (uint8_t)v;
         }
+        printChar('|', WHITE);
+        for (int i = 0; i < 16; i++) {
+            uint8_t b = bytes[i];
+            printChar((b >= 0x20 && b < 0x7f) ? b : '.', YELLOW);
+        }
+        printChar('|', WHITE);
     }
 }
 
