@@ -94,6 +94,20 @@ def main():
     ])
     out[ROM_SIZE-16:ROM_SIZE] = autovec
 
+    # AR5/DeMoN ROM checksum: sum of longwords from $7C up to (but excluding)
+    # $3FFFC, with the result stored as a longword at $3FFFC.  Identical to
+    # ar5flasher.e / AR5.asm and to DiagROM's own validate_image / FlashWrite,
+    # so the received image validates as "checksum OK" (not "warn") and the
+    # in-system flasher's checksum fix is a confirming no-op.  Overwrites the
+    # last autovec longword at $3FFFC, which is unused on DeMoN (entry is via
+    # the NMI vector at $7C, not the end-of-ROM autovector).
+    CSUM_STORE = ROM_SIZE - 4                       # $3FFFC
+    checksum = 0
+    for off in range(NMI_VEC_OFS, CSUM_STORE, 4):   # $7C .. $3FFF8 inclusive
+        checksum = (checksum + struct.unpack(">I", out[off:off + 4])[0]) & 0xFFFFFFFF
+    struct.pack_into(">I", out, CSUM_STORE, checksum)
+    print(f"mkrom_demon: ROM checksum ${checksum:08X} stored at ${CSUM_STORE:05X}")
+
     out = bytes(out)
 
     with open(dst_path, 'wb') as f:
@@ -117,8 +131,8 @@ def main():
         f.write(bytes(even))
     with open(base + '_lo.bin', 'wb') as f:
         f.write(bytes(odd))
-    print(f"             Wrote {base}_hi.bin (U7, high byte)")
-    print(f"             Wrote {base}_lo.bin (U9, low byte)")
+    print(f"             Wrote {base}_hi.bin (U3, high byte / even lane / UDS)")
+    print(f"             Wrote {base}_lo.bin (U5, low byte / odd lane / LDS)")
 
 
 if __name__ == "__main__":

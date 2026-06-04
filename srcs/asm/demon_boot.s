@@ -50,6 +50,9 @@ NMI_VECTOR_OFS  equ $7c               ; CPU autovector 31 = NMI level 7
         xdef    RAMUsage
         xdef    INITBAUD
         xdef    DEMON_PTPLAYER
+        xdef    usb_putc              ; used by demon_flash.s (in-system flasher)
+        xdef    usb_putc_str
+        xdef    usb_drain_rx
         xref    _diag_init            ; renamed _begin in earlystart.s
         xref    DumpSerial
         xref    POSTBusError

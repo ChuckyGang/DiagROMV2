@@ -54,6 +54,7 @@ SECTIONS
     *(porttest)
     *(disktest)
     *(othertest)
+    *(demonflash)
     *(keyboardtest)
     *(autoconfig)
     *(terriblefire)

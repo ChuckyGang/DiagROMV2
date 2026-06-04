@@ -10,6 +10,7 @@
 	xref	_initScreen
 	xref	_mainLoop
 	xref	_mainMenu
+        xref    _setupMenu            ; C: Setup submenu (custom screen, flashmenu.c)
         xref    _kickCheck
 
 
@@ -506,7 +507,8 @@ ShowMemAddress:
 TF1260:
        jmp    _mainMenu
 
-Setup:
+Setup:                               ; "S - Setup" main-menu item -> Setup submenu
+       jsr     _setupMenu            ; '1' = Flash firmware, '9' = back (custom screen)
        jmp    _mainMenu
 
 About:
