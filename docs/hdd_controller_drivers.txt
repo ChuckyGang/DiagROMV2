@@ -1,0 +1,190 @@
+================================================================================
+  DiagROMV2 - HDD Controller Driver Framework
+  Reference: srcs/c/disk.c :: HDDTestC()
+================================================================================
+
+OVERVIEW
+--------
+The HDD test supports multiple controller types through a simple driver table.
+Each controller is one entry in hddControllers[] with a name and a detect()
+function. The test UI reads the table at runtime — adding a new controller
+requires no changes to the menu or test logic.
+
+
+--------------------------------------------------------------------------------
+PART 1 - THE DRIVER STRUCT
+--------------------------------------------------------------------------------
+
+    typedef struct {
+        const char *name;       // display name shown in the menu
+        int (*detect)(void);    // probe the hardware; returns 1=found, 0=absent
+    } HddController;
+
+Rules for detect():
+
+  - Must be safe to call on any machine, even one that does not have this
+    controller. A missing controller typically means the address space returns
+    $FF (floating bus) or an unrelated value. Do not write to hardware addresses
+    that could corrupt other hardware on machines without this controller.
+
+  - Must return quickly. It is called from the menu event loop and from the
+    autodetect cycle. No waiting for drives to spin up; just check if the
+    controller chip is present and responding.
+
+  - Return value: 1 = controller present and IDE/SCSI bus looks alive.
+                  0 = not found (chip absent or bus floating).
+
+  - NULL function pointer is valid (stub / not yet implemented). The autodetect
+    and manual select code both check for NULL before calling.
+
+Color convention used by the UI:
+  GREEN  = detect() returned 1
+  RED    = detect() returned 0 (or not yet tested after manual select)
+  WHITE  = not yet tested (initial state on entry)
+
+
+--------------------------------------------------------------------------------
+PART 2 - ADDING A NEW CONTROLLER
+--------------------------------------------------------------------------------
+
+Step 1: Write the detect function (see Part 3 for an example).
+
+Step 2: Add an entry to hddControllers[] in disk.c:
+
+    static const HddController hddControllers[] = {
+        { "A1200/A600 IDE", detectGayleIDE       },
+        { "My New Board",   detectMyNewBoard     },  // <-- add here
+        ...
+    };
+
+Step 3: Add the matching entry to HDDSelItems[] in disk.c.
+        The key character ('1','2',...) is derived from the array index,
+        so the order in hddControllers[] and HDDSelItems[] must match.
+
+    static const char HDDSelN[]  = "N - My New Board";
+
+    static const char *HDDSelItems[] = {
+        HDDSelText,
+        HDDSel1, HDDSel2, ..., HDDSelN,   // same order as hddControllers[]
+        HDDSelBack,
+        NULL
+    };
+
+Step 4: Update the posToKey[] array in the MenuNumber 1 handler if the
+        number of controllers changed:
+
+    static const uint8_t posToKey[] = { '1','2','3','4','5','6','9' };
+                                                              ^^^
+                                                    add entry for new item
+
+That is all. No changes needed to the autodetect loop, the color logic, or
+the menu 0 display — they all work from the table.
+
+
+--------------------------------------------------------------------------------
+PART 3 - EXAMPLE: A1200/A600 IDE (Gayle)
+--------------------------------------------------------------------------------
+
+Hardware addresses:
+
+  $DE1000  GAYLE_ID_REG     Gayle chip ID shift register (read-only after write)
+  $DA8000  Gayle status/interrupt register
+  $DA001C  IDE status/command register (A1200/A600 slow IDE)
+
+Gayle ID protocol (credit: Stephen Leary):
+
+  Writing any value to $DE1000 resets the ID shift register.
+  Reading $DE1000 eight times shifts out 8 bits, MSB first.
+  Bit 7 of each byte read is the current bit of the ID.
+
+  In C:
+      *GAYLE_ID_REG = 0;                           // trigger shift register
+      for (i = 0; i < 8; i++)
+          id = (uint8_t)((id << 1) | (*GAYLE_ID_REG >> 7));
+
+  This is the exact C equivalent of the asm .get_gid_bit loop in disktest.s:
+      move.b  (a1), d0    ; read byte
+      lsl.b   #1, d0      ; shift MSB into X flag
+      roxl.b  #1, d2      ; accumulate X into d2 LSB, shift d2 left
+
+  Known ID values:
+      $D1  A1200 Gayle
+      $D0  A600  Gayle
+      $Dx  Unknown Gayle variant (mask $F0 == $D0)
+      other  Not Gayle (may be custom chip mirror at this address)
+
+  After confirming Gayle is present, read the IDE status register ($DA001C).
+  If it reads $FF the bus is floating (no device connected).
+
+The detect function:
+
+    #define GAYLE_ID_REG     ((volatile uint8_t *)0xDE1000)
+    #define IDE_STATUS_A1200 ((volatile uint8_t *)0xDA001C)
+
+    static int detectGayleIDE(void)
+    {
+        volatile uint8_t *gid = GAYLE_ID_REG;
+        uint8_t id = 0;
+        int i;
+
+        *gid = 0;
+        for (i = 0; i < 8; i++)
+            id = (uint8_t)((id << 1) | (*gid >> 7));
+
+        if ((id & 0xF0) != 0xD0)
+            return 0;               // not Gayle
+
+        if (*IDE_STATUS_A1200 == 0xFF)
+            return 0;               // bus floating, no device
+
+        return 1;
+    }
+
+Note: the full GayleTest (disktest.s :: GayleTest) also performs an INTENA
+mirror check before reading the ID. This rules out machines where $DE1000
+mirrors the custom chip area. The simple detect above skips this because
+$D0/$D1 are unlikely to appear as INTENA values in normal operation.
+Add the mirror check here if false positives are observed on real hardware.
+
+
+--------------------------------------------------------------------------------
+PART 4 - AUTODETECT BEHAVIOUR
+--------------------------------------------------------------------------------
+
+Pressing "2 - Autodetect" in the HDD test walks the controller list starting
+from the entry AFTER the currently active one (wraps around). It stops at the
+first controller whose detect() returns 1 and marks it GREEN. If no controller
+is found the scan ends back where it started and the name is shown RED.
+
+This means:
+  - On a machine with one controller: one press finds it; a second press wraps
+    and finds it again.
+  - On a machine with two controllers: successive presses cycle between them.
+  - The active controller is never re-tested on the first pass (it was already
+    shown as the current selection). If you want to re-test the current one,
+    select it manually from the list (menu item 1).
+
+Manual select (menu item 1) always runs detect() on the chosen controller
+immediately and updates the color.
+
+
+--------------------------------------------------------------------------------
+PART 5 - FUTURE OPERATIONS
+--------------------------------------------------------------------------------
+
+When scan / identify / SMART are implemented, add the corresponding function
+pointers to the struct:
+
+    typedef struct {
+        const char  *name;
+        int        (*detect)(void);
+        int        (*scan)(void);       // enumerate attached devices
+        int        (*identify)(void);   // read model/serial/capacity
+        int        (*smart)(void);      // read SMART health data
+    } HddController;
+
+Stubs can be NULL. The test handlers in HDDTestC() check for NULL before
+calling, so adding the fields does not break controllers that do not yet
+implement them.
+
+================================================================================

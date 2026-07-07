@@ -1082,7 +1082,3 @@ IDEReadData:
 	jsr	Print
 .nomem:
 	rts
-
-floppyTestC::
-	bsr	_floppyTestC
-       jmp    _mainMenu

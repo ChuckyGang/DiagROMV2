@@ -66,6 +66,7 @@
 	xdef	MakePrintable
 	xdef	binstringbyte
 	xdef	EnableCache
+	xdef	_EnableCache
 	xdef	_DisableCache
 	xdef	DisableCache
 	xdef	SameRow
@@ -594,6 +595,7 @@ binstringbyte:
 	rts
 
 	machine 68020
+_EnableCache:
 EnableCache:
 	PUSH
 	move.l	#$0808,d1

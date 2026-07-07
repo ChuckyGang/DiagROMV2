@@ -789,6 +789,7 @@ void initCode(void)
 serial_on:
     ClearBuffer();
     defaultVars();
+
     globals->Menu = (void *)Menus;
     mainMenu();
 }

@@ -98,8 +98,14 @@ run_a500: diagrom.rom
 	# Use 'socat pty,raw,echo=0,link=/tmp/virtual-serial-port -,raw,echo=0,crlf' to read serial
 	fs-uae --console_debugger=1 --kickstart_file=diagrom.rom --console_debugger=1 --serial_port=/tmp/virtual-serial-port --joystick_port_0=none --joystick_port_1=none --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.
 
-# quick test run
+# quick test run (A1200)
+run_a1200: diagrom.rom
+	fs-uae --console_debugger=1 --amiga-model=A1200 --cpu=68040 --chip_memory=2048 --fast_memory=8192 --kickstart_file=diagrom.rom --floppy_drive_0_type=0 --floppy_drive_0=data/Install31.adf --hard_drive_0=/home/john/Documents/Code/DiskPart/test/test.hdf --hard_drive_0_controller=ide0_mainboard --serial_port=/tmp/virtual-serial-port --joystick_port_0=none --joystick_port_1=none --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.0
+
+# quick test run (A4000)
 run: diagrom.rom
-	# Use 'socat pty,raw,echo=0,link=/tmp/virtual-serial-port -,raw,echo=0,crlf' to read serial
-	fs-uae --console_debugger=1 --amiga-model=A1200 --cpu=68040 --chip_memory=2048 --fast_memory=8192 --kickstart_file=diagrom.rom --floppy_drive_0_type=0 --floppy_drive_0=data/Install31.adf --serial_port=/tmp/virtual-serial-port --joystick_port_0=none --joystick_port_1=none --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.0
-	
+	fs-uae --console_debugger=1 --amiga-model=A4000/040 --chip_memory=2048 --fast_memory=8192 --kickstart_file=diagrom.rom --floppy_drive_0_type=0 --floppy_drive_0=data/Install31.adf --hard_drive_0=/home/john/Documents/Code/DiskPart/test/test.hdf --hard_drive_0_controller=ide0_mainboard --serial_port=/tmp/virtual-serial-port --joystick_port_0=none --joystick_port_1=none --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.0
+
+# quick test run (A3000 — HDF attached as SCSI via scsi0_a3000)
+run_a3000: diagrom.rom
+	fs-uae --console_debugger=1 --amiga-model=A3000 --cpu=68030 --chip_memory=2048 --fast_memory=8192 --kickstart_file=diagrom.rom --floppy_drive_0_type=0 --floppy_drive_0=data/Install31.adf --hard_drive_0=/home/john/Documents/Code/DiskPart/test/test.hdf --hard_drive_0_controller=scsi0_a3000 --serial_port=/tmp/virtual-serial-port --joystick_port_0=none --joystick_port_1=none --window_width=1280 --window_height=1024 --scale_x=2.0 --scale_y=2.0

@@ -390,6 +390,9 @@ typedef struct GlobalVars
 	uint8_t	MemEditBusErr;			// Set by bus error handler during mem edit reads
 	uint32_t MemEditSavedSP;		// SP snapshot for bus error recovery
 	uint32_t MemEditResumePC;		// Resume PC after bus error
+	uint8_t	ScsiIrqPending;		// Set by ScsiPortsIRQ when a WD33C93 completion IRQ was serviced
+	uint8_t	ScsiIrqStatus;		// SCSI_STATUS byte read by ScsiPortsIRQ
+	uint16_t	ScsiIrqCount;		// Total times ScsiPortsIRQ has actually run, for on-screen confirmation
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

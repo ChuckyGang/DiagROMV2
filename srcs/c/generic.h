@@ -78,6 +78,7 @@ void errorScreenC(char *errorTitle __asm("a0"));
 int toggleBit(int value, int bit);
 void initIRQ3(int code);
 void DisableCache();
+void EnableCache();
 void GetSerial();
 void StartECLK();
 int read_eclk();
@@ -116,8 +117,12 @@ int32_t random(int32_t d0 __asm("d0"), int32_t d1 __asm("d1"), int32_t d2 __asm(
                int32_t d6 __asm("d6"), int32_t d7 __asm("d7"));
 
 // mainmenu.c
-void mainMenu(void);
-void mainLoop(void);
+void mainMenu(void) __attribute__((noreturn));
+void mainLoop(void) __attribute__((noreturn));
+
+// Tail-jump to mainMenu without pushing a return address.
+// Use instead of mainMenu() at the end of test handlers to prevent stack growth.
+#define GOTO_MAINMENU() do { __asm volatile ("jmp _mainMenu"); __builtin_unreachable(); } while(0)
 void initScreen(void);
 void printMenu(void);
 void filterON(void);

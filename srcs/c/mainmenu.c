@@ -184,7 +184,7 @@ void printMenu(void)
     globals->PrintMenuFlag = 0;
 }
 
-void mainLoop(void)
+__attribute__((noreturn)) void mainLoop(void)
 {
     for (;;) {
         printMenu();
@@ -211,7 +211,7 @@ void initScreen(void)
     setPos(0, 0);
 }
 
-void mainMenu(void)
+__attribute__((noreturn)) void mainMenu(void)
 {
     ClearBuffer();
     filterON();

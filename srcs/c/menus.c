@@ -56,7 +56,8 @@ extern void kickCheck(void)           __asm("kickCheck");
 extern void DiskdriveTest(void)       __asm("DiskdriveTest");
 extern void GayleTest(void)           __asm("GayleTest");
 extern void GayleExp(void)            __asm("GayleExp");
-extern void floppyTestC(void)         __asm("floppyTestC");
+extern void floppyTestC(void);
+extern void HDDTestC(void);
 
 // C functions defined in mainmenu.c
 void mainMenu(void);
@@ -244,15 +245,16 @@ static const char diskMenu1[]  = "1 - Diskdrivetest (old experimental)";
 static const char diskMenu2[]  = "2 - Gayletest (A600/1200 etc IDE)";
 static const char diskMenu3[]  = "3 - Gary-IDE test (A4000)";
 static const char diskMenu4[]  = "4 - Floppytest (New Experimental)";
-static const char diskMenu5[]  = "9 - Mainmenu";
+static const char diskMenu5[]  = "5 - Harddisktest (New Experimental)";
+static const char diskMenu6[]  = "9 - Mainmenu";
 
 static const char *diskMenuItems[] = {
-    diskText, diskMenu1, diskMenu2, diskMenu3, diskMenu4, diskMenu5, NULL
+    diskText, diskMenu1, diskMenu2, diskMenu3, diskMenu4, diskMenu5, diskMenu6, NULL
 };
 static MenuHandler diskMenuCode[] = {
-    DiskdriveTest, GayleTest, GayleExp, floppyTestC, mainMenu
+    DiskdriveTest, GayleTest, GayleExp, floppyTestC, HDDTestC, mainMenu
 };
-static uint8_t diskMenuKey[] = { '1','2','3','4','9',0 };
+static uint8_t diskMenuKey[] = { '1','2','3','4','5','9',0 };
 
 // ---------------------------------------------------------------------------
 // Top-level tables indexed by MenuNumber
