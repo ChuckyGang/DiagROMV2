@@ -2,6 +2,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#if DEBUGCODE_BUILD
+extern void DebugCode(void);
+#endif
+
 // ROM data symbols from data.s (need _Xxx:: aliases there)
 extern uint8_t RomMenuCopper[];
 extern uint8_t EndRomMenuCopper[];
@@ -762,6 +766,9 @@ void initCode(void)
     // -----------------------------------------------------------------------
     // Serial timeout wait — give user a chance to press a key
     // -----------------------------------------------------------------------
+#if DEBUGCODE_BUILD
+    goto serial_on;   // debug build: force serial on, skip the hold-key gate
+#endif
     if (!globals->NoDraw && !globals->NoSerial && !globals->LoopB) {
         ClearBuffer();
         uint32_t dotCount = 0;
@@ -789,6 +796,10 @@ void initCode(void)
 serial_on:
     ClearBuffer();
     defaultVars();
+
+#if DEBUGCODE_BUILD
+    DebugCode();
+#endif
 
     globals->Menu = (void *)Menus;
     mainMenu();

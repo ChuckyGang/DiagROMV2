@@ -10,12 +10,19 @@ DATEOPS= +"%Y-%m-%d"
 CP := cp
 MD = mkdir -p $(1) > /dev/null
 endif
-NDK_INC := ./ndk/Include_H 
+NDK_INC := ./ndk/Include_H
 AS := /opt/amiga/bin/vasmm68k_mot
 ASOPTS := -DDEBUG=0 -quiet -m68000 -no-opt -Fhunk -I. -I$(OUTDIR)/srcs -Isrcs/asm/amiga
-CC := /opt/amiga/bin/m68k-amigaos-gcc 
+CC := /opt/amiga/bin/m68k-amigaos-gcc
 #CFLAGS := -DDEBUG=2 -mcpu=68000 -O2 -g -mregparm=4 -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
-CFLAGS := -DDEBUG=2 -DROM_BASE=0xF80000 -mcpu=68000 -O0 -g -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
+
+# DEBUGCODE=1: build a debug ROM that skips the "hold a key" gate and menu
+# system, forces serial on, and runs srcs/c/debugcode.c's DebugCode() —
+# a clean, dedicated home for ad-hoc hardware experiments (boots straight to
+# serial, no menu chrome in the way). Falls through to the normal menu
+# system afterward as a fallback. Usage: `make DEBUGCODE=1`.
+DEBUGCODE ?= 0
+CFLAGS := -DDEBUG=2 -DROM_BASE=0xF80000 -DDEBUGCODE_BUILD=$(DEBUGCODE) -mcpu=68000 -O0 -ffixed-a6 -fomit-frame-pointer -I$(NDK_INC) -I. -Isrcs
 
 $(info NDK is $(NDK_INC))
 LN := /opt/amiga/bin/m68k-amigaos-gcc

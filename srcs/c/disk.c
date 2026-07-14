@@ -568,6 +568,107 @@ typedef struct {
 } HddController;
 
 // ---------------------------------------------------------------------------
+// Shared interactive unit browser
+// ---------------------------------------------------------------------------
+//
+// One navigation shell for every controller's "Identify Devices" screen
+// (SCSI, IDE, and whatever gets added later — currently A4000T SCSI's
+// identifyA4000TSCSI() is still a stub, but this is where its real
+// implementation should plug in too, rather than a third hand-copied loop).
+// A controller supplies unit count + two per-unit callbacks (read/print one
+// unit's info, and optionally its SMART data); this function owns the
+// redraw/'+'/'-'/mouse/'S'/ESC handling once, identically, everywhere.
+typedef void (*UnitInfoFn)(void *ctx, int unit);
+typedef int  (*UnitSkipFn)(void *ctx, int unit);
+
+// title       — printed once per redraw, e.g. "A3000/A3000T SCSI - Identify Devices"
+// unitCount   — how many unit indices exist (0..unitCount-1)
+// startUnit   — initial unit shown
+// unitLabels  — NULL for auto "Unit N of M-1"; otherwise unitLabels[unit] printed as a header
+// ctx         — opaque pointer forwarded to every callback (e.g. an IdeRegs*)
+// identifyUnit— required: print unit's info
+// smartUnit   — optional (NULL disables the 'S' key / hint text)
+// skipUnit    — optional: return true to exclude a unit index from stepping
+//               entirely (e.g. A3000 SCSI's own host ID, which can never be
+//               a real target — see A3K_HOST_SCSI_ID)
+// Returns 1 always — matches the "already handled its own dismissal, skip
+// the generic press-any-key prompt" convention HDDTestC()'s case '4' checks.
+//
+// unitNext/unitPrev exist only to avoid `%` on a non-constant divisor —
+// this freestanding build has no __modsi3 (same class of gap as the earlier
+// __mulsi3/__divsi3 issues elsewhere in this file), and unitCount is a
+// runtime parameter here, not a compile-time constant GCC could fold into a
+// bitmask AND even when it happens to be a power of two.
+static int unitNext(int unit, int unitCount)
+{
+    unit++;
+    return (unit >= unitCount) ? 0 : unit;
+}
+
+static int unitPrev(int unit, int unitCount)
+{
+    unit--;
+    return (unit < 0) ? unitCount - 1 : unit;
+}
+
+static int browseUnits(const char *title, int unitCount, int startUnit,
+                        const char * const *unitLabels, void *ctx,
+                        UnitInfoFn identifyUnit, UnitInfoFn smartUnit, UnitSkipFn skipUnit)
+{
+    int unit = startUnit;
+    if (skipUnit && skipUnit(ctx, unit))
+        unit = unitNext(unit, unitCount);
+    int redraw = 1;
+
+    for (;;) {
+        if (redraw) {
+            initScreen();
+            print((char *)title, WHITE); print("\n\n", WHITE);
+            if (unitLabels) {
+                print((char *)unitLabels[unit], CYAN); print(":\n", WHITE);
+            } else {
+                print("Unit ", WHITE); print(binDec(unit), CYAN);
+                print(" of ", WHITE); print(binDec(unitCount - 1), WHITE); print("\n\n", WHITE);
+            }
+
+            identifyUnit(ctx, unit);
+
+            print("\n+/- or mouse L/R: next/prev unit   ", WHITE);
+            if (smartUnit) print("S: SMART   ", WHITE);
+            print("ESC or both buttons: exit\n", WHITE);
+            redraw = 0;
+        }
+
+        getInput();
+        uint8_t ch  = globals->GetCharData;
+        int     lmb = globals->LMB;
+        int     rmb = globals->RMB;
+
+        if ((lmb && rmb) || ch == 0x1b) {
+            waitReleased();
+            return 1;
+        } else if (ch == '+' || (lmb && !rmb)) {
+            waitReleased();
+            do { unit = unitNext(unit, unitCount); } while (skipUnit && skipUnit(ctx, unit));
+            redraw = 1;
+        } else if (ch == '-' || (rmb && !lmb)) {
+            waitReleased();
+            do { unit = unitPrev(unit, unitCount); } while (skipUnit && skipUnit(ctx, unit));
+            redraw = 1;
+        } else if (smartUnit && (ch == 's' || ch == 'S')) {
+            waitReleased();
+            initScreen();
+            if (unitLabels) { print((char *)unitLabels[unit], CYAN); print(":\n\n", WHITE); }
+            else            { print("Unit ", WHITE); print(binDec(unit), CYAN); print("\n\n", WHITE); }
+            smartUnit(ctx, unit);
+            print("\nPress any key/button to continue", WHITE);
+            WaitButton();
+            redraw = 1;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Generic ATA IDE
 // ---------------------------------------------------------------------------
 
@@ -713,6 +814,70 @@ static int ideReadSector(const IdeRegs *r, uint8_t lba_devhead_base, uint32_t lb
     return 1;
 }
 
+// Manual 32-bit unsigned division via binary long division (shift+compare+
+// subtract only) — this freestanding build has no __divsi3 (same reasoning
+// as A3000 SCSI's mul32() elsewhere in this file, which exists because
+// __mulsi3 isn't linked in either), needed here for LBA->CHS translation
+// (track/heads, track%heads, etc. — none of the divisors are powers of two
+// in general, so a plain shift can't substitute).
+static uint32_t udiv32(uint32_t n, uint32_t d, uint32_t *rem)
+{
+    uint32_t q = 0, r = 0;
+    for (int i = 31; i >= 0; i--) {
+        r = (r << 1) | ((n >> i) & 1);
+        if (r >= d) { r -= d; q |= (1UL << i); }
+    }
+    if (rem) *rem = r;
+    return q;
+}
+
+// CHS-mode sector read, for drives whose IDENTIFY capabilities word doesn't
+// advertise LBA support (exactly what this project's own old-style
+// CHS-geometry hardfile configs report — see doIdentifyIDEUnit()'s "no
+// LBA" path). Translates a flat block number into real Cylinder/Head/
+// Sector using the drive's own IDENTIFY-reported geometry. LBA 0 (where an
+// RDB lives) and any RDB-referenced partition block are always reachable
+// this way regardless of LBA-mode support — CHS addressing predates LBA
+// entirely, it's not a real hardware limitation, just a different register
+// convention.
+static int ideReadSectorCHS(const IdeRegs *r, uint8_t devhead_base, uint32_t lba,
+                             uint16_t heads, uint16_t spt, uint8_t *buf)
+{
+    if (heads == 0 || spt == 0) return 0;   // no valid geometry to translate with
+
+    uint32_t rem;
+    uint32_t track  = udiv32(lba, spt, &rem);     // track = lba / spt
+    uint32_t sector = rem + 1;                     // CHS sector numbers are 1-based
+    uint32_t cyl    = udiv32(track, heads, &rem);  // cyl = track / heads
+    uint32_t head   = rem;                         // head = track % heads
+
+    *r->seccount = 1;
+    *r->lba_lo   = (uint8_t)sector;                          // CHS mode: sector number
+    *r->lba_mid  = (uint8_t)cyl;                              // cylinder low byte
+    *r->lba_hi   = (uint8_t)(cyl >> 8);                       // cylinder high byte
+    *r->devhead  = (devhead_base & 0xF0) | (uint8_t)(head & 0x0F);  // no LBA bit
+    ideWaitBSY(r);
+    *r->status   = 0x20;
+    uint8_t st = ideWaitDRQ(r);
+    if (st == 0xFF || !(st & IDE_DRQ)) return 0;
+    ideReadWords(r, buf, 256);
+    return 1;
+}
+
+// Picks LBA-mode or CHS-mode addressing per-call based on `useLba` — lets
+// the RDB scan (block 0..15 + the partition-block chain, both driven by
+// plain flat block numbers) use one call site regardless of which mode this
+// particular drive/config actually supports.
+static int ideReadSectorAny(const IdeRegs *r, uint8_t devhead_base, uint32_t lba,
+                             int useLba, uint16_t heads, uint16_t spt, uint8_t *buf)
+{
+    if (useLba) {
+        uint8_t lba_dh = (uint8_t)((devhead_base & 0xF0) | 0x40);
+        return ideReadSector(r, lba_dh, lba, buf);
+    }
+    return ideReadSectorCHS(r, devhead_base, lba, heads, spt, buf);
+}
+
 static uint8_t ideSmartCmd(const IdeRegs *r, uint8_t sub)
 {
     *r->lba_mid  = 0x4F;
@@ -729,6 +894,22 @@ static void ideStripSpaces(char *s, int len)
         s[i] = '\0';
 }
 
+// ATA IDENTIFY string fields (model/serial/firmware) are transmitted
+// byte-swapped within each 16-bit word per the ATA spec. ideReadWords()
+// stores each word as (high byte, low byte) — the right order for
+// reconstructing NUMERIC fields via the (buf[x]<<8)|buf[x+1] pattern used
+// elsewhere — but ASCII string fields need each pair read the other way
+// around, or the text comes out pairwise-swapped (confirmed live: "AU-EDI
+// ElCae3n32h.fd" is "UAE-IDE Clean323.hdf" with every adjacent pair
+// swapped). Only string fields need this — numeric fields are unaffected.
+static void ideCopySwappedString(char *out, const uint8_t *src, int len)
+{
+    for (int i = 0; i < len; i += 2) {
+        out[i]     = (char)src[i + 1];
+        out[i + 1] = (char)src[i];
+    }
+}
+
 static int ideQuickModel(const IdeRegs *r, char *out)
 {
     *r->status = ATA_CMD_IDENTIFY;
@@ -736,7 +917,7 @@ static int ideQuickModel(const IdeRegs *r, char *out)
     if (st == 0xFF || !(st & IDE_DRQ)) { out[0] = '\0'; return 0; }
     static uint8_t mbuf[512];
     ideReadWords(r, mbuf, 256);
-    for (int i = 0; i < 40; i++) out[i] = mbuf[54 + i];
+    ideCopySwappedString(out, mbuf + 54, 40);
     ideStripSpaces(out, 40);
     return 1;
 }
@@ -857,144 +1038,139 @@ static void printDosType(uint32_t dt)
     print(s, CYAN);
 }
 
-static int doIdentifyIDE(const IdeRegs *r)
+// One drive's full identify info (model/serial/firmware/size/CHS/RDB+
+// partitions) — extracted from the old whole-bus doIdentifyIDE() so it can
+// be shown one unit at a time in an interactive browser, matching
+// identifyA3000SCSI()'s UX instead of a one-shot dump of both drives.
+static void doIdentifyIDEUnit(const IdeRegs *r, uint8_t devhead)
 {
     uint8_t idbuf[512];
     char    str[42];
-    int     found = 0;
 
-    print("\nIdentifying IDE devices...\n\n", WHITE);
+    uint8_t st = ideSelectDrive(r, devhead);
+    if (st == 0xFF) { print("  TIMEOUT\n", RED); return; }
+    int isMaster = (devhead == IDE_DEV_MASTER);
+    if (isMaster  && !(st & IDE_DRDY))  { print("  NOT PRESENT\n", YELLOW); return; }
+    if (!isMaster && !ideDevPresent(r)) { print("  NOT PRESENT\n", YELLOW); return; }
 
-    static const uint8_t devheads[2] = { IDE_DEV_MASTER, IDE_DEV_SLAVE };
-    static const char *devnames[2] = { "Master", "Slave " };
+    *r->status = ATA_CMD_IDENTIFY;
+    st = ideWaitDRQ(r);
+    if (st == 0xFF)      { print("  TIMEOUT\n", RED); return; }
+    if (!(st & IDE_DRQ)) { print("  ERR ", RED); print(binHex(st), RED); print("\n", WHITE); return; }
 
-    for (int d = 0; d < 2; d++) {
-        print((char *)devnames[d], CYAN);
-        print(": ", WHITE);
+    ideReadWords(r, idbuf, 256);
 
-        uint8_t st = ideSelectDrive(r, devheads[d]);
-        if (st == 0xFF) { print("TIMEOUT\n", RED); continue; }
-        if (d == 0 && !(st & IDE_DRDY))  { print("NOT PRESENT\n", YELLOW); continue; }
-        if (d == 1 && !ideDevPresent(r)) { print("NOT PRESENT\n", YELLOW); continue; }
+    // Model: words 27-46 = bytes 54..93
+    ideCopySwappedString(str, idbuf + 54, 40);
+    ideStripSpaces(str, 40);
+    print("  Model:    ", WHITE); print(str, GREEN); print("\n", WHITE);
 
-        *r->status = ATA_CMD_IDENTIFY;
-        st = ideWaitDRQ(r);
-        if (st == 0xFF)      { print("TIMEOUT\n", RED); continue; }
-        if (!(st & IDE_DRQ)) { print("ERR ", RED); print(binHex(st), RED); print("\n", WHITE); continue; }
+    // Serial: words 10-19 = bytes 20..39
+    ideCopySwappedString(str, idbuf + 20, 20);
+    ideStripSpaces(str, 20);
+    print("  Serial:   ", WHITE); print(str, WHITE); print("\n", WHITE);
 
-        ideReadWords(r, idbuf, 256);
-        found++;
+    // Firmware: words 23-26 = bytes 46..53
+    ideCopySwappedString(str, idbuf + 46, 8);
+    ideStripSpaces(str, 8);
+    print("  Firmware: ", WHITE); print(str, WHITE); print("\n", WHITE);
 
-        // Model: words 27-46 = bytes 54..93
-        for (int i = 0; i < 40; i++) str[i] = idbuf[54 + i];
-        ideStripSpaces(str, 40);
-        print(str, GREEN); print("\n", WHITE);
-
-        // Serial: words 10-19 = bytes 20..39
-        for (int i = 0; i < 20; i++) str[i] = idbuf[20 + i];
-        ideStripSpaces(str, 20);
-        print("  Serial:   ", WHITE); print(str, WHITE); print("\n", WHITE);
-
-        // Firmware: words 23-26 = bytes 46..53
-        for (int i = 0; i < 8; i++) str[i] = idbuf[46 + i];
-        ideStripSpaces(str, 8);
-        print("  Firmware: ", WHITE); print(str, WHITE); print("\n", WHITE);
-
-        // Size: LBA28 sector count, words 60-61 = bytes 120..123
-        uint32_t secs = ((uint32_t)((idbuf[122] << 8) | idbuf[123]) << 16)
-                       | (uint32_t)((idbuf[120] << 8) | idbuf[121]);
-        uint32_t mb = secs >> 11;
-        print("  Size:     ", WHITE);
-        if (mb >= 1024) {
-            uint32_t gb  = mb >> 10;
-            uint32_t dec = ((mb & 0x3FFU) * 10U) >> 10;
-            print(bindec((int)gb), WHITE); print(".", WHITE);
-            print(bindec((int)dec), WHITE); print(" GB\n", WHITE);
-        } else {
-            print(bindec((int)mb), WHITE); print(" MB\n", WHITE);
-        }
-
-        // CHS from IDENTIFY: word 1=cyls, word 3=heads, word 6=spt (bytes 2,6,12)
-        uint16_t id_cyls  = (uint16_t)((idbuf[2]  << 8) | idbuf[3]);
-        uint16_t id_heads = (uint16_t)((idbuf[6]  << 8) | idbuf[7]);
-        uint16_t id_spt   = (uint16_t)((idbuf[12] << 8) | idbuf[13]);
-        print("  CHS:      ", WHITE);
-        print(bindec(id_cyls),  WHITE); print("c / ", WHITE);
-        print(bindec(id_heads), WHITE); print("h / ", WHITE);
-        print(bindec(id_spt),   WHITE); print("s\n", WHITE);
-
-        // Check LBA support (word 49 bit 9)
-        uint16_t caps = (uint16_t)((idbuf[98] << 8) | idbuf[99]);
-        if (!(caps & 0x0200)) {
-            print("  (no LBA — skipping RDB scan)\n\n", YELLOW);
-            continue;
-        }
-
-        // Scan first 16 sectors for RDB
-        uint8_t lba_dh = (uint8_t)((devheads[d] & 0xF0) | 0x40); // LBA mode
-        int rdb_found = 0;
-        for (uint32_t blk = 0; blk < 16 && !rdb_found; blk++) {
-            if (!ideReadSector(r, lba_dh, blk, idbuf)) continue;
-            if (RD32(idbuf, 0) != RDB_MAGIC) continue;
-            rdb_found = 1;
-
-            uint32_t rdb_cyls  = RD32(idbuf, 0x40);
-            uint32_t rdb_spt   = RD32(idbuf, 0x44);
-            uint32_t rdb_heads = RD32(idbuf, 0x48);
-            uint32_t partblock = RD32(idbuf, 0x1C);
-
-            print("  RDB blk ", WHITE); print(bindec((int)blk), WHITE); print(":\n", WHITE);
-            print("    CHS:  ", WHITE);
-            print(bindec((int)rdb_cyls),  WHITE); print("c / ", WHITE);
-            print(bindec((int)rdb_heads), WHITE); print("h / ", WHITE);
-            print(bindec((int)rdb_spt),   WHITE); print("s\n", WHITE);
-
-            // Walk partition list
-            int nparts = 0;
-            while (partblock != NO_LIST && nparts < 64) {
-                if (!ideReadSector(r, lba_dh, partblock, idbuf)) break;
-                if (RD32(idbuf, 0) != PART_MAGIC) break;
-
-                uint32_t next    = RD32(idbuf, 0x10);
-                uint32_t lowcyl  = RD32(idbuf, 0xA4);
-                uint32_t highcyl = RD32(idbuf, 0xA8);
-                uint32_t dostype = RD32(idbuf, 0xC0);
-
-                // DriveName: BSTR at 0x24 (length byte then chars)
-                uint8_t namelen = idbuf[0x24];
-                if (namelen > 30) namelen = 30;
-                for (int i = 0; i < namelen; i++) str[i] = (char)idbuf[0x25 + i];
-                str[namelen]   = ':';
-                str[namelen+1] = '\0';
-
-                if (nparts == 0)
-                    print("    Partitions:\n", WHITE);
-                print("      ", WHITE);
-                print(str, GREEN);
-                print("  [", WHITE);
-                print(bindec((int)lowcyl),  WHITE);
-                print(" - ", WHITE);
-                print(bindec((int)highcyl), WHITE);
-                print("]  ", WHITE);
-                printDosType(dostype);
-                print("\n", WHITE);
-
-                nparts++;
-                partblock = next;
-            }
-            if (nparts == 0)
-                print("    No partitions\n", YELLOW);
-        }
-        if (!rdb_found)
-            print("  No RDB found\n", YELLOW);
-
-        print("\n", WHITE);
+    // Size: LBA28 sector count, words 60-61 = bytes 120..123
+    uint32_t secs = ((uint32_t)((idbuf[122] << 8) | idbuf[123]) << 16)
+                   | (uint32_t)((idbuf[120] << 8) | idbuf[121]);
+    uint32_t mb = secs >> 11;
+    print("  Size:     ", WHITE);
+    if (mb >= 1024) {
+        uint32_t gb  = mb >> 10;
+        uint32_t dec = ((mb & 0x3FFU) * 10U) >> 10;
+        print(bindec((int)gb), WHITE); print(".", WHITE);
+        print(bindec((int)dec), WHITE); print(" GB\n", WHITE);
+    } else {
+        print(bindec((int)mb), WHITE); print(" MB\n", WHITE);
     }
 
-    return found;
+    // CHS from IDENTIFY: word 1=cyls, word 3=heads, word 6=spt (bytes 2,6,12)
+    uint16_t id_cyls  = (uint16_t)((idbuf[2]  << 8) | idbuf[3]);
+    uint16_t id_heads = (uint16_t)((idbuf[6]  << 8) | idbuf[7]);
+    uint16_t id_spt   = (uint16_t)((idbuf[12] << 8) | idbuf[13]);
+    print("  CHS:      ", WHITE);
+    print(bindec(id_cyls),  WHITE); print("c / ", WHITE);
+    print(bindec(id_heads), WHITE); print("h / ", WHITE);
+    print(bindec(id_spt),   WHITE); print("s\n", WHITE);
+
+    // Check LBA support (word 49 bit 9). Absence doesn't mean the RDB is
+    // unreachable — CHS addressing predates LBA entirely and can always
+    // reach block 0 (or any RDB-referenced block), so fall back to
+    // ideReadSectorAny()'s CHS-mode path instead of skipping outright. See
+    // ideReadSectorCHS()'s comment for why this matters: this project's own
+    // old-style CHS-geometry hardfile configs hit exactly this case.
+    uint16_t caps = (uint16_t)((idbuf[98] << 8) | idbuf[99]);
+    int useLba = (caps & 0x0200) != 0;
+    if (!useLba)
+        print("  (no LBA - using CHS-mode RDB scan)\n", YELLOW);
+
+    // Scan first 16 sectors for RDB
+    int rdb_found = 0;
+    for (uint32_t blk = 0; blk < 16 && !rdb_found; blk++) {
+        if (!ideReadSectorAny(r, devhead, blk, useLba, id_heads, id_spt, idbuf)) continue;
+        if (RD32(idbuf, 0) != RDB_MAGIC) continue;
+        rdb_found = 1;
+
+        uint32_t rdb_cyls  = RD32(idbuf, 0x40);
+        uint32_t rdb_spt   = RD32(idbuf, 0x44);
+        uint32_t rdb_heads = RD32(idbuf, 0x48);
+        uint32_t partblock = RD32(idbuf, 0x1C);
+
+        print("  RDB blk ", WHITE); print(bindec((int)blk), WHITE); print(":\n", WHITE);
+        print("    CHS:  ", WHITE);
+        print(bindec((int)rdb_cyls),  WHITE); print("c / ", WHITE);
+        print(bindec((int)rdb_heads), WHITE); print("h / ", WHITE);
+        print(bindec((int)rdb_spt),   WHITE); print("s\n", WHITE);
+
+        // Walk partition list
+        int nparts = 0;
+        while (partblock != NO_LIST && nparts < 64) {
+            if (!ideReadSectorAny(r, devhead, partblock, useLba, id_heads, id_spt, idbuf)) break;
+            if (RD32(idbuf, 0) != PART_MAGIC) break;
+
+            uint32_t next    = RD32(idbuf, 0x10);
+            uint32_t lowcyl  = RD32(idbuf, 0xA4);
+            uint32_t highcyl = RD32(idbuf, 0xA8);
+            uint32_t dostype = RD32(idbuf, 0xC0);
+
+            // DriveName: BSTR at 0x24 (length byte then chars)
+            uint8_t namelen = idbuf[0x24];
+            if (namelen > 30) namelen = 30;
+            for (int i = 0; i < namelen; i++) str[i] = (char)idbuf[0x25 + i];
+            str[namelen]   = ':';
+            str[namelen+1] = '\0';
+
+            if (nparts == 0)
+                print("    Partitions:\n", WHITE);
+            print("      ", WHITE);
+            print(str, GREEN);
+            print("  [", WHITE);
+            print(bindec((int)lowcyl),  WHITE);
+            print(" - ", WHITE);
+            print(bindec((int)highcyl), WHITE);
+            print("]  ", WHITE);
+            printDosType(dostype);
+            print("\n", WHITE);
+
+            nparts++;
+            partblock = next;
+        }
+        if (nparts == 0)
+            print("    No partitions\n", YELLOW);
+    }
+    if (!rdb_found)
+        print("  No RDB found\n", YELLOW);
 }
 
-static int doSmartIDE(const IdeRegs *r)
+// Same extraction for SMART, one drive at a time — called both from the
+// interactive browser's 'S' key and from doSmartIDE()'s whole-bus wrapper.
+// Returns 1 if a SMART read actually succeeded (found), 0 otherwise.
+static int doSmartIDEUnit(const IdeRegs *r, uint8_t devhead)
 {
     static const struct { uint8_t id; const char *name; } names[] = {
         {  1, "Read Error Rate    " },
@@ -1015,73 +1191,101 @@ static int doSmartIDE(const IdeRegs *r)
     };
 
     uint8_t buf[512];
-    int found = 0;
 
+    uint8_t st = ideSelectDrive(r, devhead);
+    if (st == 0xFF) { print("  TIMEOUT\n", RED); return 0; }
+    int isMaster = (devhead == IDE_DEV_MASTER);
+    if (isMaster  && !(st & IDE_DRDY))  { print("  NOT PRESENT\n", YELLOW); return 0; }
+    if (!isMaster && !ideDevPresent(r)) { print("  NOT PRESENT\n", YELLOW); return 0; }
+
+    st = ideSmartCmd(r, 0xD8);
+    if (st & IDE_ERR) { print("  SMART not supported\n", YELLOW); return 0; }
+
+    ideSmartCmd(r, 0xDA);
+    uint8_t clo = *r->lba_mid;
+    uint8_t chi = *r->lba_hi;
+    print("  Status: ", WHITE);
+    if      (clo == 0x4F && chi == 0xC2) print("OK\n",                 GREEN);
+    else if (clo == 0xF4 && chi == 0x2C) print("FAILURE PREDICTED!\n", RED);
+    else { print(binHex((uint32_t)(chi<<8)|clo), YELLOW); print(" (unknown)\n", YELLOW); }
+
+    *r->lba_mid  = 0x4F;
+    *r->lba_hi   = 0xC2;
+    *r->features = 0xD0;
+    *r->status   = 0xB0;
+    st = ideWaitDRQ(r);
+    if (st == 0xFF || !(st & IDE_DRQ)) { print("  SMART read failed\n", RED); return 0; }
+    ideReadWords(r, buf, 256);
+
+    print("   ID Cur Wst  Raw      Attribute\n", WHITE);
+
+    for (int i = 0; i < 30; i++) {
+        int off = 2 + i * 12;
+        uint8_t id = buf[off];
+        if (id == 0) continue;
+
+        uint8_t cur  = buf[off + 3];
+        uint8_t wst  = buf[off + 4];
+        uint32_t raw = ((uint32_t)buf[off+8] << 24) | ((uint32_t)buf[off+7] << 16)
+                     | ((uint32_t)buf[off+6] <<  8) |  (uint32_t)buf[off+5];
+        int prefail  = buf[off+1] & 0x01;
+
+        const char *name = NULL;
+        for (int j = 0; names[j].id != 0; j++)
+            if (names[j].id == id) { name = names[j].name; break; }
+
+        print("  ", WHITE); printNum3(id);
+        print(" ", prefail ? RED : WHITE); printNum3(cur);
+        print(" ", WHITE); printNum3(wst);
+        print("  ", WHITE); print(binHex(raw), WHITE);
+        print(" ", WHITE);
+        if (name) print((char *)name, WHITE);
+        print("\n", WHITE);
+    }
+    return 1;
+}
+
+static int doSmartIDE(const IdeRegs *r)
+{
     static const uint8_t devheads[2] = { IDE_DEV_MASTER, IDE_DEV_SLAVE };
     static const char *devnames[2]   = { "Master", "Slave " };
+    int found = 0;
 
     print("\nSMART Data\n\n", WHITE);
-
     for (int d = 0; d < 2; d++) {
         print((char *)devnames[d], CYAN);
         print(":\n", WHITE);
-
-        uint8_t st = ideSelectDrive(r, devheads[d]);
-        if (st == 0xFF) { print("  TIMEOUT\n\n", RED); continue; }
-        if (d == 0 && !(st & IDE_DRDY))  { print("  NOT PRESENT\n\n", YELLOW); continue; }
-        if (d == 1 && !ideDevPresent(r)) { print("  NOT PRESENT\n\n", YELLOW); continue; }
-
-        st = ideSmartCmd(r, 0xD8);
-        if (st & IDE_ERR) { print("  SMART not supported\n\n", YELLOW); continue; }
-
-        ideSmartCmd(r, 0xDA);
-        uint8_t clo = *r->lba_mid;
-        uint8_t chi = *r->lba_hi;
-        print("  Status: ", WHITE);
-        if      (clo == 0x4F && chi == 0xC2) print("OK\n",                 GREEN);
-        else if (clo == 0xF4 && chi == 0x2C) print("FAILURE PREDICTED!\n", RED);
-        else { print(binHex((uint32_t)(chi<<8)|clo), YELLOW); print(" (unknown)\n", YELLOW); }
-
-        *r->lba_mid  = 0x4F;
-        *r->lba_hi   = 0xC2;
-        *r->features = 0xD0;
-        *r->status   = 0xB0;
-        st = ideWaitDRQ(r);
-        if (st == 0xFF || !(st & IDE_DRQ)) { print("  SMART read failed\n\n", RED); continue; }
-        ideReadWords(r, buf, 256);
-        found++;
-
-        print("   ID Cur Wst  Raw      Attribute\n", WHITE);
-
-        for (int i = 0; i < 30; i++) {
-            int off = 2 + i * 12;
-            uint8_t id = buf[off];
-            if (id == 0) continue;
-
-            uint8_t cur  = buf[off + 3];
-            uint8_t wst  = buf[off + 4];
-            uint32_t raw = ((uint32_t)buf[off+8] << 24) | ((uint32_t)buf[off+7] << 16)
-                         | ((uint32_t)buf[off+6] <<  8) |  (uint32_t)buf[off+5];
-            int prefail  = buf[off+1] & 0x01;
-
-            const char *name = NULL;
-            for (int j = 0; names[j].id != 0; j++)
-                if (names[j].id == id) { name = names[j].name; break; }
-
-            print("  ", WHITE); printNum3(id);
-            print(" ", prefail ? RED : WHITE); printNum3(cur);
-            print(" ", WHITE); printNum3(wst);
-            print("  ", WHITE); print(binHex(raw), WHITE);
-            print(" ", WHITE);
-            if (name) print((char *)name, WHITE);
-            print("\n", WHITE);
-        }
+        found += doSmartIDEUnit(r, devheads[d]);
         print("\n", WHITE);
     }
-
     return found;
 }
 
+// Adapters for browseUnits(): ctx is the IdeRegs* for whichever bus
+// (A1200/Gayle or A4000), unit 0/1 maps to Master/Slave.
+static void ideBrowseIdentify(void *ctx, int unit)
+{
+    static const uint8_t devheads[2] = { IDE_DEV_MASTER, IDE_DEV_SLAVE };
+    doIdentifyIDEUnit((const IdeRegs *)ctx, devheads[unit]);
+}
+
+static void ideBrowseSmart(void *ctx, int unit)
+{
+    static const uint8_t devheads[2] = { IDE_DEV_MASTER, IDE_DEV_SLAVE };
+    doSmartIDEUnit((const IdeRegs *)ctx, devheads[unit]);
+}
+
+static int doIdentifyIDE(const IdeRegs *r)
+{
+    static const char *labels[2] = { "Master", "Slave" };
+    return browseUnits("IDE - Identify Devices", 2, 0, labels, (void *)r,
+                        ideBrowseIdentify, ideBrowseSmart, NULL);
+}
+
+// doIdentifyIDE() is now the same kind of interactive per-unit browser as
+// identifyA3000SCSI() (see that function's comment on the 1 = "handled its
+// own dismissal" return convention), so forwarding its return value here is
+// correct again — no more found-count-vs-dismissal-signal mismatch.
 static int identifyGayleIDE(void) { return doIdentifyIDE(&ideA1200Regs); }
 static int smartGayleIDE(void)    { return doSmartIDE(&ideA1200Regs); }
 
@@ -1116,6 +1320,7 @@ static int scanA4000IDE(void)
     return doScanIDE(&ideA4000Regs);
 }
 
+// Same forwarding note as identifyGayleIDE() above.
 static int identifyA4000IDE(void) { return doIdentifyIDE(&ideA4000Regs); }
 static int smartA4000IDE(void)    { return doSmartIDE(&ideA4000Regs); }
 
@@ -1200,6 +1405,22 @@ static int smartA4000IDE(void)    { return doSmartIDE(&ideA4000Regs); }
 #define SDMAC_ISTR_EOP  0x20   // end-of-process (DMA terminal count) interrupt pending
 #define SDMAC_ISTR_PEND 0x10   // some interrupt pending (only visible when SDMAC INTENA is set)
 
+// DAWR ("DACK Width Register", write-only, 16-bit) — never written by any
+// prior version of this ROM. Found by cross-referencing Linux's
+// drivers/scsi/a3000.c/a3000.h and NetBSD's sys/arch/amiga/dev/ahscreg.h
+// (both real, independently-written drivers for this exact chip): both
+// write 3 here as one of the very first hardware accesses. NetBSD's header
+// cites "according to A3000T service-manual". Real drivers do this before
+// touching the WD33C93 at all, so we match that here.
+#define SDMAC_DAWR      ((volatile uint16_t *)0xDD0002)
+#define DAWR_A3000_VAL  3
+
+// Ramsey (A3000 memory controller) version register — leaked AmigaOS
+// a3000_hardware.i: "A3000_RamseyVersion EQU $00de0043 ;12D ramsey==$0d",
+// "ANCIENT_RAMSEY EQU $7f" (pre-production chip, no real version).
+#define RAMSEY_VERSION_ADDR ((volatile uint8_t *)0x00DE0043)
+#define ANCIENT_RAMSEY 0x7F
+
 // Auxiliary status bits (read from SASR without writing addr first)
 #define WD_ASR_INT   0x80
 #define WD_ASR_LCI   0x40
@@ -1231,8 +1452,22 @@ static int smartA4000IDE(void)    { return doSmartIDE(&ideA4000Regs); }
 // phase the target requests next via the status byte below.
 #define WDCMD_RESET             0x00
 #define WDCMD_ABORT             0x01
+#define WDCMD_NEGATE_ACK        0x03
 #define WDCMD_SELECT_WITH_ATN   0x06
 #define WDCMD_TRANSFER_INFO     0x20
+// Single Byte Transfer mode (COMMAND register bit 7). The real driver
+// (scsitask.asm SCSIPutByte/SCSIGetByte) uses this — not plain
+// TRANSFER_INFO — for every single-byte phase (MSG_OUT identify, STATUS,
+// MSG_IN). This distinction is what let a full transaction complete for the
+// first time; see [[project_diagrom_a3000_scsi]] memory.
+#define WD_CMD_SBT              0x80
+
+// Own ID register bit 3 = EAF (Enable Advanced Features). Requesting it
+// before RESET and getting WDSTS_RESET_AF back instead of plain
+// WDSTS_RESET confirms the chip understands advanced features (at least a
+// 33C93A) — the closest thing to a software-readable version this chip
+// exposes (WD33C93B datasheet, no separate revision register documented).
+#define WD_OWN_ID_EAF           0x08
 
 // WD33C93 SCSI_STATUS codes: upper nibble = group, lower nibble = code.
 #define WDSTS_RESET       0x00   // reset complete (standard)
@@ -1249,13 +1484,27 @@ static int smartA4000IDE(void)    { return doSmartIDE(&ideA4000Regs); }
 #define WDPHASE_MSG_OUT   0xE
 #define WDPHASE_MSG_IN    0xF
 
-// OWN_ID register: bits 7-5 = CLK select, bits 2-0 = host SCSI ID
-// A3000 system clock ~14MHz → CLK=010 (12.5MHz slot) → bits 7-5 = 010 → 0x40
-#define WD_OWN_ID_VAL   (0x40 | 7)   // CLK=12.5MHz, host ID=7
+// OWN_ID register per the real WD33C93B datasheet: bits 7-6 = FS1/FS0
+// (2-bit Frequency Select, not a 3-bit "CLK select" as an earlier comment
+// here claimed), bit 5 = RAF, bit 4 = EHP, bit 3 = EAF, bits 2-0 = host SCSI
+// ID. A3000 system clock ~14MHz → FS1/FS0 = 01 (12.5MHz slot) → bits 7-6 =
+// 01 → 0x40. The value below predates this correction but decodes
+// identically under the real layout (the other bits we don't set —
+// RAF/EHP/EAF — are 0 either way), so only the comment was wrong.
+// The host adapter's own SCSI ID — configurable on real A3000 hardware
+// (jumper-settable), not a fixed constant, but this code has only ever used
+// 7 (the conventional default). Named here so callers that need to skip
+// "our own ID" (it can never respond to a SELECT — there's no target to
+// find there) reference the same value the chip is actually programmed
+// with, rather than a second hardcoded 7 that could drift out of sync.
+#define A3K_HOST_SCSI_ID 7
+#define WD_OWN_ID_VAL   (0x40 | A3K_HOST_SCSI_ID)   // FS1/FS0=12.5MHz
 
-// SCSI command
+// SCSI commands
 #define SCSI_INQUIRY    0x12
 #define SCSI_INQUIRY_LEN 36
+#define SCSI_READ_CAPACITY     0x25
+#define SCSI_READ_CAPACITY_LEN 8
 
 static inline void a3k_wd_write(uint8_t reg, uint8_t val) {
     *WD_ADDR_REG = reg;
@@ -1450,40 +1699,6 @@ static void a3k_wd_init(void)
     a3k_wd_write(WD_SRC_ID, 0x80);
 }
 
-// Debug snapshot from an a3k_scsi_inquiry() attempt. MUST be a stack local in
-// the caller, never a `static`/global — this linker script (srcs/link.txt)
-// puts every C static/global into the ROM's single read-only `rom` region
-// (there is no writable RAM output section at all), so writes to a `static`
-// debug variable are silently discarded and reads return whatever fixed byte
-// the linker/checksum tool happened to place there at build time. That bug
-// bit the INQUIRY data buffer earlier (see the `buf` fix in scanA3000SCSI)
-// and it was still lurking here in the debug counters themselves — every
-// SCSI ID printing byte-identical debug values, matching exactly between
-// Amiberry and real hardware, was that bug, not a real finding.
-typedef struct {
-    uint8_t asrImmediate; // ASR read right after issuing SELECT_WITH_ATN, before any wait
-    uint8_t st;           // last SCSI_STATUS byte seen
-    uint8_t phaseCount;   // how many phase transitions we handled
-    uint8_t dd0001, dd0002, dd0041, dd0042; // alias probe, see scanA3000SCSI header comment
-    uint8_t asrSamples[4]; // raw ASR at ~1/8, 1/4, 1/2, and near-end of the
-                            // initial post-SELECT_WITH_ATN wait — distinguishes
-                            // "chip genuinely idle the whole wait" (all same as
-                            // asrImmediate) from "busy/transitioning but our
-                            // budget ran out anyway" (values changing over time)
-    uint8_t phaseAsrSamples[4]; // same sampling, but for the LAST in-loop
-                                 // wait_status() call in the phase-dispatch
-                                 // loop — i.e. whichever wait ultimately timed
-                                 // out (or succeeded) after the first phase
-} A3kInquiryDebug;
-
-static inline void a3k_alias_snap(A3kInquiryDebug *s)
-{
-    s->dd0001 = *(volatile uint8_t *)0xDD0001;
-    s->dd0002 = *(volatile uint8_t *)0xDD0002;
-    s->dd0041 = *(volatile uint8_t *)0xDD0041;
-    s->dd0042 = *(volatile uint8_t *)0xDD0042;
-}
-
 // Wait for INT, returning SCSI_STATUS. 0xFF = our poll timed out. Same
 // real-time-budget and ISR-race notes as a3k_wd_wait_int() above.
 static uint8_t a3k_wd_wait_status(void)
@@ -1531,8 +1746,16 @@ static int a3k_wd_pump(uint8_t *buf, int count, int read_dir)
 // for the next status byte. Returns that status (0xFF = our poll timed out).
 static uint8_t a3k_wd_do_phase(uint8_t *buf, int count, int read_dir)
 {
-    a3k_wd_write(WD_XFER_CNT_H, 0);
-    a3k_wd_write(WD_XFER_CNT_M, 0);
+    // Real bug: WD_XFER_CNT is a 24-bit register (H/M/L), but this only ever
+    // wrote the low byte, leaving H/M hardcoded to 0 — for count >= 256,
+    // (uint8_t)count silently truncates (e.g. 512 -> 0x00), telling the chip
+    // to transfer ZERO bytes instead of the real amount. Every caller before
+    // the SCSI READ(10) block-read path stayed under 256 bytes (INQUIRY=36,
+    // READ CAPACITY=8), so this never showed up until a real 512-byte sector
+    // read needed it — every single read failed identically, exactly what a
+    // "chip told to transfer 0 bytes" bug looks like.
+    a3k_wd_write(WD_XFER_CNT_H, (uint8_t)(count >> 16));
+    a3k_wd_write(WD_XFER_CNT_M, (uint8_t)(count >> 8));
     a3k_wd_write(WD_XFER_CNT_L, (uint8_t)count);
     a3k_wd_write(WD_CONTROL, 0x00);
     a3k_wd_write(WD_COMMAND, WDCMD_TRANSFER_INFO);
@@ -1548,144 +1771,109 @@ static uint8_t a3k_wd_do_phase(uint8_t *buf, int count, int read_dir)
     return a3k_wd_read(WD_SCSI_STATUS);
 }
 
-// Issue INQUIRY to one target; buf must be SCSI_INQUIRY_LEN bytes. `dbg` must
-// be a stack local owned by the caller (see A3kInquiryDebug comment above).
-// Returns 1 if device responded, 0 if not found / timeout.
-static int a3k_scsi_inquiry(uint8_t target, uint8_t *buf, A3kInquiryDebug *dbg)
+// Issue TRANSFER_INFO in Single Byte Transfer mode and pump exactly one
+// byte, then wait for the next status. See WD_CMD_SBT comment above for why
+// this — not a 1-byte count-register TRANSFER_INFO — is required for
+// MSG_OUT/STATUS/MSG_IN. Returns the next status (0xFF = our poll timed out).
+static uint8_t a3k_wd_do_phase_sbt(uint8_t *byteBuf, int read_dir)
 {
-    for (int i = 0; i < SCSI_INQUIRY_LEN; i++) buf[i] = 0;
-    for (int i = 0; i < 4; i++) dbg->phaseAsrSamples[i] = 0;   // stays 0 if the phase loop is never entered
+    a3k_wd_write(WD_CONTROL, 0x00);
+    a3k_wd_write(WD_COMMAND, WD_CMD_SBT | WDCMD_TRANSFER_INFO);
 
-    static const uint8_t cdb[6] = { SCSI_INQUIRY, 0x00, 0x00, 0x00, SCSI_INQUIRY_LEN, 0x00 };
-    // IDENTIFY message: bit 7 = IDENTIFY, bit 6 = DiscPriv ("target may
-    // disconnect"). We enable WDCF_ER (enable reselection) on our own
-    // controller in a3k_wd_init() but were telling the TARGET it may NOT
-    // disconnect (identify=0x80 only) — a contradictory configuration. Real
-    // driver's FakeSelect: "or.b hu_Reselect(a2),d0 ($40 or $00) enable
-    // reselection". Match that: 0x80 | 0x40 = 0xC0.
-    uint8_t identify = 0xC0;   // IDENTIFY, LUN 0, disconnect/reselect allowed
-    uint8_t statusByte = 0xFF;
-    uint8_t msgByte = 0xFF;
-    int gotData = 0;
+    uint32_t t = 500000UL;
+    int gotDbr = 0;
+    while (t--) {
+        uint8_t asr = a3k_wd_aux();
+        if (asr != 0xFF && (asr & WD_ASR_DBR)) { gotDbr = 1; break; }
+    }
+    if (!gotDbr) return 0xFF;
 
-    a3k_wd_wait_ready();   // don't issue a new command while BSY/CIP are still set — it'll be ignored (LCI)
+    if (read_dir) *byteBuf = a3k_wd_read(WD_DATA);
+    else          a3k_wd_write(WD_DATA, *byteBuf);
 
-    // Real driver's DoSelect(), verbatim comment: "Extra bug fix for
-    // WD33C93A, have to disable SBIC interrupts while selecting." INTENA
-    // must be off while writing DEST_ID and issuing SELECT_WITH_ATN, then
-    // re-enabled immediately after. Leaving it on throughout (as we did
-    // before) lets a live interrupt land at exactly the wrong moment and can
-    // corrupt the chip's selection setup — a plausible cause of "almost
-    // always fails, once in a while succeeds" seen on real hardware.
-    *SDMAC_CNTR = SDMAC_CNTR_PDMD;   // INTENA off, PMODE stays on
-    a3k_wd_write(WD_DST_ID, target | WD_DST_ID_DPD);   // INQUIRY is a read: data phase is IN
-    // SOURCE_ID (WDCF_ER, enable reselection) is set once in a3k_wd_init() —
-    // not rewritten here, since it's a controller-level enable, not per-target.
-    a3k_wd_write(WD_TARGET_LUN, 0x00);
+    return a3k_wd_wait_status();
+}
+
+// After the MSG_IN byte, the target leaves ACK asserted (status $20 —
+// Group_2 "transfer paused with ack asserted (msg in)") until the initiator
+// explicitly releases it. Real driver's ISR handles this exact status by
+// issuing NEGATE_ACK (scsitask.asm G2.0000 handler). Skipping this leaves
+// the WD33C93 mid-transaction, so a LATER command's SELECT gets rejected
+// outright as "$40 invalid command" — this was the actual cause of "only
+// ever one clean transaction per boot" across every prior session. See
+// [[project_diagrom_a3000_scsi]] memory for the full history.
+static void a3k_wd_negate_ack_if_paused(uint8_t st)
+{
+    if ((st & 0xF0) == 0x20 && (st & 0x0F) == 0x00) {
+        a3k_wd_write(WD_COMMAND, WDCMD_NEGATE_ACK);
+        a3k_wd_wait_status();   // wait for the resulting disconnect; result not needed here
+    }
+}
+
+// SELECT_WITH_ATN for one target. No DPD bit on DEST_ID — that only applies
+// to the autonomous Select-and-Transfer command, never the manual
+// phase-by-phase approach used here (confirmed against both the real
+// driver's DoSelect(), which writes only the raw unit, and the WD33C93B
+// datasheet's own DST_ID bit description). Returns the resulting status.
+static uint8_t a3k_scsi_select(uint8_t unit)
+{
+    *SDMAC_CNTR = SDMAC_CNTR_PDMD;                     // INTENA off while selecting (real driver's fix)
+    a3k_wd_write(WD_DST_ID, unit);
     a3k_wd_write(WD_COMMAND, WDCMD_SELECT_WITH_ATN);
-    *SDMAC_CNTR = SDMAC_CNTR_PDMD | SDMAC_CNTR_INTENA;   // INTENA back on
-    dbg->asrImmediate = a3k_wd_aux();
-    a3k_alias_snap(dbg);
+    *SDMAC_CNTR = SDMAC_CNTR_PDMD | SDMAC_CNTR_INTENA; // INTENA back on
 
-    // Inline copy of a3k_wd_wait_status() for just this first, critical wait,
-    // with periodic ASR sampling — see A3kInquiryDebug.asrSamples comment.
-    uint8_t st;
-    {
-        volatile struct GlobalVars *g = a3k_globals();
-        int sampleAt[4] = { A3K_WAIT_ITERS / 8, A3K_WAIT_ITERS / 4,
-                             A3K_WAIT_ITERS / 2, A3K_WAIT_ITERS - 1 };
-        int sampleIdx = 0;
-        st = 0xFF;
-        for (int i = 0; i < A3K_WAIT_ITERS; i++) {
-            if (sampleIdx < 4 && i == sampleAt[sampleIdx])
-                dbg->asrSamples[sampleIdx++] = a3k_wd_aux();
-            if (g->ScsiIrqPending) {
-                g->ScsiIrqPending = 0;
-                st = g->ScsiIrqStatus;
-                break;
-            }
-            uint8_t asr = a3k_wd_aux();
-            if (asr != 0xFF && (asr & WD_ASR_INT)) {
-                st = a3k_wd_read(WD_SCSI_STATUS);
-                break;
-            }
-            waitShort();
-        }
-    }
-    dbg->st = st;
-    dbg->phaseCount = 0;
-    if (st == WDSTS_TIMEOUT || st == 0xFF) return 0;
-    // Either a plain "select complete" (group 1, $11) or the chip skipping
-    // straight to a phase request (group 4, upper nibble $8) as the very
-    // first status after SELECT_WITH_ATN. Official driver source comment on
-    // group 4: "all of these imply that the REQ signal has been asserted
-    // following a connect (thru selection or reselection)". Confirmed on a
-    // live A3000T disk: st=$8E ("message out phase request") as the FIRST
-    // status — treating that as a failure was masking a real device response
-    // as NOT FOUND.
-    if (st != WDSTS_SEL_COMPLETE && (st & 0xF0) != 0x80) return 0;
+    return a3k_wd_wait_status();
+}
 
-    uint8_t phaseCount = 0;
-    int haveStatus = (st != WDSTS_SEL_COMPLETE);   // group-4 status IS already the first phase request
-    for (; phaseCount < 8; phaseCount++) {
-        if (!haveStatus) {
-            // Inline copy of a3k_wd_wait_status() with the same periodic ASR
-            // sampling as the initial wait — see phaseAsrSamples comment.
-            // Overwrites each iteration, so it ends up showing whichever
-            // in-loop wait ultimately timed out (or the last one to succeed).
-            volatile struct GlobalVars *g = a3k_globals();
-            int sampleAt[4] = { A3K_WAIT_ITERS / 8, A3K_WAIT_ITERS / 4,
-                                 A3K_WAIT_ITERS / 2, A3K_WAIT_ITERS - 1 };
-            int sampleIdx = 0;
-            st = 0xFF;
-            for (int i = 0; i < A3K_WAIT_ITERS; i++) {
-                if (sampleIdx < 4 && i == sampleAt[sampleIdx])
-                    dbg->phaseAsrSamples[sampleIdx++] = a3k_wd_aux();
-                if (g->ScsiIrqPending) {
-                    g->ScsiIrqPending = 0;
-                    st = g->ScsiIrqStatus;
-                    break;
-                }
-                uint8_t asr = a3k_wd_aux();
-                if (asr != 0xFF && (asr & WD_ASR_INT)) {
-                    st = a3k_wd_read(WD_SCSI_STATUS);
-                    break;
-                }
-                waitShort();
-            }
-            dbg->st = st;
-            if (st == 0xFF) break;
-        }
-        haveStatus = 0;
-        switch (st & 0x0F) {
-            case WDPHASE_MSG_OUT:
-                st = a3k_wd_do_phase(&identify, 1, 0);
-                phaseCount++; dbg->st = st;
-                continue;
-            case WDPHASE_CMD:
-                st = a3k_wd_do_phase((uint8_t *)cdb, 6, 0);
-                phaseCount++; dbg->st = st;
-                continue;
-            case WDPHASE_DATA_IN:
-                st = a3k_wd_do_phase(buf, SCSI_INQUIRY_LEN, 1);
-                gotData = 1;
-                phaseCount++; dbg->st = st;
-                continue;
-            case WDPHASE_STATUS:
-                st = a3k_wd_do_phase(&statusByte, 1, 1);
-                phaseCount++; dbg->st = st;
-                continue;
-            case WDPHASE_MSG_IN:
-                st = a3k_wd_do_phase(&msgByte, 1, 1);
-                phaseCount++; dbg->st = st;
-                continue;
-            default:
-                goto done;
-        }
+// Runs one full SCSI command against `unit`: SELECT -> MSG_OUT(IDENTIFY) ->
+// CMD -> DATA_IN -> STATUS -> MSG_IN, translated directly from the real
+// scsidisk.device driver (scsitask.asm) and confirmed end-to-end on real
+// A3000 hardware. Returns 1 only on a clean COMMAND COMPLETE.
+static int a3k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
+                             uint8_t *dataBuf, int dataLen)
+{
+    uint8_t st = a3k_scsi_select(unit);
+    if (!((st & 0xF0) == 0x80 && (st & 0x0F) == WDPHASE_MSG_OUT)) return 0;
+
+    uint8_t identify = 0x80;   // IDENTIFY, LUN 0, no DiscPriv — a scan has no reselect handling
+    st = a3k_wd_do_phase_sbt(&identify, 0);
+    if (!((st & 0x0F) == WDPHASE_CMD && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) return 0;
+
+    st = a3k_wd_do_phase((uint8_t *)cdb, cdbLen, 0);
+    if (!((st & 0x0F) == WDPHASE_DATA_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) return 0;
+
+    st = a3k_wd_do_phase(dataBuf, dataLen, 1);
+    if (!((st & 0x0F) == WDPHASE_STATUS && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) return 0;
+
+    uint8_t statusByte = 0xFF;
+    st = a3k_wd_do_phase_sbt(&statusByte, 1);
+    if (!((st & 0x0F) == WDPHASE_MSG_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) return 0;
+
+    uint8_t msgByte = 0xFF;
+    st = a3k_wd_do_phase_sbt(&msgByte, 1);
+    a3k_wd_negate_ack_if_paused(st);
+
+    return (statusByte == 0 && msgByte == 0);
+}
+
+// READ CAPACITY(10) response decode: bytes 0-3 = last valid LBA, bytes 4-7 =
+// block size (both big-endian). Shifts only, no multiply/divide — this
+// freestanding build has no __mulsi3/__divsi3 (a real link error hit this
+// exact gap earlier), so only the common 512-byte-block case gets a
+// friendly MB total.
+static void a3k_print_capacity(const uint8_t *cap)
+{
+    uint32_t lastLba = ((uint32_t)cap[0] << 24) | ((uint32_t)cap[1] << 16)
+                      | ((uint32_t)cap[2] << 8)  |  (uint32_t)cap[3];
+    uint32_t blockSize = ((uint32_t)cap[4] << 24) | ((uint32_t)cap[5] << 16)
+                        | ((uint32_t)cap[6] << 8)  |  (uint32_t)cap[7];
+    if (blockSize != 512) {
+        print("(non-512B blocks)", YELLOW);
+        return;
     }
-done:
-    dbg->phaseCount = phaseCount;
-    return (gotData || statusByte != 0xFF) ? 1 : 0;
+    uint32_t sizeMB = ((lastLba + 1) >> 1) >> 10;
+    print(binDec(sizeMB), CYAN);
+    print(" MB", WHITE);
 }
 
 static void a3k_scsi_strip(char *s, int len)
@@ -1723,49 +1911,36 @@ static int scanA3000SCSI(void)
 {
     volatile struct GlobalVars *globals = a3k_globals();
 
+    *SDMAC_DAWR = DAWR_A3000_VAL;
     *SDMAC_CNTR = SDMAC_CNTR_PDMD | SDMAC_CNTR_INTENA;   // SCSI mode + let status latch
     print("\nA3000/A3000T SCSI (WD33C93)\n", WHITE);
 
-    // Safe, non-bus-reset test: clear the SDMAC's OWN interrupt-pending latch
-    // (separate from the WD33C93's ASR) before touching anything else. See
-    // SDMAC_ISTR/SDMAC_CINT comment above.
-    uint8_t istrBefore = *SDMAC_ISTR;
-    *SDMAC_CINT = 0;
-    uint8_t istrAfter = *SDMAC_ISTR;
-    print("  ISTR before/after CINT: $", WHITE);
-    print(binHexByte(istrBefore), istrBefore & SDMAC_ISTR_PEND ? YELLOW : CYAN);
-    print(" / $", WHITE);
-    print(binHexByte(istrAfter), CYAN);
-    print("\n", WHITE);
+    uint8_t ramseyVer = *RAMSEY_VERSION_ADDR;
+    print("Ramsey version: $", WHITE);
+    print(binHexByte(ramseyVer), ramseyVer == ANCIENT_RAMSEY ? YELLOW : CYAN);
+    print(ramseyVer == ANCIENT_RAMSEY ? "  (ancient/pre-production)\n" : "\n", WHITE);
 
-    // Probe key addresses to find where the chip actually responds
-    static const uint32_t probeAddrs[] = {
-        0xDD0000, 0xDD0001, 0xDD0002, 0xDD0003,
-        0xDD0040, 0xDD0041, 0xDD0042, 0xDD0043,
-    };
-    print("  Probe:\n", WHITE);
-    for (int i = 0; i < 8; i++) {
-        uint8_t v = *(volatile uint8_t *)probeAddrs[i];
-        if (v != 0xFF) {   // only show non-float addresses
-            print("    $", WHITE);
-            print(binHexWord((uint16_t)(probeAddrs[i] >> 16)), CYAN);
-            print(binHexWord((uint16_t)probeAddrs[i]), CYAN);
-            print(" = $", WHITE);
-            print(binHexByte(v), GREEN);
-            print("\n", WHITE);
-        }
-    }
-
-    uint8_t asr = a3k_wd_aux();
-    print("  ASR($DD0000): $", WHITE); print(binHexByte(asr), asr == 0xFF ? RED : CYAN);
-    print("\n\n", WHITE);
-
-    if (!a3k_wd_reset()) {
-        print("WD33C93 reset FAILED\n", RED);
+    if (a3k_wd_aux() == 0xFF) {
+        print("WD33C93: not responding (bus float)\n", RED);
         return 0;
     }
-    print("WD33C93 reset OK\n", GREEN);
-    a3k_wd_init();
+
+    // Request Advanced Features on this reset only to learn whether the
+    // chip acknowledges them (at least a 33C93A) — the closest thing to a
+    // software-readable chip version this part exposes.
+    a3k_wd_write(WD_OWN_ID, WD_OWN_ID_VAL | WD_OWN_ID_EAF);
+    a3k_wd_write(WD_COMMAND, WDCMD_RESET);
+    uint8_t rst = a3k_wd_wait_int();
+    print("WD33C93: ", WHITE);
+    if (rst == WDSTS_RESET_AF)
+        print("present (Advanced Features supported)\n", GREEN);
+    else if (rst == WDSTS_RESET)
+        print("present (plain reset only)\n", GREEN);
+    else {
+        print("not responding\n", RED);
+        return 0;
+    }
+    a3k_wd_wait_ready();
 
     // Enable the real PORTS (IRQ2) interrupt for the duration of the scan.
     // All Amiga HD controllers share this line, and it's edge/level-latched:
@@ -1773,95 +1948,294 @@ static int scanA3000SCSI(void)
     // get stuck after the first event and never re-arm for later ones, no
     // matter how much we re-poll the WD33C93's own ASR directly.
     a3k_scsi_irq_enable(globals);
-    print("Scanning SCSI bus (IDs 0-6)...\n\n", WHITE);
+    print("\nScanning IDs 0-7...\n\n", WHITE);
 
-    // Must be a real stack local, not `static` — statics land in ROM in this
+    // Must be real stack locals, not `static` — statics land in ROM in this
     // freestanding build (past endofcode), so the chip's DMA/PIO writes into
-    // it would be silently discarded.
-    uint8_t buf[SCSI_INQUIRY_LEN];
+    // them would be silently discarded.
+    uint8_t inqBuf[SCSI_INQUIRY_LEN];
+    uint8_t capBuf[SCSI_READ_CAPACITY_LEN];
+    static const uint8_t inquiryCdb[6]    = { SCSI_INQUIRY, 0, 0, 0, SCSI_INQUIRY_LEN, 0 };
+    static const uint8_t readCapCdb[10]   = { SCSI_READ_CAPACITY, 0,0,0,0,0,0,0,0, 0 };
     int found = 0;
 
-    for (int id = 0; id <= 6; id++) {
-        // Full reset before every ID, not just once at the top of the scan.
-        // A prior ID's transaction can leave the chip in a stuck/non-idle
-        // internal state (e.g. a real target that got selected and serviced
-        // one phase before our poll timed out mid-transaction, as ID 0 does
-        // here) that a3k_wd_wait_ready()'s BSY/CIP wait + ABORT fallback
-        // doesn't fully clear. Without this, a later ID's SELECT_WITH_ATN can
-        // come back as "$40 invalid command" purely because of that leftover
-        // state — not because nothing is really there at that ID.
+    for (int id = 0; id <= 7; id++) {
+        // Full reset before every ID, not just once at the top of the scan —
+        // a prior ID's transaction can leave the chip in a non-idle state
+        // that would make a later ID's SELECT fail for reasons unrelated to
+        // whether anything is actually there.
         a3k_wd_reset();
         a3k_wd_init();
 
-        print("ID ", CYAN);
+        uint32_t irqBefore = globals->ScsiIrqCount;
+        int gotInquiry = a3k_scsi_command(id, inquiryCdb, 6, inqBuf, SCSI_INQUIRY_LEN);
+        int gotCapacity = gotInquiry &&
+            a3k_scsi_command(id, readCapCdb, 10, capBuf, SCSI_READ_CAPACITY_LEN);
+        int ack = (globals->ScsiIrqCount != irqBefore);
+
+        print("  ID ", WHITE);
         char idch[2] = { (char)('0' + id), 0 };
         print(idch, CYAN);
-        print(": ASR=", WHITE);
-        print(binHexByte(a3k_wd_aux()), CYAN);
-        print(" ", WHITE);
+        print(ack ? "  [IRQ2 ACK]  " : "  [IRQ2 NAK]  ", ack ? GREEN : YELLOW);
 
-        A3kInquiryDebug dbg;   // real stack local — see A3kInquiryDebug comment
-        int rc = a3k_scsi_inquiry((uint8_t)id, buf, &dbg);
-
-        print("ASR=", WHITE);
-        print(binHexByte(a3k_wd_aux()), CYAN);
-        print(" ", WHITE);
-
-        if (rc == 0) {
-            print("NOT FOUND", RED);
-            print("  (imm=", WHITE); print(binHexByte(dbg.asrImmediate), CYAN);
-            print(" st=", WHITE); print(binHexByte(dbg.st), CYAN);
-            print(" phases=", WHITE); print(binHexByte(dbg.phaseCount), CYAN);
-            print(")\n", WHITE);
-            print("    alias: 01=", WHITE); print(binHexByte(dbg.dd0001), CYAN);
-            print(" 02=", WHITE); print(binHexByte(dbg.dd0002), CYAN);
-            print(" 41=", WHITE); print(binHexByte(dbg.dd0041), CYAN);
-            print(" 42=", WHITE); print(binHexByte(dbg.dd0042), CYAN);
-            print("\n", WHITE);
-            print("    asr@1/8,1/4,1/2,end: ", WHITE);
-            print(binHexByte(dbg.asrSamples[0]), CYAN); print(" ", WHITE);
-            print(binHexByte(dbg.asrSamples[1]), CYAN); print(" ", WHITE);
-            print(binHexByte(dbg.asrSamples[2]), CYAN); print(" ", WHITE);
-            print(binHexByte(dbg.asrSamples[3]), CYAN);
-            print("\n", WHITE);
-            print("    phase-wait asr: ", WHITE);
-            print(binHexByte(dbg.phaseAsrSamples[0]), CYAN); print(" ", WHITE);
-            print(binHexByte(dbg.phaseAsrSamples[1]), CYAN); print(" ", WHITE);
-            print(binHexByte(dbg.phaseAsrSamples[2]), CYAN); print(" ", WHITE);
-            print(binHexByte(dbg.phaseAsrSamples[3]), CYAN);
-            print("\n", WHITE);
+        if (!gotInquiry) {
+            print("-\n", RED);
             continue;
         }
 
-        uint8_t devtype = buf[0] & 0x1F;
+        uint8_t devtype = inqBuf[0] & 0x1F;
         char vendor[9], product[17], revision[5];
-        memcpy(vendor,   buf + 8,  8);  a3k_scsi_strip(vendor,   8);
-        memcpy(product,  buf + 16, 16); a3k_scsi_strip(product,  16);
-        memcpy(revision, buf + 32, 4);  a3k_scsi_strip(revision,  4);
-
-        print("FOUND  ", GREEN);
+        memcpy(vendor,   inqBuf + 8,  8);  a3k_scsi_strip(vendor,   8);
+        memcpy(product,  inqBuf + 16, 16); a3k_scsi_strip(product,  16);
+        memcpy(revision, inqBuf + 32, 4);  a3k_scsi_strip(revision,  4);
         char *dtype = (devtype < 16 && scsiDevTypes[devtype]) ?
                           (char *)scsiDevTypes[devtype] : "???";
+
         print(dtype, YELLOW);
         print("  \"", WHITE);
         print(vendor,   GREEN);
         print(" ",      WHITE);
         print(product,  GREEN);
         if (revision[0]) { print(" ", WHITE); print(revision, CYAN); }
-        print("\"\n", WHITE);
+        print("\"", WHITE);
+        if (gotCapacity) { print("  ", WHITE); a3k_print_capacity(capBuf); }
+        print("\n", WHITE);
         found++;
     }
 
     a3k_scsi_irq_disable();
-    print("\nIRQ2 (PORTS) events serviced by our handler: ", WHITE);
+    print("\nIRQ2 (PORTS) events serviced: ", WHITE);
     print(binDec(globals->ScsiIrqCount), globals->ScsiIrqCount ? GREEN : RED);
     print("\n", WHITE);
 
     return found;
 }
 
-static int identifyA3000SCSI(void) { return 0; }
-static int smartA3000SCSI(void)    { return 0; }
+// Manual 32-bit multiply via shift-and-add. This freestanding build has no
+// __mulsi3 (see a3k_print_capacity's comment above — a real link error hit
+// this exact gap before), so computing a partition's size in blocks from
+// CHS geometry (cylSpan * heads * spt) can't just use the `*` operator.
+// Uses only +, <<, >>, & — all native 68000 instructions, no libgcc call.
+static uint32_t mul32(uint32_t a, uint32_t b)
+{
+    uint32_t result = 0;
+    while (b) {
+        if (b & 1) result += a;
+        a <<= 1;
+        b >>= 1;
+    }
+    return result;
+}
+
+// Same 512-byte-block-only shift-only MB conversion as a3k_print_capacity,
+// but from a plain block count (used for partition sizes) rather than a
+// raw READ CAPACITY response.
+static void a3k_print_blocks_mb(uint32_t blocks)
+{
+    uint32_t sizeMB = (blocks >> 1) >> 10;
+    print(binDec(sizeMB), CYAN);
+    print(" MB", WHITE);
+}
+
+#define SCSI_READ10 0x28
+
+// Single-block READ(10) — reuses a3k_scsi_command()'s generic phase
+// machinery exactly like INQUIRY/READ CAPACITY do, just with a different
+// CDB. `unit` must already have had a3k_wd_reset()/a3k_wd_init() run once
+// for this batch of commands (same convention as INQUIRY+READ CAPACITY
+// back-to-back in scanA3000SCSI() — no extra reset needed between calls to
+// the same already-selected unit).
+static int a3k_scsi_read_block(uint8_t unit, uint32_t lba, uint8_t *buf)
+{
+    // Unlike a3k_identify_unit()'s INQUIRY-then-READ-CAPACITY pair (two
+    // commands back to back with no intervening reset, proven fine), the
+    // RDB walk can issue a dozen-plus commands to the same unit in a row.
+    // This chip's real-hardware behavior has been finicky enough all
+    // session (see [[project_diagrom_a3000_scsi]]) that a fresh reset per
+    // command here is the safe default rather than assuming state survives
+    // an arbitrary run length — every read failing uniformly (not just
+    // later ones) when this was missing is consistent with the chip
+    // needing this, not just a "some later command in the chain" issue.
+    a3k_wd_reset();
+    a3k_wd_init();
+
+    uint8_t cdb[10] = {
+        SCSI_READ10, 0,
+        (uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
+        0, 0, 1, 0   // transfer length = 1 block
+    };
+    return a3k_scsi_command(unit, cdb, 10, buf, 512);
+}
+
+// Read and print everything available about one SCSI ID: INQUIRY, READ
+// CAPACITY, and — for direct-access disks — RDB geometry + full partition
+// list. The RDB/partition walk (RDB_MAGIC/PART_MAGIC/RD32/printDosType) is
+// the same shared, file-scope logic doIdentifyIDE() already uses for IDE;
+// only the sector-read primitive differs (SCSI READ(10) vs IDE PIO).
+static void a3k_identify_unit(uint8_t unit)
+{
+    uint8_t inqBuf[SCSI_INQUIRY_LEN];
+    uint8_t capBuf[SCSI_READ_CAPACITY_LEN];
+    uint8_t blk[512];
+    static const uint8_t inquiryCdb[6]  = { SCSI_INQUIRY, 0, 0, 0, SCSI_INQUIRY_LEN, 0 };
+    static const uint8_t readCapCdb[10] = { SCSI_READ_CAPACITY, 0,0,0,0,0,0,0,0, 0 };
+
+    a3k_wd_reset();
+    a3k_wd_init();
+
+    if (!a3k_scsi_command(unit, inquiryCdb, 6, inqBuf, SCSI_INQUIRY_LEN)) {
+        print("  No device at this ID.\n", RED);
+        return;
+    }
+
+    uint8_t devtype = inqBuf[0] & 0x1F;
+    char vendor[9], product[17], revision[5];
+    memcpy(vendor,   inqBuf + 8,  8);  a3k_scsi_strip(vendor,   8);
+    memcpy(product,  inqBuf + 16, 16); a3k_scsi_strip(product,  16);
+    memcpy(revision, inqBuf + 32, 4);  a3k_scsi_strip(revision,  4);
+    char *dtype = (devtype < 16 && scsiDevTypes[devtype]) ?
+                      (char *)scsiDevTypes[devtype] : "???";
+
+    print("  Type:     ", WHITE); print(dtype, YELLOW); print("\n", WHITE);
+    print("  Name:     ", WHITE);
+    print(vendor, GREEN); print(" ", WHITE); print(product, GREEN);
+    if (revision[0]) { print(" ", WHITE); print(revision, CYAN); }
+    print("\n", WHITE);
+
+    if (a3k_scsi_command(unit, readCapCdb, 10, capBuf, SCSI_READ_CAPACITY_LEN)) {
+        print("  Capacity: ", WHITE);
+        a3k_print_capacity(capBuf);
+        print("\n", WHITE);
+    }
+
+    if (devtype != 0) {   // RDB/partitions only meaningful for direct-access disks
+        print("\n", WHITE);
+        return;
+    }
+
+    int rdb_found = 0;
+    uint32_t rdb_heads = 0, rdb_spt = 0, partblock = NO_LIST;
+    for (uint32_t b = 0; b < 16 && !rdb_found; b++) {
+        // TEMP DIAGNOSTIC — remove once RDB-not-found on a known-partitioned
+        // disk (Clean323.hdf) is root-caused. Distinguishes "READ(10) itself
+        // failed" from "read succeeded but magic didn't match".
+        int readOk = a3k_scsi_read_block(unit, b, blk);
+        print("    [blk ", WHITE); print(binDec(b), CYAN);
+        print(readOk ? " read OK, first4=$" : " READ FAILED", readOk ? WHITE : RED);
+        if (readOk) {
+            print(binHexByte(blk[0]), CYAN); print(binHexByte(blk[1]), CYAN);
+            print(binHexByte(blk[2]), CYAN); print(binHexByte(blk[3]), CYAN);
+        }
+        print("]\n", WHITE);
+        if (!readOk) continue;
+        if (RD32(blk, 0) != RDB_MAGIC) continue;
+        rdb_found = 1;
+
+        uint32_t rdb_cyls = RD32(blk, 0x40);
+        rdb_spt   = RD32(blk, 0x44);
+        rdb_heads = RD32(blk, 0x48);
+        partblock = RD32(blk, 0x1C);
+
+        print("  Geometry: ", WHITE);
+        print(binDec(rdb_cyls),  WHITE); print("c / ", WHITE);
+        print(binDec(rdb_heads), WHITE); print("h / ", WHITE);
+        print(binDec(rdb_spt),   WHITE); print("s\n", WHITE);
+    }
+
+    if (!rdb_found) {
+        print("  (no RDB found)\n\n", YELLOW);
+        return;
+    }
+
+    print("  Partitions:\n", WHITE);
+    char name[32];
+    int nparts = 0;
+    while (partblock != NO_LIST && nparts < 32) {
+        if (!a3k_scsi_read_block(unit, partblock, blk)) break;
+        if (RD32(blk, 0) != PART_MAGIC) break;
+
+        uint32_t next    = RD32(blk, 0x10);
+        uint32_t lowcyl  = RD32(blk, 0xA4);
+        uint32_t highcyl = RD32(blk, 0xA8);
+        uint32_t dostype = RD32(blk, 0xC0);
+
+        uint8_t namelen = blk[0x24];
+        if (namelen > 30) namelen = 30;
+        for (int i = 0; i < namelen; i++) name[i] = (char)blk[0x25 + i];
+        name[namelen]   = ':';
+        name[namelen+1] = '\0';
+
+        uint32_t cylSpan    = highcyl - lowcyl + 1;
+        uint32_t partBlocks = mul32(mul32(cylSpan, rdb_heads), rdb_spt);
+
+        print("    ", WHITE); print(name, GREEN); print("  ", WHITE);
+        a3k_print_blocks_mb(partBlocks);
+        print("  [", WHITE); print(binDec(lowcyl), WHITE); print("-", WHITE);
+        print(binDec(highcyl), WHITE); print("]  ", WHITE);
+        printDosType(dostype);
+        print("\n", WHITE);
+
+        nparts++;
+        partblock = next;
+    }
+    if (nparts == 0) print("    (none)\n", YELLOW);
+    print("\n", WHITE);
+}
+
+static int smartA3000SCSI(void)
+{
+    print("SMART data: not yet implemented for this controller.\n", YELLOW);
+    return 0;
+}
+
+// Interactive per-unit browser: SCSI ID 0-7 one at a time, '+'/'-' or
+// LEFT/RIGHT mouse to step (wrapping around), 'S' for SMART data on the
+// displayed unit, ESC or both mouse buttons together to exit. Returns 1 to
+// tell HDDTestC() it already handled its own dismissal (no extra "press any
+// key" prompt needed — see the caller).
+// Adapters for browseUnits(): no ctx needed, everything's reached via
+// global-scope hardware access. skipUnit excludes the host adapter's own
+// ID (A3K_HOST_SCSI_ID) — a SELECT to yourself has nothing to respond.
+static void a3kBrowseIdentify(void *ctx, int unit) { (void)ctx; a3k_identify_unit((uint8_t)unit); }
+static void a3kBrowseSmart(void *ctx, int unit)     { (void)ctx; (void)unit; smartA3000SCSI(); }
+static int  a3kBrowseSkip(void *ctx, int unit)      { (void)ctx; return unit == A3K_HOST_SCSI_ID; }
+
+static int identifyA3000SCSI(void)
+{
+    volatile struct GlobalVars *globals = a3k_globals();
+
+    *SDMAC_DAWR = DAWR_A3000_VAL;
+    *SDMAC_CNTR = SDMAC_CNTR_PDMD | SDMAC_CNTR_INTENA;
+
+    if (a3k_wd_aux() == 0xFF) {
+        print("\nWD33C93: not responding (bus float)\n", RED);
+        return 1;
+    }
+
+    // Same one-time chip warm-up scanA3000SCSI() does before its per-ID
+    // loop — an EAF-requesting RESET (also how the chip's Advanced-Features
+    // support gets learned) followed by a3k_wd_wait_ready(). Don't assume
+    // this is redundant with the per-unit a3k_wd_reset()/a3k_wd_init() pair
+    // used inside a3k_identify_unit() just because it looks similar: this
+    // exact chip has needed every one of its proven-working init steps in
+    // prior sessions, and skipping this one is what caused every unit to
+    // report "No device" the first time this function was tried.
+    a3k_wd_write(WD_OWN_ID, WD_OWN_ID_VAL | WD_OWN_ID_EAF);
+    a3k_wd_write(WD_COMMAND, WDCMD_RESET);
+    uint8_t rst = a3k_wd_wait_int();
+    if (rst != WDSTS_RESET_AF && rst != WDSTS_RESET) {
+        print("\nWD33C93: not responding\n", RED);
+        return 1;
+    }
+    a3k_wd_wait_ready();
+    a3k_scsi_irq_enable(globals);
+
+    int result = browseUnits("A3000/A3000T SCSI - Identify Devices", 8, 0, NULL, NULL,
+                              a3kBrowseIdentify, a3kBrowseSmart, a3kBrowseSkip);
+
+    a3k_scsi_irq_disable();
+    return result;
+}
 
 // ---------------------------------------------------------------------------
 // A4000T SCSI  (NCR 53C710, base $DD0040)
@@ -2092,7 +2466,7 @@ static uint8_t ncr_runAndWait(uint32_t *script)
     return 0xFF;
 }
 
-static int detectA4000TSCSI(void)
+int detectA4000TSCSI(void)
 {
     // TEMP DIAGNOSTIC checkpoints — remove once A4000T scan hang is found
     print("CHK4: enter detectA4000TSCSI\n", YELLOW);
@@ -2149,7 +2523,7 @@ static int detectA4000TSCSI(void)
 #define NCR_PHASE_MSG_OUT  0x6
 #define NCR_PHASE_MSG_IN   0x7
 
-static int scanA4000TSCSI(void)
+int scanA4000TSCSI(void)
 {
     volatile struct GlobalVars *globals = a3k_globals();
 
@@ -2157,7 +2531,7 @@ static int scanA4000TSCSI(void)
     print("\nA4000T SCSI (NCR 53C710)\n", WHITE);
 
     if (NCR_BASE[NCR_ISTAT] == 0xFF) {
-        print("  Bus float — controller not responding.\n", RED);
+        print("  Bus float - controller not responding.\n", RED);
         return 0;
     }
     print("CHK12: past bus-float check in scan\n", YELLOW);
@@ -2316,12 +2690,14 @@ static const char HDDMenu1[]     = "1 - Active Controller:";
 static const char HDDMenu2[]     = "2 - Autodetect";
 static const char HDDMenu3[]     = "3 - Scan Devices";
 static const char HDDMenu4[]     = "4 - Identify Devices";
-static const char HDDMenu5[]     = "5 - SMART Data";
 static const char HDDMenuBack[]  = "9 - Main Menu";
 
+// SMART data ('5') was removed as a top-level menu entry — it's now reached
+// via 'S' from inside Identify Devices, per-unit, instead of a separate
+// whole-controller pass.
 static const char *HDDMenuItems[] = {
     HDDMenuText,
-    HDDMenu1, HDDMenu2, HDDMenu3, HDDMenu4, HDDMenu5, HDDMenuBack,
+    HDDMenu1, HDDMenu2, HDDMenu3, HDDMenu4, HDDMenuBack,
     NULL
 };
 
@@ -2376,7 +2752,7 @@ void HDDTestC()
         if (mn == 0) {
             // ---- main HDD menu ----
             if (globals->LMB || globals->RMB || ch == 0x0a) {
-                static const uint8_t posToKey[] = { '1','2','3','4','5','9' };
+                static const uint8_t posToKey[] = { '1','2','3','4','9' };
                 if (globals->MenuPos < (uint8_t)sizeof(posToKey))
                     ch = posToKey[globals->MenuPos];
             }
@@ -2413,14 +2789,8 @@ void HDDTestC()
                 }
 
                 case '3':
-                    // TEMP DIAGNOSTIC checkpoints — remove once A4000T scan hang is found
-                    print("CHK1: case3 entered, active=", YELLOW);
-                    print((char *)hddControllers[activeController].name, YELLOW);
-                    print("\n", YELLOW);
                     waitReleased();
-                    print("CHK2: waitReleased done\n", YELLOW);
                     initScreen();
-                    print("CHK3: initScreen done\n", YELLOW);
                     if (hddControllers[activeController].scan)
                         hddControllers[activeController].scan();
                     else
@@ -2431,31 +2801,26 @@ void HDDTestC()
                     globals->PrintMenuFlag = 1;
                     break;
 
-                case '4':
+                case '4': {
                     waitReleased();
                     initScreen();
+                    // A return of 1 means the controller's own identify() is
+                    // fully interactive and already handled its own
+                    // dismissal (e.g. identifyA3000SCSI()'s unit browser) —
+                    // don't also show the generic one-shot prompt below.
+                    int selfDismissed = 0;
                     if (hddControllers[activeController].identify)
-                        hddControllers[activeController].identify();
+                        selfDismissed = hddControllers[activeController].identify();
                     else
                         print("\nNot implemented for this controller.\n", RED);
-                    print("\nPress any key/button to continue", WHITE);
-                    WaitButton();
+                    if (!selfDismissed) {
+                        print("\nPress any key/button to continue", WHITE);
+                        WaitButton();
+                    }
                     initScreen();
                     globals->PrintMenuFlag = 1;
                     break;
-
-                case '5':
-                    waitReleased();
-                    initScreen();
-                    if (hddControllers[activeController].smart)
-                        hddControllers[activeController].smart();
-                    else
-                        print("\nNot implemented for this controller.\n", RED);
-                    print("\nPress any key/button to continue", WHITE);
-                    WaitButton();
-                    initScreen();
-                    globals->PrintMenuFlag = 1;
-                    break;
+                }
 
                 case '9':
                     waitReleased();
@@ -2622,7 +2987,7 @@ static void showBufferSector(void)
     int found = findSectorInTrack(globals->sector, &data);
     if (found < 0) {
         setPos(0, 2);
-        print("Sector not present in buffer (no $4489 match — read a track first?)", RED);
+        print("Sector not present in buffer (no $4489 match - read a track first?)", RED);
         setPos(0, 27);
         print("Press any key/mouse to continue", WHITE);
         WaitButton();

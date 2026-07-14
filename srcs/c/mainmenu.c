@@ -209,6 +209,8 @@ void initScreen(void)
     printStatus();
     updateStatus();
     setPos(0, 0);
+    globals->MemArenaUsedFast = 0;   // fresh getMemory() arena for the new screen/test
+    globals->MemArenaUsedChip = 0;
 }
 
 __attribute__((noreturn)) void mainMenu(void)

@@ -965,26 +965,49 @@ uint32_t getChip(uint32_t size __asm("d0"))
     return addr;
 }
 
+// Bump allocator: every call within one "arena" (the span between two
+// initScreen() calls — see that function, which resets both counters below
+// to 0) gets its own non-overlapping slice, instead of every call
+// recomputing the same fixed address as before. Deliberately simple/"dirty"
+// rather than a real allocator with per-block freeing: nothing is ever
+// freed individually, the whole arena just resets wholesale the next time a
+// screen is entered, which matches how every caller in this codebase
+// actually uses it (a handful of short-lived buffers needed only for the
+// current test/screen). Fast RAM and Chip RAM get their own counter each
+// (MemArenaUsedFast/MemArenaUsedChip), so a single arena mixing both — an
+// early request fitting in Fast RAM, a later one falling back to Chip —
+// still tracks each region's usage correctly instead of conflating them.
 void *getMemory(uint32_t size __asm("d0"))
 {
     uint32_t fastStart = (uint32_t)globals->FastStart;
     uint32_t fastEnd   = (uint32_t)globals->FastEnd;
     uint32_t chipStart = (uint32_t)globals->ChipStart;
     uint32_t chipEnd   = (uint32_t)globals->ChipEnd;
-    uint32_t start, end;
+    uint32_t start, end, used;
+    volatile uint32_t *usedField;
 
-    if (fastStart != 0 && (fastEnd - fastStart) >= size) {
-        start = fastStart;
-        end   = fastEnd;
-    } else if (chipStart == 0 || (chipEnd - chipStart) < size) {
+    // Round up to a longword so every returned address stays longword-
+    // aligned no matter what odd size a previous call in this arena asked
+    // for — the old single-block version got this for free by always
+    // starting from a fixed, already-aligned end-of-region address.
+    size = (size + 3) & ~3UL;
+
+    if (fastStart != 0 && (fastEnd - fastStart) >= globals->MemArenaUsedFast + size) {
+        start     = fastStart;
+        end       = fastEnd;
+        usedField = &globals->MemArenaUsedFast;
+    } else if (chipStart == 0 || (chipEnd - chipStart) < globals->MemArenaUsedChip + size) {
         globals->MemAdr = 0;
         return 0;
     } else {
-        start = chipStart;
-        end   = chipEnd;
+        start     = chipStart;
+        end       = chipEnd;
+        usedField = &globals->MemArenaUsedChip;
     }
 
-    uint32_t addr = (globals->WorkOrder == 0) ? (end - size - 1) : start;
+    used = *usedField;
+    uint32_t addr = (globals->WorkOrder == 0) ? (end - used - size) : (start + used);
+    *usedField = used + size;
     globals->MemAdr = (void *)(uintptr_t)addr;
     return globals->MemAdr;
 }

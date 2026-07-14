@@ -47,6 +47,8 @@ typedef struct GlobalVars
 	void*		CheckMemCurrent;		// Current adr to check
 	void*		CheckMemCurrentOLD;
 	void*		MemAdr;			// Pointer to memory from getmemory
+	uint32_t	MemArenaUsedFast;	// Bytes handed out by getMemory() from Fast RAM this arena; reset in initScreen()
+	uint32_t	MemArenaUsedChip;	// Same, for Chip RAM
 	void*		GfxTestBpl[8];		// Pointers to bitplanes for gfxtest
 	void*		trackbuff;			// Pointer to trackbuffer
 	void*		DiskBuffer;			// Pointer to diskbuffer
