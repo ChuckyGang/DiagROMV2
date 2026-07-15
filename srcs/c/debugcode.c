@@ -859,36 +859,54 @@ static void printReadCapacity(const uint8_t *buf)
 
 static inline void ncr_write(uint8_t reg, uint8_t val) { NCR_BASE[reg] = val; }
 static inline uint8_t ncr_read(uint8_t reg) { return NCR_BASE[reg]; }
-// FOUND 2026-07-14 by reading Amiberry's own emulation source directly
-// (src/qemuvga/lsi53c710.cpp, the actual model behind scsi0_a4000t): DSP is
-// emulated as four SEPARATELY byte-addressed registers (offsets +0..+3 =
-// DSP[0:7]..DSP[24:31]), and script execution is kicked off ONLY by the
-// write that lands on the HIGHEST offset (+3 = DSP[24:31]). Amiberry's
-// generic longword-write dispatcher decomposes a plain 32-bit CPU store
-// into byte-pokes in address order +3,+2,+1,+0 (i.e. the VALUE's LSB goes
-// to the LOWEST address) - so a naive `*(uint32_t*)ptr = val` write makes
-// the trigger byte (+3) land FIRST, with only one byte of the real address
-// in place and the rest still holding a leftover/garbage value. Execution
-// then starts from that garbage address before the rest of the pointer is
-// ever written - explaining the wildly inconsistent results seen all
-// session (including the historical $84, likely also just whatever
-// garbage happened to be at a near-random address, not a real response).
-// This matches the leaked ncr710.h's own cryptic note: "internal scripts
-// use little-endian addresses" - DSP genuinely needs byte-order-reversed
-// writes, not a natural big-endian 32-bit store. Fix: four explicit byte
-// writes, low-address-gets-LSB, with the real trigger byte (CPU address
-// +3) written LAST so the full, correct address is already in place.
+// ROOT CAUSE FOUND 2026-07-15 (overnight session), superseding the 2026-07-14
+// theory below: read Amiberry's OWN a4000t register glue directly
+// (src/ncr_scsi.cpp) rather than just the generic lsi53c710.cpp model.
+// `ncr710_io_bput()`/`ncr710_io_bget()` (what `scsi0_a4000t` actually uses)
+// call `beswap(addr)` on EVERY single byte access before dispatching to the
+// real register switch: `static uaecptr beswap(uaecptr addr) { return (addr
+// & ~3) | (3 - (addr & 3)); }` - algebraically identical to `addr ^ 3` (only
+// the low 2 bits are ever touched). This swaps offset+0<->offset+3 and
+// offset+1<->offset+2 within EVERY 4-byte-aligned register group on this
+// bus. IMPORTANT correction made while implementing this fix: this does NOT
+// mean ncr_write()/ncr_read() themselves need an XOR - tonight's own
+// register-readback prints (e.g. "SIEN=$AF", exactly matching what this
+// file writes) are direct proof the plain, un-XORed primitives already
+// correctly round-trip standalone 8-bit registers through Amiberry's
+// automatic beswap(), whatever the "real" internal case-label offset is.
+// The bug is specific to ncr_lwrite()/ncr_lread(): for a 32-bit value spread
+// across 4 sequential guest offsets (DSP[0:7]..[24:31]), beswap() changes
+// WHICH byte of the value each guest offset's real sub-register actually
+// is. Confirmed directly via gdb: a guest write to DSP's base offset (+0,
+// assumed to hold the LSB by the OLD theory below) landed at
+// lsi53c710.cpp's real `case 0x2f: /* DSP[24:31] */` handler - the MSB slot
+// AND the one that calls `lsi_execute_script()` - exactly matching
+// beswap(base+0) == base+3.
+//
+// 2026-07-14 theory (kept for history, now understood as an incomplete
+// partial fix superseded by the beswap() finding above): DSP is byte-
+// addressed and only the write landing on the real DSP[24:31] slot triggers
+// `lsi_execute_script()`. That part is still true - it's WHICH guest offset
+// maps to that real slot that the old theory got wrong (assumed a natural,
+// non-swapped layout). The fix below keeps the plain ncr_write() primitive
+// but reorders which VALUE goes to which guest offset: guest off+0 lands on
+// the real MSB/trigger slot, off+3 on the real LSB slot, off+1/off+2 swap
+// relative to a naive big-endian layout too.
 static inline void ncr_lwrite(uint8_t off, uint32_t val)
 {
-    volatile uint8_t *p = (uint8_t *)NCR_BASE + off;
-    p[0] = (uint8_t)(val & 0xFF);
-    p[1] = (uint8_t)((val >> 8) & 0xFF);
-    p[2] = (uint8_t)((val >> 16) & 0xFF);
-    p[3] = (uint8_t)((val >> 24) & 0xFF);   // trigger byte - must be written last
+    ncr_write(off + 3, (uint8_t)(val & 0xFF));          // -> real DSP[0:7]  (LSB)
+    ncr_write(off + 2, (uint8_t)((val >> 8) & 0xFF));   // -> real DSP[8:15]
+    ncr_write(off + 1, (uint8_t)((val >> 16) & 0xFF));  // -> real DSP[16:23]
+    ncr_write(off + 0, (uint8_t)((val >> 24) & 0xFF));  // -> real DSP[24:31] (MSB) - TRIGGER, written last
 }
 static inline uint32_t ncr_lread(uint8_t off)
 {
-    return *(volatile uint32_t *)((uint8_t *)NCR_BASE + off);
+    uint32_t v;
+    v  = (uint32_t)ncr_read(off + 3);
+    v |= (uint32_t)ncr_read(off + 2) << 8;
+    v |= (uint32_t)ncr_read(off + 1) << 16;
+    v |= (uint32_t)ncr_read(off + 0) << 24;
+    return v;
 }
 
 // Step 1 (setup + chip check): translated directly from ncr.c's init
@@ -1063,7 +1081,21 @@ static void ncrDebugIrqDisable(void)
 // chip's own select-timeout (SIEN_STO) genuinely reaches our ISR. This is
 // pure plumbing verification - unit 0 (the live device) isn't touched yet.
 #define NCR_SCRIPT_SELECT_ATN 0x41000000UL   // class=01, opcode=SELECT(000), ATN=1
-#define NCR_SCRIPT_INT        0x98000000UL   // class=10, opcode=INT(011)
+// ROOT CAUSE FOUND 2026-07-15 via gdb breakpoint on Amiberry's own lsi_update_irq()
+// (real backtraces, src/qemuvga/lsi53c710.cpp): Amiberry's Transfer Control dispatch
+// (`case 2` in lsi_execute_script) treats ANY instruction with none of bits 21/19/18/17
+// set as a bare NOP - `if ((insn & 0x002e0000) == 0) { NOP; break; }` - BEFORE ever
+// looking at the opcode field. Our bare `0x98000000` (opcode=INT, no compare bits at
+// all) was silently a NOP every single time, all session (and in the 2026-07-14
+// session before it) - DSP then walked off the end of our tiny stack script[] buffer
+// into uninitialized garbage, which decoded into something resembling a mismatched
+// Block Move (real MA), and eventually tripped Amiberry's own >10000-instruction
+// runaway-loop safety valve, which forcibly raises UDC ("beat the driver into
+// submission" - Amiberry's own comment) - NOT a real SCSI protocol event. Setting
+// bit19 (the compare-true flag, with no specific compare TYPE bit set) makes the
+// final `cond==jmp` check trivially true regardless of bit19's own value, so the
+// instruction is genuinely taken unconditionally instead of silently no-op'd.
+#define NCR_SCRIPT_INT         0x98080000UL   // class=10, opcode=INT(011), unconditional (bit19 set - see above)
 
 static void checkNcrIRQ2(volatile struct GlobalVars *globals)
 {
@@ -1131,7 +1163,13 @@ static void checkNcrIRQ2(volatile struct GlobalVars *globals)
 // bug that's simply never been reached yet, since the live-device SELECT
 // has always bailed before the phase-dispatch loop ever ran).
 #define NCR_SCRIPT_JUMP_IF_MSGOUT 0x860A0000UL   // JUMP addr, IF MSG_OUT
-#define NCR_SCRIPT_JUMP_ALWAYS    0x80000000UL   // JUMP addr (compare disabled - always taken)
+// Same NOP-if-no-compare-bits defect as NCR_SCRIPT_INT above applies here too -
+// 0x80000000 had none of bits 21/19/18/17 set, so it was ALSO silently a NOP
+// despite the old "compare disabled - always taken" comment being the intended
+// design (real hardware may well treat an all-clear compare field as "always",
+// but Amiberry's interpreter does not - the check is bitwise-literal, not
+// semantic). Bit19 set, no compare-type bit, makes cond==jmp trivially true.
+#define NCR_SCRIPT_JUMP_ALWAYS    0x80080000UL   // JUMP addr, unconditional (bit19 set - see above)
 #define NCR_MOVE_OPCODE_BIT       (1UL << 27)    // mandatory for initiator-mode Block Move
 
 // Isolation step 0 (added after finding the real crash signature - a host
@@ -1252,8 +1290,13 @@ static void checkNcrSelectJumpOnly(volatile struct GlobalVars *globals)
     uint32_t dsp = ncr_lread(NCR_DSP);
     print("SSTAT0: $", WHITE);
     print(binHexByte(globals->ScsiIrqStatus), WHITE);
-    print(dsp == (uint32_t)(uintptr_t)&script[5] ? "  (JUMP taken OK)\n" :
-          dsp == (uint32_t)(uintptr_t)&script[7] ? "  (reselect fallback hit)\n" :
+    // FOUND 2026-07-15: off-by-one in these checkpoints. lsi_execute_script()
+    // advances s->dsp by 8 (the full [opcode,operand] pair) BEFORE dispatching
+    // each instruction, so once an INT at script[N]/script[N+1] actually fires
+    // and stops the script, s->dsp has already moved to &script[N+2] - not
+    // &script[N+1] as these comparisons assumed. Fixed both checkpoints.
+    print(dsp == (uint32_t)(uintptr_t)&script[6] ? "  (JUMP taken OK)\n" :
+          dsp == (uint32_t)(uintptr_t)&script[8] ? "  (reselect fallback hit)\n" :
           "  (unexpected DSP)\n", WHITE);
 }
 
@@ -1315,15 +1358,255 @@ static void checkNcrSelectUnit0(volatile struct GlobalVars *globals)
     print(binHexWord((uint16_t)dsp), CYAN);
     print("\n", WHITE);
 
-    if (dsp == (uint32_t)(uintptr_t)&script[5]) {
+    // FOUND 2026-07-15: same off-by-one as checkNcrSelectJumpOnly() above -
+    // s->dsp is advanced by the full 8-byte [opcode,operand] pair BEFORE an
+    // instruction dispatches, so once the INT at script[N]/script[N+1] fires
+    // and stops the script, dsp is already at &script[N+2], not &script[N+1].
+    if (dsp == (uint32_t)(uintptr_t)&script[6]) {
         print("-> Fallback branch taken: phase was NOT MSG_OUT after SELECT.\n", YELLOW);
-    } else if (dsp == (uint32_t)(uintptr_t)&script[9]) {
+    } else if (dsp == (uint32_t)(uintptr_t)&script[10]) {
         print("-> MSG_OUT branch taken: identify byte was sent successfully!\n", GREEN);
-    } else if (dsp == (uint32_t)(uintptr_t)&script[11]) {
+    } else if (dsp == (uint32_t)(uintptr_t)&script[12]) {
         print("-> Reselected before winning arbitration (unexpected for this test).\n", YELLOW);
     } else {
         print("-> DSP doesn't match any expected checkpoint (unexpected path).\n", RED);
     }
+}
+
+// New 2026-07-15: none of the four tests above reset the chip between each
+// other - they all share whatever state checkNcrIRQ2() (a SELECT to ID 6)
+// left behind. checkNcrIRQ2() itself got SSTAT0=$84 (MA|UDC - the "found a
+// live target" signature) against an ID this file's own comments say is
+// "nothing lives there in the current Amiberry profile" - and every
+// subsequent unit-0 test got a full timeout with NO interrupt at all. Both
+// of those are surprising on their own; together they look exactly like the
+// same "first live interaction wedges the chip for the rest of the boot"
+// pattern documented for A3000's WD33C93 (full reset required before EVERY
+// attempt, not just once - see [[project_diagrom_a3000_scsi]]). Testing that
+// directly here: a full ncrRealInit() before EVERY single ID, not once at
+// the top of DebugCode(), sweeping all 7 IDs with the same atomic
+// SELECT+phase-check+MOVE(identify) shape as checkNcrSelectUnit0() above -
+// this is the first real, systematic "where actually is the device"
+// measurement taken tonight, rather than assuming unit 0 from old disk.c
+// convention.
+static void checkNcrSelectFreshResetById(volatile struct GlobalVars *globals, int id)
+{
+    if (!ncrRealInit(NCR_INIT_BISECT_LEVEL)) {
+        print("  (chip not responding after reset - skipping this ID)\n", RED);
+        return;
+    }
+    ncrDebugIrqEnable(globals);
+
+    // BUG FOUND 2026-07-15 (this session): the SELECT instruction's ID field
+    // is a one-hot BITMASK across the 8 possible target IDs (confirmed both
+    // from checkNcrIRQ2()'s already-correct `(1UL << 6) << 16` shape above,
+    // AND directly from Amiberry's own src/qemuvga/lsi53c710.cpp
+    // idbitstonum(), which counts shift-rights until id<=1 to find the
+    // highest set bit position) - NOT a raw target number. The first version
+    // of this function used the raw loop index directly, which for id=0/1
+    // both decode to idbitstonum()=0 (target 0), and every other raw value
+    // decodes to some other real-but-wrong target via the same degenerate
+    // shift-count logic - explains why every ID in the first run of this
+    // sweep printed an identical result: they were accidentally hitting
+    // whatever handful of real targets those garbage bitmasks decoded to,
+    // not 7 independent per-ID measurements. Fixed: proper one-hot mask.
+    uint8_t identify = 0x80;   // IDENTIFY, LUN 0, no DiscPriv
+    uint32_t script[12];
+    script[0]  = NCR_SCRIPT_SELECT_ATN | ((1UL << id) << 16);
+    script[1]  = (uint32_t)(uintptr_t)&script[10];
+    script[2]  = NCR_SCRIPT_JUMP_IF_MSGOUT;
+    script[3]  = (uint32_t)(uintptr_t)&script[6];
+    script[4]  = NCR_SCRIPT_INT;
+    script[5]  = 0;
+    script[6]  = NCR_MOVE_OPCODE_BIT | ((uint32_t)NCR_PHASE_MSG_OUT << 24) | 1UL;
+    script[7]  = (uint32_t)(uintptr_t)&identify;
+    script[8]  = NCR_SCRIPT_INT;
+    script[9]  = 0;
+    script[10] = NCR_SCRIPT_INT;
+    script[11] = 0;
+
+    print("  ID ", WHITE);
+    print(binDec(id), CYAN);
+    print(": ", WHITE);
+
+    globals->ScsiIrqPending = 0;
+    ncr_lwrite(NCR_DSP, (uint32_t)(uintptr_t)&script[0]);
+
+    int i;
+    for (i = 0; i < 4000; i++) {
+        if (globals->ScsiIrqPending) break;
+        waitShort();
+    }
+    if (!globals->ScsiIrqPending) {
+        print("NO interrupt (", RED);
+        print(binDec(i), CYAN);
+        print(" iters)\n", RED);
+        ncrDebugIrqDisable();
+        return;
+    }
+    globals->ScsiIrqPending = 0;
+    uint32_t dsp = ncr_lread(NCR_DSP);
+    print("SSTAT0=$", WHITE);
+    print(binHexByte(globals->ScsiIrqStatus), CYAN);
+    print("  (", WHITE);
+    print(binDec(i), CYAN);
+    print(" iters)  ", WHITE);
+
+    // FOUND 2026-07-15: same off-by-one as checkNcrSelectUnit0() above - dsp
+    // lands at &script[N+2] once the INT at script[N]/script[N+1] fires and
+    // stops the script, not &script[N+1].
+    if (dsp == (uint32_t)(uintptr_t)&script[6]) {
+        print("fallback: phase not MSG_OUT\n", YELLOW);
+    } else if (dsp == (uint32_t)(uintptr_t)&script[10]) {
+        print("IDENTIFY sent OK!\n", GREEN);
+    } else if (dsp == (uint32_t)(uintptr_t)&script[12]) {
+        print("reselected before arbitration\n", YELLOW);
+    } else if (globals->ScsiIrqStatus & NCR_SIEN_STO) {
+        print("STO (genuinely empty)\n", WHITE);
+    } else {
+        print("unexpected DSP\n", RED);
+    }
+    ncrDebugIrqDisable();
+}
+
+static void checkNcrSelectAllIdsFreshReset(volatile struct GlobalVars *globals)
+{
+    print("\n--- Fresh-reset sweep, all IDs 0-6 (Amiberry-emulation target) ---\n", WHITE);
+    for (int id = 0; id <= 6; id++) {
+        checkNcrSelectFreshResetById(globals, id);
+    }
+}
+
+// 2026-07-15, same day - now that a live-device SELECT+IDENTIFY reliably
+// completes (see checkNcrSelectFreshResetById()'s "IDENTIFY sent OK!"
+// result), extend the same JUMP-IF-<phase>-before-every-MOVE pattern
+// (never assuming the next phase, matching Linux's 53c700.scr / NetBSD's
+// siop_script.ss / the leaked AmigaOS a4091 driver, all cross-checked in
+// the comment above checkNcrSelectUnit0()) all the way through a full
+// INQUIRY transaction: SELECT -> MSG_OUT(IDENTIFY) -> CMD(6-byte INQUIRY
+// CDB) -> DATA_IN(36-byte response) -> STATUS(1 byte) -> MSG_IN(1 byte).
+// Matches the real SCSI transaction shape used by A3000's debugcode.c
+// breakthrough (see [[project_diagrom_a3000_scsi]]) - the NCR 53C710's own
+// SCRIPTS engine handles REQ/ACK handshaking per Block Move automatically
+// (unlike the WD33C93's manual byte-pump), so no NEGATE_ACK-style
+// bus-release step is attempted here yet - if this doesn't fully settle
+// the bus for a second transaction later, that's the next thing to add.
+#define NCR_PHASE_DATA_IN 0x1
+#define NCR_PHASE_CMD     0x2
+#define NCR_PHASE_STATUS  0x3
+#define NCR_PHASE_MSG_IN  0x7
+// General form of NCR_SCRIPT_JUMP_IF_MSGOUT above (0x860A0000), derived and
+// verified against it directly: class=10 (Transfer Control), opcode=000
+// (Jump), bit19=1 (this compare's polarity - "IF true"), bit17=1 (phase
+// compare enabled, no carry/data compare), phase value in bits 26:24.
+#define NCR_SCRIPT_JUMP_IF(phase) (0x800A0000UL | (((uint32_t)(phase)) << 24))
+#define NCR_SCRIPT_MOVE(phase, count) \
+    (NCR_MOVE_OPCODE_BIT | (((uint32_t)(phase)) << 24) | ((uint32_t)(count) & 0xFFFFFFUL))
+#define SCSI_INQUIRY     0x12
+#define SCSI_INQUIRY_LEN 36
+
+static void checkNcrFullInquiryUnit0(volatile struct GlobalVars *globals)
+{
+    print("\n--- Full INQUIRY exchange, unit 0 (Amiberry-emulation target) ---\n", WHITE);
+    if (!ncrRealInit(NCR_INIT_BISECT_LEVEL)) {
+        print("  (chip not responding after reset)\n", RED);
+        return;
+    }
+    ncrDebugIrqEnable(globals);
+
+    uint8_t identify = 0x80;   // IDENTIFY, LUN 0, no DiscPriv
+    static const uint8_t inquiryCdb[6] = { SCSI_INQUIRY, 0x00, 0x00, 0x00, SCSI_INQUIRY_LEN, 0x00 };
+    uint8_t inqBuf[SCSI_INQUIRY_LEN];
+    uint8_t statusByte = 0xFF, msgByte = 0xFF;
+
+    uint32_t script[36];
+    script[0]  = NCR_SCRIPT_SELECT_ATN | ((1UL << 0) << 16);
+    script[1]  = (uint32_t)(uintptr_t)&script[34];               // reselect fallback
+    script[2]  = NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_OUT);
+    script[3]  = (uint32_t)(uintptr_t)&script[6];
+    script[4]  = NCR_SCRIPT_INT;                                  // fallback: not MSG_OUT after SELECT
+    script[5]  = 0;
+    script[6]  = NCR_SCRIPT_MOVE(NCR_PHASE_MSG_OUT, 1);
+    script[7]  = (uint32_t)(uintptr_t)&identify;
+    script[8]  = NCR_SCRIPT_JUMP_IF(NCR_PHASE_CMD);
+    script[9]  = (uint32_t)(uintptr_t)&script[12];
+    script[10] = NCR_SCRIPT_INT;                                  // fallback: not CMD after IDENTIFY
+    script[11] = 0;
+    script[12] = NCR_SCRIPT_MOVE(NCR_PHASE_CMD, 6);
+    script[13] = (uint32_t)(uintptr_t)&inquiryCdb[0];
+    script[14] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_DATA_IN);
+    script[15] = (uint32_t)(uintptr_t)&script[18];
+    script[16] = NCR_SCRIPT_INT;                                  // fallback: not DATA_IN after CDB
+    script[17] = 0;
+    script[18] = NCR_SCRIPT_MOVE(NCR_PHASE_DATA_IN, SCSI_INQUIRY_LEN);
+    script[19] = (uint32_t)(uintptr_t)&inqBuf[0];
+    script[20] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_STATUS);
+    script[21] = (uint32_t)(uintptr_t)&script[24];
+    script[22] = NCR_SCRIPT_INT;                                  // fallback: not STATUS after DATA_IN
+    script[23] = 0;
+    script[24] = NCR_SCRIPT_MOVE(NCR_PHASE_STATUS, 1);
+    script[25] = (uint32_t)(uintptr_t)&statusByte;
+    script[26] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_IN);
+    script[27] = (uint32_t)(uintptr_t)&script[30];
+    script[28] = NCR_SCRIPT_INT;                                  // fallback: not MSG_IN after STATUS
+    script[29] = 0;
+    script[30] = NCR_SCRIPT_MOVE(NCR_PHASE_MSG_IN, 1);
+    script[31] = (uint32_t)(uintptr_t)&msgByte;
+    script[32] = NCR_SCRIPT_INT;                                  // SUCCESS - full INQUIRY complete
+    script[33] = 0;
+    script[34] = NCR_SCRIPT_INT;                                  // reselected before winning arbitration
+    script[35] = 0;
+
+    globals->ScsiIrqPending = 0;
+    ncr_lwrite(NCR_DSP, (uint32_t)(uintptr_t)&script[0]);
+
+    int i;
+    for (i = 0; i < 4000; i++) {
+        if (globals->ScsiIrqPending) break;
+        waitShort();
+    }
+    if (!globals->ScsiIrqPending) {
+        print("  NO interrupt at all.\n", RED);
+        ncrDebugIrqDisable();
+        return;
+    }
+    globals->ScsiIrqPending = 0;
+    uint32_t dsp = ncr_lread(NCR_DSP);
+    print("  SSTAT0=$", WHITE);
+    print(binHexByte(globals->ScsiIrqStatus), CYAN);
+    print("  (", WHITE);
+    print(binDec(i), CYAN);
+    print(" iters)\n", WHITE);
+
+    // Same off-by-one-corrected checkpoint style as the fixes above: dsp
+    // rests at &script[N+2] once the INT at script[N]/script[N+1] fires and
+    // stops the script.
+    if (dsp == (uint32_t)(uintptr_t)&script[6]) {
+        print("  -> not MSG_OUT after SELECT.\n", YELLOW);
+    } else if (dsp == (uint32_t)(uintptr_t)&script[12]) {
+        print("  -> not CMD after IDENTIFY.\n", YELLOW);
+    } else if (dsp == (uint32_t)(uintptr_t)&script[18]) {
+        print("  -> not DATA_IN after CDB.\n", YELLOW);
+    } else if (dsp == (uint32_t)(uintptr_t)&script[24]) {
+        print("  -> not STATUS after DATA_IN.\n", YELLOW);
+    } else if (dsp == (uint32_t)(uintptr_t)&script[30]) {
+        print("  -> not MSG_IN after STATUS.\n", YELLOW);
+    } else if (dsp == (uint32_t)(uintptr_t)&script[34]) {
+        print("  *** FULL INQUIRY TRANSACTION COMPLETE ***\n", GREEN);
+        print("  status=$", WHITE); print(binHexByte(statusByte), CYAN);
+        print("  msg=$", WHITE); print(binHexByte(msgByte), CYAN);
+        print("\n  vendor/product: \"", WHITE);
+        for (int c = 8; c < 32; c++) {
+            char ch[2] = { (char)inqBuf[c], 0 };
+            print(ch[0] >= 32 && ch[0] < 127 ? ch : "?", GREEN);
+        }
+        print("\"\n", WHITE);
+    } else if (dsp == (uint32_t)(uintptr_t)&script[36]) {
+        print("  -> reselected before winning arbitration (unexpected).\n", YELLOW);
+    } else {
+        print("  -> unexpected DSP.\n", RED);
+    }
+    ncrDebugIrqDisable();
 }
 
 // BUG FOUND 2026-07-14: the A3000 section below (wd_write() et al) does
@@ -1382,59 +1665,16 @@ void DebugCode(void)
     volatile struct GlobalVars *globals = debugGlobals();
 #endif
 
-    print("\n\n=== A4000T (NCR 53C710) ===\n\n", WHITE);
-    print("--- Chip init ---\n", WHITE);
-    if (ncrRealInit(NCR_INIT_BISECT_LEVEL)) {
-        print("\n--- IRQ2 setup ---\n", WHITE);
-        ncrDebugIrqEnable(globals);
-        checkNcrIRQ2(globals);
-
-        print("\n--- Register readback (confirm, don't assume) ---\n", WHITE);
-        print("SCID=$", WHITE);   print(binHexByte(ncr_read(NCR_SCID)), CYAN);
-        print(" SCNTL1=$", WHITE); print(binHexByte(ncr_read(NCR_SCNTL1)), CYAN);
-        print(" DCNTL=$", WHITE); print(binHexByte(ncr_read(NCR_DCNTL)), CYAN);
-        print(" SXFER=$", WHITE); print(binHexByte(ncr_read(NCR_SXFER)), CYAN);
-        print(" ISTAT=$", WHITE); print(binHexByte(ncr_read(NCR_ISTAT)), CYAN);
-        print(" SIEN=$", WHITE); print(binHexByte(ncr_read(NCR_SIEN)), CYAN);
-        print("\n", WHITE);
-
-        // Reordered 2026-07-14: run simplest-first so a crash pinpoints which
-        // ingredient (bare SELECT vs +JUMP vs +JUMP+MOVE) actually triggers
-        // it, instead of always crashing on the most complex test before the
-        // simpler ones ever get a turn. NO-ATN goes first of all: real crash
-        // evidence (host SIGSEGV in lsi53c710.cpp) points at the ATN-forced
-        // PHASE_MO transition inside Amiberry's own SELECT handler, so this
-        // isolates that specific path before anything else runs.
-        print("\n--- SELECT unit 0 (bare, NO ATN -> PHASE_CMD) ---\n", WHITE);
-        checkNcrSelectNoAtnUnit0(globals);
-
-        print("\n--- SELECT unit 0 (bare, historical shape) ---\n", WHITE);
-        checkNcrSelectBareUnit0(globals);
-
-        print("\n--- SELECT unit 0 (+ unconditional JUMP, no MOVE) ---\n", WHITE);
-        checkNcrSelectJumpOnly(globals);
-
-        print("\n--- SELECT unit 0 (atomic, phase-checked) ---\n", WHITE);
-        checkNcrSelectUnit0(globals);
-
-        ncrDebugIrqDisable();
-        print("\nTotal NCR IRQ2 events this run: ", WHITE);
-        print(binDec(globals->ScsiIrqCount), CYAN);
-        print("\n", WHITE);
-    }
-
-    // Direct A/B check: does disk.c's actual PRODUCTION scanner still get
-    // the historical $84 (MA|UDC) against this exact live device, in this
-    // exact same boot, right after every one of my own tests above got
-    // total silence? Settles whether the issue is in my debug harness
-    // specifically or something environmental. (detectA4000TSCSI/
-    // scanA4000TSCSI temporarily de-static'd in disk.c for this call.)
-    print("\n\n=== disk.c production scanA4000TSCSI() (direct A/B) ===\n\n", WHITE);
-    if (detectA4000TSCSI()) {
-        scanA4000TSCSI();
-    } else {
-        print("detectA4000TSCSI() returned false.\n", RED);
-    }
+    // A4000T SCSI debug section removed from DebugCode()'s run 2026-07-15 -
+    // that investigation is done and ported to production disk.c (see
+    // [[project_diagrom_a4000t_scsi]] memory for the full history: SIGSEGV
+    // fix, beswap()-aware ncr_lwrite(), checkpoint off-by-one, full INQUIRY
+    // transaction, all confirmed working in
+    // scanA4000TSCSI()/identifyA4000TSCSI()). No longer needs a debug
+    // harness. The checkNcr*()/ncrRealInit() etc. function BODIES are still
+    // present further up this file, just no longer called here - only the
+    // call sites were removed, not the functions themselves.
+    (void)globals;
 
     print("\n=== DebugCode done ===\n", WHITE);
     print("Press any key/mouse to continue to the main menu...\n", WHITE);

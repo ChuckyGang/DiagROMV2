@@ -42,9 +42,17 @@ void swapVideoMode(void)
     *(volatile uint16_t *)0xdff1dc = globals->SCRNMODE;  // BEAMCON0
 }
 
+// Was slamming the live raster beam position ($dff006, changes every
+// scanline) straight into COLOR00 ($dff180) on every poll of waitReleased()/
+// WaitPressed() - unlike the deliberate, STABLE per-stage boot indicator
+// colors elsewhere (initcode.c's 0xaaa/0x999/0x888.../disk.c's floppy-step
+// flash), a raster position never holds still, so this read as rapid,
+// chaotic border flashing on every mouse button press/release rather than a
+// clean heartbeat. Those early-boot indicators exist because chip RAM/the
+// display aren't set up yet; every disk.c menu that calls waitReleased() is
+// already showing a normal screen, so no border feedback is needed here.
 void rasterFeedback(void)
 {
-    *(volatile uint8_t *)0xdff180 = *(volatile uint8_t *)0xdff006;
 }
 
 // ---------------------------------------------------------------------------

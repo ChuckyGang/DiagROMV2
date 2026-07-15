@@ -644,6 +644,22 @@ static int browseUnits(const char *title, int unitCount, int startUnit,
         int     lmb = globals->LMB;
         int     rmb = globals->RMB;
 
+        // A human pressing "both buttons together" almost never lands them
+        // in the exact same getInput() poll - whichever button registers
+        // first would otherwise immediately fire the single-button
+        // next/prev branch below and block in waitReleased(), so the
+        // two-button exit chord was effectively unreachable. Give the other
+        // button a brief grace window to join before committing to a
+        // single-button action.
+        if ((lmb && !rmb) || (rmb && !lmb)) {
+            for (int i = 0; i < 48 && !(lmb && rmb); i++) {
+                waitShort();
+                getInput();
+                lmb = globals->LMB;
+                rmb = globals->RMB;
+            }
+        }
+
         if ((lmb && rmb) || ch == 0x1b) {
             waitReleased();
             return 1;
@@ -673,9 +689,18 @@ static int browseUnits(const char *title, int unitCount, int startUnit,
 // ---------------------------------------------------------------------------
 
 #define GAYLE_ID_REG        ((volatile uint8_t *)0xDE1000)
-#define GAYLE_INT_REG       ((volatile uint8_t *)0xDA9000)
-#define GAYLE_INT_IDE       0x80
-#define GAYLE_INT_IDEENAB   0x10
+// FOUND 2026-07-15: these are two SEPARATE Gayle registers, not one - IRQ
+// *status* (which sources currently have a latched interrupt) lives at
+// $DA9000, IRQ *enable* (which sources are configured to actually forward
+// their interrupt) is a different register at $DA_A000. Confirmed against
+// Amiberry's gayle.cpp (GAYLE_IRQ_1200=$9000 read/write_gayle_irq() vs
+// GAYLE_INT_1200=$A000 read/write_gayle_int()). The old code read bit 0x10
+// of the STATUS register and mislabeled it "enab:" - that bit in the status
+// register is unrelated to IDE (PCMCIA battery/digital-audio change), so
+// the reported enable state was never meaningful.
+#define GAYLE_IRQ_REG       ((volatile uint8_t *)0xDA9000)   // status (per-source pending)
+#define GAYLE_INT_REG       ((volatile uint8_t *)0xDAA000)   // enable (per-source forwarding on/off)
+#define GAYLE_IDE_BIT       0x80   // same bit position in both registers
 
 // Status register bits
 #define IDE_BSY     0x80
@@ -688,7 +713,10 @@ static int browseUnits(const char *title, int unitCount, int startUnit,
 #define IDE_DEV_MASTER  0xA0
 #define IDE_DEV_SLAVE   0xB0
 
-#define ATA_CMD_IDENTIFY  0xEC
+#define ATA_CMD_IDENTIFY         0xEC
+#define ATA_CMD_IDENTIFY_PACKET  0xA1   // ATAPI devices (CD-ROM/tape/etc) reject 0xEC with ERR
+#define ATAPI_SIG_MID  0x14
+#define ATAPI_SIG_HI   0xEB
 #define RD32(b,o) (((uint32_t)(b)[(o)]<<24)|((uint32_t)(b)[(o)+1]<<16)|((uint32_t)(b)[(o)+2]<<8)|(uint32_t)(b)[(o)+3])
 #define RDB_MAGIC   0x5244534BUL
 #define PART_MAGIC  0x50415254UL
@@ -718,16 +746,23 @@ static const IdeRegs ideA1200Regs = {
     (volatile uint8_t  *)0xDA001C,
 };
 
-// A4000: base $DD2020, stride 2
+// A4000: base $DD2020, stride 4 - FIXED 2026-07-15. Was stride 2, which
+// doesn't match this project's own already-correct A1200/A600 Gayle IDE
+// (stride 4, same chip family) nor Amiberry's real register decode
+// (src/gayle.cpp get_gayle_ide_reg(): `addr &= ~0x2020; addr >>= 2;` -
+// dividing the register-relative offset by 4 only makes sense for
+// registers genuinely spaced 4 bytes apart). Real Amiga Gayle IDE hardware
+// task-file registers are 4 bytes apart on both A1200 and A4000 - this was
+// a plain wrong-constant bug, not an intentional platform difference.
 static const IdeRegs ideA4000Regs = {
     (volatile uint16_t *)0xDD2020,
-    (volatile uint8_t  *)0xDD2022,
     (volatile uint8_t  *)0xDD2024,
-    (volatile uint8_t  *)0xDD2026,
     (volatile uint8_t  *)0xDD2028,
-    (volatile uint8_t  *)0xDD202A,
     (volatile uint8_t  *)0xDD202C,
-    (volatile uint8_t  *)0xDD202E,
+    (volatile uint8_t  *)0xDD2030,
+    (volatile uint8_t  *)0xDD2034,
+    (volatile uint8_t  *)0xDD2038,
+    (volatile uint8_t  *)0xDD203C,
 };
 
 static uint8_t gayleReadID(void)
@@ -775,6 +810,21 @@ static int ideDevPresent(const IdeRegs *r)
     *r->lba_mid = 0x55;
     *r->lba_hi  = 0xAA;
     return (*r->lba_mid == 0x55 && *r->lba_hi == 0xAA);
+}
+
+// FOUND 2026-07-15: an ATAPI device (CD-ROM/tape/etc) latches this exact
+// signature into LBA_MID/LBA_HIGH after selection, per the ATA/ATAPI spec's
+// standard way of telling ATAPI and plain ATA devices apart BEFORE ever
+// issuing IDENTIFY - a real, documented protocol requirement, not an
+// Amiberry quirk (confirmed against Amiberry's own emulation:
+// src/ide.cpp's add_ide_unit() explicitly sets `ide->atapi = true` for CD
+// devices). Sending the plain ATA_CMD_IDENTIFY (0xEC) to an ATAPI device
+// gets rejected with ERR - this is what "CD-ROM shows an error" was.
+// MUST be checked right after ideSelectDrive(), before ideDevPresent()'s
+// own 0x55/0xAA write-test overwrites these same registers.
+static int ideIsAtapi(const IdeRegs *r)
+{
+    return (*r->lba_mid == ATAPI_SIG_MID && *r->lba_hi == ATAPI_SIG_HI);
 }
 
 static uint8_t ideWaitDRQ(const IdeRegs *r)
@@ -910,12 +960,37 @@ static void ideCopySwappedString(char *out, const uint8_t *src, int len)
     }
 }
 
-static int ideQuickModel(const IdeRegs *r, char *out)
+static int ideQuickModel(const IdeRegs *r, char *out, int atapi)
 {
-    *r->status = ATA_CMD_IDENTIFY;
+    *r->status = atapi ? ATA_CMD_IDENTIFY_PACKET : ATA_CMD_IDENTIFY;
     uint8_t st = ideWaitDRQ(r);
-    if (st == 0xFF || !(st & IDE_DRQ)) { out[0] = '\0'; return 0; }
-    static uint8_t mbuf[512];
+    if (st == 0xFF || !(st & IDE_DRQ)) {
+        // FOUND 2026-07-15: the ATAPI signature (ideIsAtapi()) is a one-time
+        // artifact latched right after a device RESET, not something
+        // re-asserted on every plain SELECT - earlier bus activity in the
+        // same boot (a prior scan, another unit's identify on the same
+        // shared registers) can leave it stale by the time this call
+        // checks it, sending the wrong command and getting rejected. Rather
+        // than require a full device-reset dance to force a fresh
+        // signature, just try the other command once before giving up -
+        // simpler and just as reliable in practice.
+        *r->status = atapi ? ATA_CMD_IDENTIFY : ATA_CMD_IDENTIFY_PACKET;
+        st = ideWaitDRQ(r);
+        if (st == 0xFF || !(st & IDE_DRQ)) { out[0] = '\0'; return 0; }
+    }
+    // FOUND 2026-07-15: this was `static uint8_t mbuf[512]` - on this ROM's
+    // hand-rolled memory layout (no standard crt0/.bss, everything carved
+    // out of the fixed "workspace" sized at boot, see "Workspace needed"
+    // in the boot log) a static local here collided with live stack
+    // content, so by the time ideReadWords() returned, mbuf's own address
+    // had been overwritten back into itself instead of holding the
+    // IDENTIFY data - the model always came out empty even though the
+    // hardware handshake (DRQ, the actual register reads) was working
+    // perfectly (confirmed instruction-by-instruction with gdb + a
+    // standalone probe that used a plain stack buffer and worked). A plain
+    // stack-local buffer, exactly like doIdentifyIDEUnit()'s idbuf, doesn't
+    // hit this.
+    uint8_t mbuf[512];
     ideReadWords(r, mbuf, 256);
     ideCopySwappedString(out, mbuf + 54, 40);
     ideStripSpaces(out, 40);
@@ -932,27 +1007,44 @@ static void printIdeStatus(uint8_t st)
     if (st & IDE_ERR)  print("ERR ",  RED);
 }
 
-// Generic scan: master (DRDY or IDENTIFY fallback) + slave (canary), prints model in quotes
+// FOUND 2026-07-15: the previous version of this function printed "FOUND"/
+// status/the ATAPI tag BEFORE issuing the IDENTIFY command, interleaving
+// print() calls (real screen/serial I/O time) with the select->identify
+// handshake - the same class of bug a temporary diagnostic print exposed
+// earlier the same day (see [[project_diagrom_a4000t_scsi]] memory):
+// enough delay between "device just became ready" and "issue the command"
+// breaks the transfer. doIdentifyIDEUnit() never interleaves prints with
+// the hardware sequence and has never shown this symptom - this rewrite
+// matches that shape: select, check ATAPI, issue IDENTIFY immediately,
+// THEN print everything based on the result.
 static int doScanIDE(const IdeRegs *r)
 {
     int found = 0;
     uint8_t st;
-    static char scanModel[42];
+    // FOUND 2026-07-15: was `static char scanModel[42]` - same workspace/
+    // stack collision bug as ideQuickModel()'s mbuf (see that function's
+    // comment). Plain stack-local instead.
+    char scanModel[42];
 
     print("Master: ", CYAN);
     st = ideSelectDrive(r, IDE_DEV_MASTER);
     if (st == 0xFF) {
         print("TIMEOUT\n", RED);
-    } else if (st & IDE_DRDY) {
-        print("FOUND  ", GREEN); printIdeStatus(st);
-        print(" \"", WHITE); ideQuickModel(r, scanModel);
-        print(scanModel, GREEN); print("\"\n", WHITE);
-        found++;
     } else {
-        /* DRDY not set but controller responded — try IDENTIFY (some emulators skip DRDY) */
-        if (ideQuickModel(r, scanModel)) {
+        int atapi = ideIsAtapi(r);
+        int ok = ideQuickModel(r, scanModel, atapi);
+        if (ok) {
             print("FOUND  ", GREEN); printIdeStatus(st);
+            if (atapi) print("ATAPI ", YELLOW);
             print(" \"", WHITE); print(scanModel, GREEN); print("\"\n", WHITE);
+            found++;
+        } else if (st & IDE_DRDY) {
+            // DRDY was set (a real device answered selection) even though
+            // IDENTIFY itself didn't return usable data - still worth
+            // reporting as present rather than silently claiming nothing's
+            // there.
+            print("FOUND  ", GREEN); printIdeStatus(st);
+            print(" \"\"\n", WHITE);
             found++;
         } else {
             print("NOT FOUND\n", RED);
@@ -963,13 +1055,23 @@ static int doScanIDE(const IdeRegs *r)
     st = ideSelectDrive(r, IDE_DEV_SLAVE);
     if (st == 0xFF) {
         print("TIMEOUT\n", RED);
-    } else if (!ideDevPresent(r)) {
-        print("NOT FOUND\n", RED);
     } else {
-        print("FOUND  ", GREEN); printIdeStatus(st);
-        print(" \"", WHITE); ideQuickModel(r, scanModel);
-        print(scanModel, GREEN); print("\"\n", WHITE);
-        found++;
+        // Check ATAPI BEFORE ideDevPresent()'s own 0x55/0xAA write-test
+        // would overwrite these same registers - see ideIsAtapi()'s
+        // comment. ATAPI devices don't reliably answer that canary write
+        // the way a plain ATA disk does, so the signature check itself IS
+        // the presence test for that case.
+        int atapi = ideIsAtapi(r);
+        int present = atapi || ideDevPresent(r);
+        if (!present) {
+            print("NOT FOUND\n", RED);
+        } else {
+            int ok = ideQuickModel(r, scanModel, atapi);
+            print("FOUND  ", GREEN); printIdeStatus(st);
+            if (atapi) print("ATAPI ", YELLOW);
+            print(" \"", WHITE); print(ok ? scanModel : "", GREEN); print("\"\n", WHITE);
+            found++;
+        }
     }
 
     ideSelectDrive(r, IDE_DEV_MASTER);
@@ -983,6 +1085,7 @@ static int doScanIDE(const IdeRegs *r)
 static int scanGayleIDE(void)
 {
     uint8_t id     = gayleReadID();
+    uint8_t irqReg = *GAYLE_IRQ_REG;
     uint8_t intReg = *GAYLE_INT_REG;
     uint8_t ideErr = *ideA1200Regs.features;
     uint8_t ideSt  = *ideA1200Regs.status;
@@ -997,18 +1100,26 @@ static int scanGayleIDE(void)
     else if ((id & 0xF0) == 0xD0) print("(Gayle)\n",   CYAN);
     else                 print("(Gayle-compatible)\n",   YELLOW);
 
-    print("  INT reg:  $", WHITE);
-    print(binHexByte(intReg), (intReg & GAYLE_INT_IDE) ? RED : CYAN);
+    // DiagROM polls IDE status directly and never enables Gayle's IRQ
+    // forwarding, so "PENDING" here is an expected byproduct of the drive
+    // completing a command (it always raises its IRQ line, per ATA spec)
+    // and nobody having acknowledged it - not a fault, hence no red/yellow.
+    print("  IRQ reg:  $", WHITE);
+    print(binHexByte(irqReg), CYAN);
     print("  [IDE irq:", WHITE);
-    print((intReg & GAYLE_INT_IDE)     ? "PENDING " : "clear   ", (intReg & GAYLE_INT_IDE) ? RED : GREEN);
+    print((irqReg & GAYLE_IDE_BIT) ? "pending " : "clear   ", CYAN);
     print("enab:", WHITE);
-    print((intReg & GAYLE_INT_IDEENAB) ? "yes" : "no", WHITE);
+    print((intReg & GAYLE_IDE_BIT) ? "yes" : "no", CYAN);
     print("]\n", WHITE);
 
+    // RED means an active fault; this ERROR register is read before any
+    // command in this run has been issued, so a nonzero value here is just
+    // leftover state from whatever IDE command last ran (an earlier menu
+    // visit, boot-time probing, etc.) - not a live error, hence no red.
     print("  IDE bus:  $", WHITE);
     print(binHexByte(ideSt), CYAN);
     print("  err: $", WHITE);
-    print(binHexByte(ideErr), ideErr ? RED : CYAN);
+    print(binHexByte(ideErr), CYAN);
     print("\n\n", WHITE);
 
     print("Scanning IDE bus...\n\n", WHITE);
@@ -1050,15 +1161,29 @@ static void doIdentifyIDEUnit(const IdeRegs *r, uint8_t devhead)
     uint8_t st = ideSelectDrive(r, devhead);
     if (st == 0xFF) { print("  TIMEOUT\n", RED); return; }
     int isMaster = (devhead == IDE_DEV_MASTER);
-    if (isMaster  && !(st & IDE_DRDY))  { print("  NOT PRESENT\n", YELLOW); return; }
-    if (!isMaster && !ideDevPresent(r)) { print("  NOT PRESENT\n", YELLOW); return; }
+    // Check the ATAPI signature right after select, before ideDevPresent()'s
+    // own 0x55/0xAA write-test would overwrite these same registers - see
+    // ideIsAtapi()'s comment for why this check has to happen here.
+    int atapi = ideIsAtapi(r);
+    if (isMaster  && !atapi && !(st & IDE_DRDY))  { print("  NOT PRESENT\n", YELLOW); return; }
+    if (!isMaster && !atapi && !ideDevPresent(r)) { print("  NOT PRESENT\n", YELLOW); return; }
 
-    *r->status = ATA_CMD_IDENTIFY;
+    *r->status = atapi ? ATA_CMD_IDENTIFY_PACKET : ATA_CMD_IDENTIFY;
     st = ideWaitDRQ(r);
-    if (st == 0xFF)      { print("  TIMEOUT\n", RED); return; }
-    if (!(st & IDE_DRQ)) { print("  ERR ", RED); print(binHex(st), RED); print("\n", WHITE); return; }
+    if (st == 0xFF) { print("  TIMEOUT\n", RED); return; }
+    if (!(st & IDE_DRQ)) {
+        // Same stale-signature fallback as ideQuickModel() - try the other
+        // command once before reporting an error.
+        atapi = !atapi;
+        *r->status = atapi ? ATA_CMD_IDENTIFY_PACKET : ATA_CMD_IDENTIFY;
+        st = ideWaitDRQ(r);
+        if (st == 0xFF)      { print("  TIMEOUT\n", RED); return; }
+        if (!(st & IDE_DRQ)) { print("  ERR ", RED); print(binHex(st), RED); print("\n", WHITE); return; }
+    }
 
     ideReadWords(r, idbuf, 256);
+
+    if (atapi) print("  Type:     ATAPI (CD-ROM/tape/etc)\n", CYAN);
 
     // Model: words 27-46 = bytes 54..93
     ideCopySwappedString(str, idbuf + 54, 40);
@@ -1074,6 +1199,12 @@ static void doIdentifyIDEUnit(const IdeRegs *r, uint8_t devhead)
     ideCopySwappedString(str, idbuf + 46, 8);
     ideStripSpaces(str, 8);
     print("  Firmware: ", WHITE); print(str, WHITE); print("\n", WHITE);
+
+    // ATAPI devices don't use the ATA LBA28/CHS/RDB fields below the same
+    // way (CD-ROM sectors are 2048 bytes, not 512, and there's no Amiga RDB
+    // to walk on a data CD in this context) - Model/Serial/Firmware above is
+    // the useful, correctly-decoded information for this device class.
+    if (atapi) { print("\n", WHITE); return; }
 
     // Size: LBA28 sector count, words 60-61 = bytes 120..123
     uint32_t secs = ((uint32_t)((idbuf[122] << 8) | idbuf[123]) << 16)
@@ -1290,7 +1421,7 @@ static int identifyGayleIDE(void) { return doIdentifyIDE(&ideA1200Regs); }
 static int smartGayleIDE(void)    { return doSmartIDE(&ideA1200Regs); }
 
 // ---------------------------------------------------------------------------
-// A4000 IDE
+// A4000/A4000T IDE
 // ---------------------------------------------------------------------------
 
 static int detectA4000IDE(void)
@@ -1304,12 +1435,16 @@ static int scanA4000IDE(void)
     uint8_t ideSt  = *ideA4000Regs.status;
     uint8_t ideErr = *ideA4000Regs.features;
 
-    print("\nA4000 IDE Controller\n", WHITE);
-    print("  Regs:    $DD2020  (stride 2)\n", WHITE);
+    print("\nA4000/A4000T IDE Controller\n", WHITE);
+    print("  Regs:    $DD2020  (stride 4)\n", WHITE);
     print("  IDE bus: $", WHITE);
     print(binHexByte(ideSt), ideSt == 0xFF ? RED : CYAN);
+    // RED means an active fault; this ERROR register is read before any
+    // command in this run has been issued, so a nonzero value here is just
+    // leftover state from whatever IDE command last ran - not a live
+    // error, hence no red (matches scanGayleIDE()'s same fix).
     print("  err: $", WHITE);
-    print(binHexByte(ideErr), ideErr ? RED : CYAN);
+    print(binHexByte(ideErr), CYAN);
     if (ideSt == 0xFF)
         print("  (bus float - no IDE hardware at $DD2020)\n", RED);
     else
@@ -2295,6 +2430,27 @@ static int identifyA3000SCSI(void)
 #define NCR_DIEN_SIR   0x04   // DIENF_SIR: enable "SCRIPTS Interrupt instruction Received" (raises DIP —
                                // this is what our own INT script instruction generates)
 
+// Ported 2026-07-15 from the proven debugcode.c A4000T POC (see
+// [[project_diagrom_a4000t_scsi]] memory) — full chip-init sequence, real
+// register byte-order fix, and a holistic SELECT->IDENTIFY->INQUIRY SCRIPTS
+// program, replacing the old phase-by-phase C-driven dispatch below, which
+// was never actually verified working (built on register-write byte-order
+// and instruction-encoding bugs found and fixed this same day).
+#define NCR_CTEST0    0x17
+#define NCR_CTEST7    0x18
+#define NCR_DMODE     0x3B
+#define NCR_ISTATF_ABRT 0x80
+#define NCR_ISTATF_RST  0x40
+#define NCR_SCNTL0_EPG  0x04   // enable parity generation
+#define NCR_CTEST0_ERF  0x04   // filter REQ/ACK
+#define NCR_CTEST0_EAN  0x10   // enable active negation
+#define NCR_CTEST0_BTD  0x40   // disable byte-to-byte timer
+#define NCR_SBCL_SSCF0  0x01
+#define NCR_SBCL_SSCF1  0x02
+#define NCR_DMODE_FC2   0x20
+#define NCR_DMODE_BL0   0x40
+#define NCR_DMODE_BL1   0x80
+
 // Longword registers (dsa/dsp/dsps/etc.) live at these offsets from NCR_BASE.
 // The real driver source (ncr.c WRITE_LONG macro) writes longwords via
 // offset+0x80 instead, but its own comment says this is "not required, but
@@ -2304,8 +2460,32 @@ static int identifyA3000SCSI(void)
 // to the plain offset (same address reads use).
 #define NCR_DSP      0x2C   // DMA SCRIPTS pointer — writing this starts execution
 
-static inline void ncr_lwrite(uint8_t off, uint32_t val) {
-    *(volatile uint32_t *)((uint8_t *)NCR_BASE + off) = val;
+// FIXED 2026-07-15 (see [[project_diagrom_a4000t_scsi]] memory for the full
+// gdb-verified derivation): a naive 32-bit store here is genuinely wrong
+// under Amiberry, not just an '040-cache nicety. Amiberry's A4000T register
+// glue (src/ncr_scsi.cpp beswap(), used by ncr710_io_bput()/bget()) swaps
+// byte offset+0<->+3 and +1<->+2 within every 4-byte-aligned register group
+// on this bus, confirmed directly via gdb breakpoints on Amiberry's own
+// lsi_execute_script()/lsi_reg_writeb(): a guest write to DSP's base offset
+// landed on the chip's real DSP[24:31] slot - the MSB, and the one that
+// actually triggers `lsi_execute_script()`. Four explicit byte writes below,
+// value-to-offset order chosen to match that swap, trigger byte (guest
+// offset+0) written LAST once the other three bytes are already in place.
+static inline void ncr_lwrite(uint8_t off, uint32_t val)
+{
+    NCR_BASE[off + 3] = (uint8_t)(val & 0xFF);          // -> real DSP[0:7]  (LSB)
+    NCR_BASE[off + 2] = (uint8_t)((val >> 8) & 0xFF);   // -> real DSP[8:15]
+    NCR_BASE[off + 1] = (uint8_t)((val >> 16) & 0xFF);  // -> real DSP[16:23]
+    NCR_BASE[off + 0] = (uint8_t)((val >> 24) & 0xFF);  // -> real DSP[24:31] (MSB) - TRIGGER, written last
+}
+static inline uint32_t ncr_lread(uint8_t off)
+{
+    uint32_t v;
+    v  = (uint32_t)NCR_BASE[off + 3];
+    v |= (uint32_t)NCR_BASE[off + 2] << 8;
+    v |= (uint32_t)NCR_BASE[off + 1] << 16;
+    v |= (uint32_t)NCR_BASE[off + 0] << 24;
+    return v;
 }
 
 // ---------------------------------------------------------------------------
@@ -2343,7 +2523,11 @@ static void ncr_irq_enable(volatile struct GlobalVars *globals)
     custom->intreq = SCSI_PORTS_BIT;
     custom->intena = 0xC000 | SCSI_PORTS_BIT;
     custom->intena = 0xC000 | SCSI_PORTS_BIT;
-    NCR_BASE[NCR_SIEN] = NCR_SIEN_STO;
+    // FIXED 2026-07-15: STO alone leaves UDC (Unexpected Disconnect, bit2)
+    // masked - a live-device transaction that pauses mid-transfer (real,
+    // normal SCSI behavior) can then never raise a serviceable interrupt.
+    // Ported from the proven debugcode.c POC's NCR_SIEN_ALL_BUT_FCMP_SEL.
+    NCR_BASE[NCR_SIEN] = 0xAF;   // all SCSI-side interrupt sources except FCMP/SEL
     NCR_BASE[NCR_DIEN] = NCR_DIEN_SIR;
     a3k_set_sr(0x2000);
 }
@@ -2370,147 +2554,101 @@ static void ncr_irq_disable(void)
 //   Transfer Control (Interrupt): bits29-27=011, control byte 0x00 = always
 //     taken (no phase/data compare enabled).
 #define NCR_SCRIPT_SELECT_ATN 0x41000000UL   // class=01,opcode=SELECT(000),ATN=1
-#define NCR_SCRIPT_INT        0x98000000UL   // class=10,opcode=INT(011)
+// FIXED 2026-07-15: Amiberry's Transfer Control dispatch (lsi_execute_script(),
+// src/qemuvga/lsi53c710.cpp) treats ANY instruction with none of bits
+// 21/19/18/17 set as a silent NOP - checked BEFORE the opcode field is even
+// read (`if ((insn & 0x002e0000) == 0) { NOP; break; }`). The old
+// 0x98000000 had none of those bits set, so this INT was silently a no-op
+// every time - DSP then walked off the end of the script buffer into
+// uninitialized garbage. Bit19 set (with no specific compare-type bit)
+// makes the interpreter's `cond==jmp` check trivially true, so the
+// instruction is genuinely taken unconditionally instead of no-op'd. See
+// [[project_diagrom_a4000t_scsi]] memory for the full gdb-verified
+// derivation (found and fixed in the debugcode.c POC first, ported here).
+#define NCR_SCRIPT_INT         0x98080000UL   // class=10,opcode=INT(011), unconditional (bit19 set)
+#define NCR_MOVE_OPCODE_BIT    (1UL << 27)    // mandatory for initiator-mode Block Move
+// General "JUMP addr, IF <phase>" form: class=10 (Transfer Control),
+// opcode=000 (Jump), bit19=1 (this compare's polarity), bit17=1 (phase
+// compare enabled, no carry/data compare), phase value in bits 26:24.
+#define NCR_SCRIPT_JUMP_IF(phase) (0x800A0000UL | (((uint32_t)(phase)) << 24))
+#define NCR_SCRIPT_MOVE(phase, count) \
+    (NCR_MOVE_OPCODE_BIT | (((uint32_t)(phase)) << 24) | ((uint32_t)(count) & 0xFFFFFFUL))
 
-// Every SCRIPTS "step" we run is exactly [[action]] followed by [[INT]] — our
-// C code always regains control after one step, reads the chip's actual
-// current phase, and decides what to run next (mirrors the phase-by-phase
-// dispatch loop used for A3000's WD33C93, just driving SCRIPTS instead of
-// simple command-register writes).
-//
-// `script` must point to a 4-longword buffer that's a real stack local in
-// the caller — NEVER `static`/global: statics land in ROM in this
-// freestanding build (past endofcode), and the 53C710 bus-masters this
-// buffer directly, so a ROM address would have the chip executing whatever
-// garbage the checksum tool's self-test pattern put there.
-
-static void ncr_buildSelect(uint32_t *script, uint8_t target)
+// Full chip-init/reset sequence, ported 2026-07-15 from the proven
+// debugcode.c POC's ncrRealInit() (bisect level 4 - every step below turned
+// out to be needed, not just the minimal SCID/ESR/SXFER sequence the old
+// detectA4000TSCSI() used alone). Real driver source (leaked AmigaOS a4091
+// ncr.c) confirmed steps: DCNTL.EA must be the very first access after
+// power-on ("the first access will never end unless the chip is set to
+// link STERM and SLAC internally" - never reorder this), SCID must hold the
+// host adapter's own ID as a bitmask, SCNTL1.ESR only *after* SCID is
+// programmed, SXFER.DHP for async/no-parity transfers. Additional steps
+// (ABRT/RST pre-pulse, pending-int-clear loop, ~250ms post-reset settle,
+// CTEST0/CTEST7, SCNTL0 parity, SBCL/DMODE) came from a from-scratch
+// re-derivation this same day (see [[project_diagrom_a4000t_scsi]] memory)
+// and are all part of what actually got a live-device transaction working
+// under Amiberry - called once per SCSI ID attempt in scanA4000TSCSI()
+// below, not just once for the whole scan (same "full reset before every
+// attempt" lesson A3000's WD33C93 code already applies).
+// `fullSettle` gates the ~320ms post-reset wait (real driver waits 250ms
+// before touching the bus after a genuine SCSI bus reset pulse) - by far the
+// single most expensive part of this sequence. 2026-07-15: made conditional
+// after the first working identifyA4000TSCSI() port was confirmed correct
+// but noticeably slow (a typical RDB+partition walk does several of these
+// resets in a row - INQUIRY, READ CAPACITY, each RDB probe block, each
+// partition block). Everything ELSE in this sequence is proven necessary
+// and stays unconditional; only the settle wait (needed specifically
+// because SCNTL1_RST was just pulsed, not for chip-internal reconfiguration
+// like CTEST0/CTEST7/SCNTL0/SBCL/DMODE) is skippable. Callers pass 0 only
+// for repeated commands to a unit whose presence/timing was already proven
+// by a full-settle reset moments earlier in the same identify session (see
+// a4k_scsi_read_block()) - INQUIRY/READ CAPACITY and the production scanner
+// always use fullSettle=1.
+static int ncrChipReset(int fullSettle)
 {
-    // Real bug found by diffing against the leaked AmigaOS a4091 driver's
-    // ncr710.h `struct io_inst` (op/id/io1/io2 byte layout, verbatim):
-    //   UBYTE op;   // 01XXX00A  X=opcode, A=select_with_atn
-    //   UBYTE id;   // 87654321  SCSI ID (bitmask, one bit per ID line)
-    //   UBYTE io1;  // 00000CT0
-    //   UBYTE io2;  // 0A00N000
-    //   ULONG res;  // reserved — must be 0, NOT an address
-    // The target-ID bitmask belongs in the SECOND byte (bits23-16), not the
-    // low byte (bits7-0) — the low byte is io2 (ack/atn bus-line controls).
-    // The previous code OR'd the bitmask into bits7-0 instead, leaving the
-    // real ID byte 0x00 (selecting no SCSI ID line at all) while stomping
-    // io2's ack/atn control bits with the bitmask value instead. It also
-    // wrote a garbage self-referencing pointer into the reserved second
-    // longword instead of 0. Both are now fixed to match the real struct.
-    script[0] = NCR_SCRIPT_SELECT_ATN | ((1UL << target) << 16);
-    script[1] = 0;   // reserved, per struct io_inst — must be 0
-    script[2] = NCR_SCRIPT_INT;
-    script[3] = 0;
-}
+    NCR_BASE[NCR_DCNTL] = NCR_DCNTL_EA | NCR_DCNTL_COM;
+    if (NCR_BASE[NCR_ISTAT] == 0xFF) return 0;   // bus float — nothing there
 
-static void ncr_buildMove(uint32_t *script, uint8_t phaseMci, uint8_t *buf, int count)
-{
-    script[0] = ((uint32_t)phaseMci << 24) | ((uint32_t)count & 0xFFFFFFUL);
-    script[1] = (uint32_t)(uintptr_t)buf;
-    script[2] = NCR_SCRIPT_INT;
-    script[3] = 0;
-}
+    NCR_BASE[NCR_ISTAT] = NCR_ISTATF_ABRT;
+    waitShort();
+    NCR_BASE[NCR_ISTAT] = NCR_ISTATF_RST;
+    NCR_BASE[NCR_ISTAT] = 0x00;
+    waitShort();
 
-// Same real-time-vs-CPU-speed lesson as A3K_WAIT_ITERS (see that comment,
-// above the A3000 WD33C93 code): a raw instruction-count spin runs at wildly
-// different real speeds depending on host/emulation speed, and a straight
-// busy-loop also burns 100% CPU under emulation for no reason. waitShort()
-// paces at ~640us/iteration via the video beam register, independent of CPU
-// speed. ~500 * 640us =~ 320ms.
-#define NCR_WAIT_ITERS 500
+    NCR_BASE[NCR_CTEST7] = NCR_BASE[NCR_CTEST7] | 0x80;   // disable burst bus mode
+    NCR_BASE[NCR_CTEST0] = NCR_CTEST0_BTD | NCR_CTEST0_EAN | NCR_CTEST0_ERF;
 
-// Start the given script and wait for it to interrupt (either our own INT
-// instruction, or a hardware error like select timeout — both raise one of
-// ISTAT's pending bits). Returns the SSTAT0 byte read while clearing the
-// interrupt (so the caller can check e.g. NCR_SSTAT0_STO), or 0xFF if our
-// own poll timed out without the chip ever interrupting.
-//
-// CACHE CONTRACT: the caller must call DisableCache() before building the
-// script buffer (ncr_buildSelect()/ncr_buildMove()) and keep it disabled
-// through this call — those writes must bypass the cache entirely rather
-// than relying on DisableCache()'s own cache-clear step to retroactively
-// flush them (unclear semantics for a write-back cache; safer to never let
-// them get cached in the first place). This function re-enables the cache
-// itself immediately after the DSP write, before its wait loop — do NOT
-// also call EnableCache() again after this returns. This split exists
-// because waitShort()'s raster-exact-match poll can spin forever if the
-// cache is off while it runs (prior investigation), which real-time pacing
-// this loop via waitShort() now requires avoiding.
-//
-// IRQ RACE NOTE (same as A3000's wait functions): once ncr_irq_enable() is
-// active, Ncr710PortsIRQ races this loop to NCR_SSTAT0/DSTAT and normally
-// wins. Check globals->ScsiIrqPending first; fall back to direct ISTAT
-// polling so this still works unchanged if the IRQ was never enabled.
-static uint8_t ncr_runAndWait(uint32_t *script)
-{
-    ncr_lwrite(NCR_DSP, (uint32_t)(uintptr_t)&script[0]);
-    EnableCache();
-    volatile struct GlobalVars *globals = a3k_globals();
-    for (int i = 0; i < NCR_WAIT_ITERS; i++) {
-        if (globals->ScsiIrqPending) {
-            globals->ScsiIrqPending = 0;
-            return globals->ScsiIrqStatus;
-        }
-        uint8_t istat = NCR_BASE[NCR_ISTAT];
-        if (istat != 0xFF && (istat & (NCR_ISTAT_SIP | NCR_ISTAT_DIP))) {
-            // Reading these clears the pending bit that caused the interrupt.
-            uint8_t sstat0 = NCR_BASE[NCR_SSTAT0];
-            (void)NCR_BASE[NCR_DSTAT];
-            return sstat0;
-        }
+    for (int i = 0; i < 100; i++) {
+        if (!(NCR_BASE[NCR_ISTAT] & (NCR_ISTAT_SIP | NCR_ISTAT_DIP))) break;
+        (void)NCR_BASE[NCR_SSTAT2];   // reading this is what actually clears pending state
         waitShort();
     }
-    return 0xFF;
+
+    NCR_BASE[NCR_SCNTL0] = NCR_BASE[NCR_SCNTL0] | NCR_SCNTL0_EPG;
+
+    NCR_BASE[NCR_SCNTL1] = NCR_SCNTL1_RST;
+    waitShort();
+    NCR_BASE[NCR_SCNTL1] = 0x00;
+    if (fullSettle) {
+        for (int i = 0; i < 500; i++) waitShort();   // ~320ms settle - real driver waits 250ms before touching the bus
+    }
+
+    NCR_BASE[NCR_SCID]   = (uint8_t)(1U << NCR_OWN_SCSI_ID);
+    NCR_BASE[NCR_SCNTL1] |= NCR_SCNTL1_ESR;
+    NCR_BASE[NCR_SXFER]  = NCR_SXFER_DHP;
+
+    NCR_BASE[NCR_SBCL]  = NCR_SBCL_SSCF1 | NCR_SBCL_SSCF0;
+    NCR_BASE[NCR_DMODE] = NCR_DMODE_BL1 | NCR_DMODE_BL0 | NCR_DMODE_FC2;
+
+    // Re-assert EA as the LAST write before returning - the RST pulse above
+    // clears it, and it must still be set when SELECT actually runs.
+    NCR_BASE[NCR_DCNTL] = NCR_DCNTL_EA | NCR_DCNTL_COM;
+    return 1;
 }
 
 int detectA4000TSCSI(void)
 {
-    // TEMP DIAGNOSTIC checkpoints — remove once A4000T scan hang is found
-    print("CHK4: enter detectA4000TSCSI\n", YELLOW);
-
-    // MUST be the very first access to this chip — see comment above.
-    NCR_BASE[NCR_DCNTL] = NCR_DCNTL_EA | NCR_DCNTL_COM;
-    print("CHK5: past DCNTL write\n", YELLOW);
-
-    if (NCR_BASE[NCR_ISTAT] == 0xFF) {
-        print("CHK6: bus float, returning 0\n", YELLOW);
-        return 0;   // bus float — nothing there
-    }
-    print("CHK7: past ISTAT float check (chip present)\n", YELLOW);
-
-    // Soft-reset the SCSI bus and confirm the chip is still responding
-    // (readable, non-floating) afterward.
-    NCR_BASE[NCR_SCNTL1] = NCR_SCNTL1_RST;
-    NCR_BASE[NCR_SCNTL1] = 0x00;
-    print("CHK8: past soft reset\n", YELLOW);
-
-    // Real chip-init sequence found by reading the leaked AmigaOS a4091
-    // driver (ncr.c) end to end, not just the register map — three steps
-    // it does that detect-only code had skipped, all confirmed required
-    // before Selection can work at all:
-    //   1. SCID must hold the *host adapter's own* SCSI ID as a bitmask
-    //      (`b->scid = 1 << g->st_OwnID;` in ncr.c) — left at its power-on
-    //      default (0) otherwise, which collides with target ID 0, the very
-    //      first ID scanA4000TSCSI() selects.
-    //   2. SCNTL1's ESR bit ("Enable Selection/Reselection") must be set,
-    //      and only *after* SCID is programmed (driver comment: "Enable
-    //      Selection/Reselection (after setting ID)") — without it the chip
-    //      cannot perform Selection at all, so every SELECT script issued
-    //      so far has been running with selection logic disabled at the
-    //      chip level.
-    //   3. SXFER's DHP bit ("disable halt on parity error") for async,
-    //      no-parity-setup transfers — driver: `b->sxfer = SXFERF_DHP;`.
-    NCR_BASE[NCR_SCID]   = (uint8_t)(1U << NCR_OWN_SCSI_ID);
-    NCR_BASE[NCR_SCNTL1] |= NCR_SCNTL1_ESR;
-    NCR_BASE[NCR_SXFER]  = NCR_SXFER_DHP;
-    print("CHK9: past chip-init sequence (SCID/ESR/SXFER)\n", YELLOW);
-
-    int detResult = (NCR_BASE[NCR_ISTAT] != 0xFF);
-    print("CHK10: detectA4000TSCSI about to return\n", YELLOW);
-    return detResult;
+    return ncrChipReset(1);
 }
 
 // SCSI phase MCI codes — same universal 3-bit encoding used everywhere
@@ -2523,109 +2661,144 @@ int detectA4000TSCSI(void)
 #define NCR_PHASE_MSG_OUT  0x6
 #define NCR_PHASE_MSG_IN   0x7
 
+// Same real-time-vs-CPU-speed lesson as A3K_WAIT_ITERS (see that comment
+// above the A3000 WD33C93 code): a raw instruction-count spin runs at wildly
+// different real speeds depending on host/emulation speed. waitShort() paces
+// at ~640us/iteration via the video beam register. Value matches the proven
+// debugcode.c POC exactly (not the old, different-architecture NCR_WAIT_ITERS).
+#define NCR_SCAN_WAIT_ITERS 4000
+
+// Ported 2026-07-15 from the proven debugcode.c POC (checkNcrFullInquiryUnit0(),
+// see [[project_diagrom_a4000t_scsi]] memory for the full derivation and the
+// historic first-ever successful transaction this exact shape produced).
+// General-purpose holistic-transaction helper - one full SELECT+ATN ->
+// JUMP IF MSG_OUT -> MOVE(IDENTIFY) -> JUMP IF CMD -> MOVE(cdb) -> JUMP IF
+// DATA_IN -> MOVE(dataBuf) -> JUMP IF STATUS -> MOVE(1) -> JUMP IF MSG_IN ->
+// MOVE(1) -> INT (success) SCRIPTS program per call, replacing the old
+// phase-by-phase C-driven "one step, wait, read the resulting phase, decide
+// next step" model (which was never actually verified working) with the
+// chip's own SCRIPTS engine driving all six real phases autonomously in one
+// pass - this C code only regains control once, at the very end, never
+// assuming the next phase (matches Linux's 53c700.scr / NetBSD's
+// siop_script.ss / the leaked AmigaOS a4091 driver). Factored out (instead
+// of inlined once per caller, as the original scan-only version was) so
+// scanA4000TSCSI(), a4k_scsi_read_block(), and INQUIRY/READ CAPACITY inside
+// a4k_identify_unit() all share one proven implementation - mirrors the
+// shape of A3000's own a3k_scsi_command(). Full chip reset before every
+// call (matches the proven "reset before every attempt" pattern - see
+// ncrChipReset()'s own comment); this is also the first time this chip has
+// been asked to complete more than one back-to-back transaction under
+// Amiberry (a4k_identify_unit() below issues several in a row), each
+// isolated by its own fresh reset exactly like a3k_scsi_read_block() already
+// does for A3000's WD33C93. `fullSettle` is forwarded to ncrChipReset() -
+// pass 1 for INQUIRY/READ CAPACITY/the production scanner, 0 only for
+// repeated commands to a unit already proven present moments earlier in the
+// same identify session (see a4k_scsi_read_block()).
+static int a4k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
+                             uint8_t *dataBuf, int dataLen, int fullSettle)
+{
+    volatile struct GlobalVars *globals = a3k_globals();
+
+    if (!ncrChipReset(fullSettle)) return 0;
+    ncr_irq_enable(globals);
+
+    uint8_t identify = 0x80;   // IDENTIFY, LUN 0, no DiscPriv
+    uint8_t statusByte = 0xFF, msgByte = 0xFF;
+
+    uint32_t script[36];
+    script[0]  = NCR_SCRIPT_SELECT_ATN | ((1UL << unit) << 16);
+    script[1]  = (uint32_t)(uintptr_t)&script[34];   // reselect fallback
+    script[2]  = NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_OUT);
+    script[3]  = (uint32_t)(uintptr_t)&script[6];
+    script[4]  = NCR_SCRIPT_INT;                      // fallback: not MSG_OUT after SELECT
+    script[5]  = 0;
+    script[6]  = NCR_SCRIPT_MOVE(NCR_PHASE_MSG_OUT, 1);
+    script[7]  = (uint32_t)(uintptr_t)&identify;
+    script[8]  = NCR_SCRIPT_JUMP_IF(NCR_PHASE_CMD);
+    script[9]  = (uint32_t)(uintptr_t)&script[12];
+    script[10] = NCR_SCRIPT_INT;                      // fallback: not CMD after IDENTIFY
+    script[11] = 0;
+    script[12] = NCR_SCRIPT_MOVE(NCR_PHASE_CMD, cdbLen);
+    script[13] = (uint32_t)(uintptr_t)cdb;
+    script[14] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_DATA_IN);
+    script[15] = (uint32_t)(uintptr_t)&script[18];
+    script[16] = NCR_SCRIPT_INT;                      // fallback: not DATA_IN after CDB
+    script[17] = 0;
+    script[18] = NCR_SCRIPT_MOVE(NCR_PHASE_DATA_IN, dataLen);
+    script[19] = (uint32_t)(uintptr_t)dataBuf;
+    script[20] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_STATUS);
+    script[21] = (uint32_t)(uintptr_t)&script[24];
+    script[22] = NCR_SCRIPT_INT;                      // fallback: not STATUS after DATA_IN
+    script[23] = 0;
+    script[24] = NCR_SCRIPT_MOVE(NCR_PHASE_STATUS, 1);
+    script[25] = (uint32_t)(uintptr_t)&statusByte;
+    script[26] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_IN);
+    script[27] = (uint32_t)(uintptr_t)&script[30];
+    script[28] = NCR_SCRIPT_INT;                      // fallback: not MSG_IN after STATUS
+    script[29] = 0;
+    script[30] = NCR_SCRIPT_MOVE(NCR_PHASE_MSG_IN, 1);
+    script[31] = (uint32_t)(uintptr_t)&msgByte;
+    script[32] = NCR_SCRIPT_INT;                      // SUCCESS checkpoint
+    script[33] = 0;
+    script[34] = NCR_SCRIPT_INT;                      // reselected before winning arbitration
+    script[35] = 0;
+
+    globals->ScsiIrqPending = 0;
+    ncr_lwrite(NCR_DSP, (uint32_t)(uintptr_t)&script[0]);
+
+    for (int i = 0; i < NCR_SCAN_WAIT_ITERS; i++) {
+        if (globals->ScsiIrqPending) break;
+        waitShort();
+    }
+
+    // Off-by-one-corrected checkpoint: s->dsp rests at &script[N+2] once
+    // the INT at script[N]/script[N+1] actually fires and stops the
+    // script (lsi_execute_script() advances dsp by the full 8-byte
+    // instruction pair BEFORE dispatching, not after) - see
+    // [[project_diagrom_a4000t_scsi]] memory for the gdb-verified proof.
+    int reachedEnd = 0;
+    if (globals->ScsiIrqPending) {
+        globals->ScsiIrqPending = 0;
+        uint32_t dsp = ncr_lread(NCR_DSP);
+        reachedEnd = (dsp == (uint32_t)(uintptr_t)&script[34]);
+    }
+    // Caller reads globals->ScsiIrqCount immediately after this call
+    // returns if it wants to accumulate an events-serviced total (see
+    // scanA4000TSCSI() below) - ncr_irq_disable() doesn't touch it, only
+    // the NEXT call's ncr_irq_enable() resets it.
+    ncr_irq_disable();
+
+    return reachedEnd && statusByte == 0 && msgByte == 0;
+}
+
 int scanA4000TSCSI(void)
 {
     volatile struct GlobalVars *globals = a3k_globals();
 
-    print("CHK11: enter scanA4000TSCSI\n", YELLOW);
     print("\nA4000T SCSI (NCR 53C710)\n", WHITE);
 
     if (NCR_BASE[NCR_ISTAT] == 0xFF) {
         print("  Bus float - controller not responding.\n", RED);
         return 0;
     }
-    print("CHK12: past bus-float check in scan\n", YELLOW);
 
-    // buf/identify/statusByte/msgByte are all mutated by the chip (DMA) or by
-    // us and read back afterward — must be real stack locals, never `static`
-    // (statics land in ROM in this freestanding build). `cdb` is genuinely
-    // read-only and fine as static const (the chip only ever reads it).
-    //
-    // `script` is different: it's not just DMA'd into, it's the address the
-    // chip's own autonomous SCRIPTS *instruction fetcher* bus-masters from —
-    // a categorically different kind of access than a data Block Move. The
-    // real AmigaOS driver (ncr.c/ncr710.h) never places its SCRIPTS/DSA
-    // buffers on the CPU's call stack — always AllocMem'd, persistent
-    // storage. Testing whether Amiberry's SCRIPTS-fetch path has a bug
-    // specific to stack addresses (as opposed to allocator-returned RAM):
-    // allocate via getMemory() instead of a stack array.
-    uint8_t buf[SCSI_INQUIRY_LEN];
-    static const uint8_t cdb[6] = { SCSI_INQUIRY, 0x00, 0x00, 0x00, SCSI_INQUIRY_LEN, 0x00 };
-    uint8_t identify, statusByte, msgByte;
-    uint32_t *script = (uint32_t *)getMemory(4 * sizeof(uint32_t));
-    if (!script) {
-        print("  Not enough memory for SCRIPTS buffer.\n", RED);
-        return 0;
-    }
-    print("CHK13: got SCRIPTS buffer, entering ID loop\n", YELLOW);
-    ncr_irq_enable(globals);
     print("Scanning SCSI bus (IDs 0-6)...\n\n", WHITE);
 
-    // The 53C710 is an independent bus-master: it fetches its SCRIPTS
-    // instructions from `script` and DMAs into/out of `buf` etc. directly
-    // against physical RAM, bypassing the CPU data cache. On a 68040
-    // (copyback cache by default) the CPU's writes to `script` may still be
-    // sitting in cache, unflushed, when NCR_DSP is kicked off — the chip
-    // would then fetch stale/garbage RAM contents as its "instructions",
-    // which as an autonomous DMA engine could scribble anywhere. Each
-    // build-then-run pair below is individually bracketed with
-    // DisableCache()/EnableCache() — narrowly, so print()/waitShort() in
-    // between ID attempts always run with cache on (waitShort()'s exact-match
-    // raster-beam poll can miss its target and spin forever if cache is off
-    // while it runs — confirmed by testing the wider bracket).
     int found = 0;
+    uint32_t totalIrqEvents = 0;
+    static const uint8_t inquiryCdb[6] = { SCSI_INQUIRY, 0x00, 0x00, 0x00, SCSI_INQUIRY_LEN, 0x00 };
 
     for (int id = 0; id <= 6; id++) {
-        print("CHK14: id loop top, id=", CYAN);
-        char idch2[2] = { (char)('0' + id), 0 };
-        print(idch2, CYAN);
-        print("\n", CYAN);
-
         print("ID ", CYAN);
         char idch[2] = { (char)('0' + id), 0 };
         print(idch, CYAN);
         print(": ", WHITE);
 
-        for (int i = 0; i < SCSI_INQUIRY_LEN; i++) buf[i] = 0;
-        identify = 0x80;   // IDENTIFY, LUN 0, no reselect/disconnect
-        statusByte = 0xFF;
-        msgByte = 0xFF;
+        uint8_t buf[SCSI_INQUIRY_LEN];
+        int ok = a4k_scsi_command((uint8_t)id, inquiryCdb, 6, buf, SCSI_INQUIRY_LEN, 1);
+        totalIrqEvents += globals->ScsiIrqCount;
 
-        DisableCache();
-        ncr_buildSelect(script, (uint8_t)id);
-        print("CHK15: built select script, calling runAndWait\n", CYAN);
-        uint8_t sstat0 = ncr_runAndWait(script);   // re-enables cache internally — see its comment
-        print("CHK16: runAndWait returned\n", CYAN);
-        if (sstat0 == 0xFF) { print("POLL TIMEOUT\n", RED); waitShort(); continue; }
-        if (sstat0 & NCR_SSTAT0_STO) { print("NOT FOUND\n", RED); waitShort(); continue; }
-
-        // Selected. Walk phases until data+status have been captured, the
-        // chip disconnects/errors, or we've taken an unreasonable number of
-        // steps — the target dictates each next phase, we just follow it
-        // (same idea as the A3000 WD33C93 manual phase loop).
-        int gotData = 0;
-        for (int step = 0; step < 8; step++) {
-            uint8_t mci = NCR_BASE[NCR_SSTAT2] & 0x07;
-            uint8_t *pbuf; int plen;
-            switch (mci) {
-                case NCR_PHASE_MSG_OUT: pbuf = &identify;   plen = 1; break;
-                case NCR_PHASE_CMD:     pbuf = (uint8_t *)cdb; plen = 6; break;
-                case NCR_PHASE_DATA_IN: pbuf = buf;         plen = SCSI_INQUIRY_LEN; break;
-                case NCR_PHASE_STATUS:  pbuf = &statusByte; plen = 1; break;
-                case NCR_PHASE_MSG_IN:  pbuf = &msgByte;    plen = 1; break;
-                default: pbuf = NULL; plen = 0; break;
-            }
-            if (!pbuf) break;   // unexpected phase (or bus floating) — stop here
-
-            DisableCache();
-            ncr_buildMove(script, mci, pbuf, plen);
-            uint8_t moveResult = ncr_runAndWait(script);   // re-enables cache internally
-            if (moveResult == 0xFF) break;
-            if (mci == NCR_PHASE_DATA_IN) gotData = 1;
-            if (mci == NCR_PHASE_MSG_IN)  break;   // command-complete message — done
-        }
-
-        if (!gotData && statusByte == 0xFF) {
+        if (!ok) {
             print("NOT FOUND\n", RED);
             waitShort();   // let the host redraw before moving to the next ID
             continue;
@@ -2651,32 +2824,170 @@ int scanA4000TSCSI(void)
         waitShort();   // let the host redraw before moving to the next ID
     }
 
-    ncr_irq_disable();
     print("\nIRQ2 (PORTS) events serviced by our handler: ", WHITE);
-    print(binDec(globals->ScsiIrqCount), globals->ScsiIrqCount ? GREEN : RED);
+    print(binDec(totalIrqEvents), totalIrqEvents ? GREEN : RED);
     print("\n", WHITE);
 
     return found;
 }
 
-static int identifyA4000TSCSI(void) { return 0; }
-static int smartA4000TSCSI(void)    { return 0; }
+#define A4K_SCSI_READ10 0x28
+
+// Single-block READ(10) via a4k_scsi_command() - same shared holistic
+// transaction machinery INQUIRY/READ CAPACITY use, just a different CDB.
+// fullSettle=0: an RDB/partition walk can issue a dozen-plus of these in a
+// row to a unit whose presence was already proven by a full-settle INQUIRY
+// moments earlier in the same a4k_identify_unit() call - skipping the
+// ~320ms post-reset settle here is what actually made that walk fast
+// enough to be usable interactively (2026-07-15, see
+// [[project_diagrom_a4000t_scsi]] memory for the before/after timing and
+// the reasoning for why this specific wait is the skippable one).
+static int a4k_scsi_read_block(uint8_t unit, uint32_t lba, uint8_t *buf)
+{
+    uint8_t cdb[10] = {
+        A4K_SCSI_READ10, 0,
+        (uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
+        0, 0, 1, 0   // transfer length = 1 block
+    };
+    return a4k_scsi_command(unit, cdb, 10, buf, 512, 0);
+}
+
+// Read and print everything available about one SCSI ID: INQUIRY, READ
+// CAPACITY, and - for direct-access disks - RDB geometry + full partition
+// list. Mirrors a3k_identify_unit() exactly - the RDB/partition walk
+// (RDB_MAGIC/PART_MAGIC/RD32/printDosType/mul32/a3k_print_blocks_mb) is the
+// same shared, file-scope logic; only the command primitive differs (this
+// chip's holistic SCRIPTS transaction vs the WD33C93's manual phase pump).
+static void a4k_identify_unit(uint8_t unit)
+{
+    uint8_t inqBuf[SCSI_INQUIRY_LEN];
+    uint8_t capBuf[SCSI_READ_CAPACITY_LEN];
+    uint8_t blk[512];
+    static const uint8_t inquiryCdb[6]  = { SCSI_INQUIRY, 0, 0, 0, SCSI_INQUIRY_LEN, 0 };
+    static const uint8_t readCapCdb[10] = { SCSI_READ_CAPACITY, 0,0,0,0,0,0,0,0, 0 };
+
+    if (!a4k_scsi_command(unit, inquiryCdb, 6, inqBuf, SCSI_INQUIRY_LEN, 1)) {
+        print("  No device at this ID.\n", RED);
+        return;
+    }
+
+    uint8_t devtype = inqBuf[0] & 0x1F;
+    char vendor[9], product[17], revision[5];
+    memcpy(vendor,   inqBuf + 8,  8);  a3k_scsi_strip(vendor,   8);
+    memcpy(product,  inqBuf + 16, 16); a3k_scsi_strip(product,  16);
+    memcpy(revision, inqBuf + 32, 4);  a3k_scsi_strip(revision,  4);
+    char *dtype = (devtype < 16 && scsiDevTypes[devtype]) ?
+                      (char *)scsiDevTypes[devtype] : "???";
+
+    print("  Type:     ", WHITE); print(dtype, YELLOW); print("\n", WHITE);
+    print("  Name:     ", WHITE);
+    print(vendor, GREEN); print(" ", WHITE); print(product, GREEN);
+    if (revision[0]) { print(" ", WHITE); print(revision, CYAN); }
+    print("\n", WHITE);
+
+    if (a4k_scsi_command(unit, readCapCdb, 10, capBuf, SCSI_READ_CAPACITY_LEN, 1)) {
+        print("  Capacity: ", WHITE);
+        a3k_print_capacity(capBuf);
+        print("\n", WHITE);
+    }
+
+    if (devtype != 0) {   // RDB/partitions only meaningful for direct-access disks
+        print("\n", WHITE);
+        return;
+    }
+
+    int rdb_found = 0;
+    uint32_t rdb_heads = 0, rdb_spt = 0, partblock = NO_LIST;
+    for (uint32_t b = 0; b < 16 && !rdb_found; b++) {
+        if (!a4k_scsi_read_block(unit, b, blk)) continue;
+        if (RD32(blk, 0) != RDB_MAGIC) continue;
+        rdb_found = 1;
+
+        uint32_t rdb_cyls = RD32(blk, 0x40);
+        rdb_spt   = RD32(blk, 0x44);
+        rdb_heads = RD32(blk, 0x48);
+        partblock = RD32(blk, 0x1C);
+
+        print("  Geometry: ", WHITE);
+        print(binDec(rdb_cyls),  WHITE); print("c / ", WHITE);
+        print(binDec(rdb_heads), WHITE); print("h / ", WHITE);
+        print(binDec(rdb_spt),   WHITE); print("s\n", WHITE);
+    }
+
+    if (!rdb_found) {
+        print("  (no RDB found)\n\n", YELLOW);
+        return;
+    }
+
+    print("  Partitions:\n", WHITE);
+    char name[32];
+    int nparts = 0;
+    while (partblock != NO_LIST && nparts < 32) {
+        if (!a4k_scsi_read_block(unit, partblock, blk)) break;
+        if (RD32(blk, 0) != PART_MAGIC) break;
+
+        uint32_t next    = RD32(blk, 0x10);
+        uint32_t lowcyl  = RD32(blk, 0xA4);
+        uint32_t highcyl = RD32(blk, 0xA8);
+        uint32_t dostype = RD32(blk, 0xC0);
+
+        uint8_t namelen = blk[0x24];
+        if (namelen > 30) namelen = 30;
+        for (int i = 0; i < namelen; i++) name[i] = (char)blk[0x25 + i];
+        name[namelen]   = ':';
+        name[namelen+1] = '\0';
+
+        uint32_t cylSpan    = highcyl - lowcyl + 1;
+        uint32_t partBlocks = mul32(mul32(cylSpan, rdb_heads), rdb_spt);
+
+        print("    ", WHITE); print(name, GREEN); print("  ", WHITE);
+        a3k_print_blocks_mb(partBlocks);
+        print("  [", WHITE); print(binDec(lowcyl), WHITE); print("-", WHITE);
+        print(binDec(highcyl), WHITE); print("]  ", WHITE);
+        printDosType(dostype);
+        print("\n", WHITE);
+
+        nparts++;
+        partblock = next;
+    }
+    if (nparts == 0) print("    (none)\n", YELLOW);
+    print("\n", WHITE);
+}
+
+// Adapters for browseUnits(): no ctx needed, everything's reached via
+// global-scope hardware access. skipUnit excludes the host adapter's own
+// ID (NCR_OWN_SCSI_ID) - a SELECT to yourself has nothing to respond.
+static void a4kBrowseIdentify(void *ctx, int unit) { (void)ctx; a4k_identify_unit((uint8_t)unit); }
+static void a4kBrowseSmart(void *ctx, int unit)
+{
+    (void)ctx; (void)unit;
+    print("SMART data: not yet implemented for this controller.\n", YELLOW);
+}
+static int a4kBrowseSkip(void *ctx, int unit) { (void)ctx; return unit == NCR_OWN_SCSI_ID; }
+
+static int identifyA4000TSCSI(void)
+{
+    if (!ncrChipReset(1)) {
+        print("\nA4000T SCSI: not responding (bus float)\n", RED);
+        return 1;
+    }
+    return browseUnits("A4000T SCSI - Identify Devices", 8, 0, NULL, NULL,
+                        a4kBrowseIdentify, a4kBrowseSmart, a4kBrowseSkip);
+}
+
+static int smartA4000TSCSI(void) { return 0; }
 
 // ---- stub functions (hardware not yet implemented) -------------------------
 
-static int detectNotImplemented(void)  { return 0; }
-static int scanNotImplemented(void)    { return 0; }
-static int identifyNotImplemented(void){ return 0; }
-static int smartNotImplemented(void)   { return 0; }
-
-// ---------------------------------------------------------------------------
-
+// A2091 SCSI and GVP SCSI removed from this list 2026-07-15 - deferred,
+// not implemented yet, no stub entries cluttering the menu in the meantime
+// (matches this project's usual approach of not shipping visible menu
+// options for genuinely unimplemented hardware). Re-add when real
+// detect/scan/identify/smart implementations exist for them.
 static const HddController hddControllers[] = {
     { "A1200/A600 IDE",    detectGayleIDE,   scanGayleIDE,   identifyGayleIDE,   smartGayleIDE   },
-    { "A4000 IDE",         detectA4000IDE,   scanA4000IDE,   identifyA4000IDE,   smartA4000IDE   },
+    { "A4000/A4000T IDE",  detectA4000IDE,   scanA4000IDE,   identifyA4000IDE,   smartA4000IDE   },
     { "A3000/A3000T SCSI", detectA3000SCSI,  scanA3000SCSI,  identifyA3000SCSI,  smartA3000SCSI  },
-    { "A2091 SCSI",        detectNotImplemented, scanNotImplemented, identifyNotImplemented, smartNotImplemented },
-    { "GVP SCSI",          detectNotImplemented, scanNotImplemented, identifyNotImplemented, smartNotImplemented },
     { "A4000T SCSI",       detectA4000TSCSI, scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI },
 };
 #define NUM_HDD_CONTROLLERS (int)(sizeof(hddControllers)/sizeof(hddControllers[0]))
@@ -2687,17 +2998,18 @@ static const HddController hddControllers[] = {
 
 static const char HDDMenuText[]  = "\002HDD Controller Test";
 static const char HDDMenu1[]     = "1 - Active Controller:";
-static const char HDDMenu2[]     = "2 - Autodetect";
-static const char HDDMenu3[]     = "3 - Scan Devices";
-static const char HDDMenu4[]     = "4 - Identify Devices";
+static const char HDDMenu2[]     = "2 - Scan Devices";
+static const char HDDMenu3[]     = "3 - Identify Devices";
 static const char HDDMenuBack[]  = "9 - Main Menu";
 
 // SMART data ('5') was removed as a top-level menu entry — it's now reached
 // via 'S' from inside Identify Devices, per-unit, instead of a separate
-// whole-controller pass.
+// whole-controller pass. "Autodetect" was removed 2026-07-15 (never worked
+// reliably - user confirmed) — Active Controller is set via the "Select
+// Controller" submenu (MenuNumber 1) instead.
 static const char *HDDMenuItems[] = {
     HDDMenuText,
-    HDDMenu1, HDDMenu2, HDDMenu3, HDDMenu4, HDDMenuBack,
+    HDDMenu1, HDDMenu2, HDDMenu3, HDDMenuBack,
     NULL
 };
 
@@ -2707,16 +3019,14 @@ static const char *HDDMenuItems[] = {
 
 static const char HDDSelText[]  = "\002Select Controller";
 static const char HDDSel1[]     = "1 - A1200/A600 IDE";
-static const char HDDSel2[]     = "2 - A4000 IDE";
+static const char HDDSel2[]     = "2 - A4000/A4000T IDE";
 static const char HDDSel3[]     = "3 - A3000/A3000T SCSI";
-static const char HDDSel4[]     = "4 - A2091 SCSI";
-static const char HDDSel5[]     = "5 - GVP SCSI";
-static const char HDDSel6[]     = "6 - A4000T SCSI";
+static const char HDDSel4[]     = "4 - A4000T SCSI";
 static const char HDDSelBack[]  = "9 - Back";
 
 static const char *HDDSelItems[] = {
     HDDSelText,
-    HDDSel1, HDDSel2, HDDSel3, HDDSel4, HDDSel5, HDDSel6, HDDSelBack,
+    HDDSel1, HDDSel2, HDDSel3, HDDSel4, HDDSelBack,
     NULL
 };
 
@@ -2752,7 +3062,7 @@ void HDDTestC()
         if (mn == 0) {
             // ---- main HDD menu ----
             if (globals->LMB || globals->RMB || ch == 0x0a) {
-                static const uint8_t posToKey[] = { '1','2','3','4','9' };
+                static const uint8_t posToKey[] = { '1','2','3','9' };
                 if (globals->MenuPos < (uint8_t)sizeof(posToKey))
                     ch = posToKey[globals->MenuPos];
             }
@@ -2766,29 +3076,7 @@ void HDDTestC()
                     globals->PrintMenuFlag = 1;
                     break;
 
-                case '2': {
-                    waitReleased();
-                    // Try each controller starting after current, wrap around once
-                    int start = activeController;
-                    int found = 0;
-                    do {
-                        if (++activeController >= NUM_HDD_CONTROLLERS)
-                            activeController = 0;
-                        if (hddControllers[activeController].detect &&
-                            hddControllers[activeController].detect()) {
-                            found = 1;
-                            break;
-                        }
-                    } while (activeController != start);
-                    setPos(43, 5);
-                    print("                ", WHITE);
-                    hddMenuVars[0].str   = (char *)hddControllers[activeController].name;
-                    hddMenuVars[0].color = found ? GREEN : RED;
-                    globals->PrintMenuFlag = 2;
-                    break;
-                }
-
-                case '3':
+                case '2':
                     waitReleased();
                     initScreen();
                     if (hddControllers[activeController].scan)
@@ -2801,7 +3089,7 @@ void HDDTestC()
                     globals->PrintMenuFlag = 1;
                     break;
 
-                case '4': {
+                case '3': {
                     waitReleased();
                     initScreen();
                     // A return of 1 means the controller's own identify() is
@@ -2835,12 +3123,12 @@ void HDDTestC()
         } else {
             // ---- controller select menu (MenuNumber 1) ----
             if (globals->LMB || globals->RMB || ch == 0x0a) {
-                static const uint8_t posToKey[] = { '1','2','3','4','5','6','9' };
+                static const uint8_t posToKey[] = { '1','2','3','4','9' };
                 if (globals->MenuPos < (uint8_t)sizeof(posToKey))
                     ch = posToKey[globals->MenuPos];
             }
             switch (ch) {
-                case '1': case '2': case '3': case '4': case '5': case '6': {
+                case '1': case '2': case '3': case '4': {
                     waitReleased();
                     int idx = ch - '1';
                     if (idx < NUM_HDD_CONTROLLERS) {
