@@ -81,6 +81,16 @@ void getHWReg(void)
     globals->HHPOSR = custom->hhposr;
 }
 
+// Compiled at -O2 (project default is -O0): same trick as scrollScreen()/
+// romChecksum() below/in genericc.c - this is the single hottest function
+// in the whole ROM (called once per character printed), and at -O0 the
+// bitplane pointers p0/p1/p2 get reloaded from the stack on every one of
+// the 24 loads/stores in the 8-row glyph loop instead of staying in
+// address registers. The __asm("dN") parameter registers are a hard ABI
+// constraint GCC honors regardless of optimization level - only the
+// function body's own codegen changes, not how callers (including asm
+// code) pass arguments in.
+__attribute__((optimize("O2")))
 void putChar(char character __asm("d0"), uint8_t color __asm("d1"), uint8_t xPos __asm("d2"), uint8_t yPos __asm("d3"))
 {
     extern const uint8_t RomFont[];

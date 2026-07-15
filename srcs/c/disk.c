@@ -1641,6 +1641,17 @@ static int smartA4000IDE(void)    { return doSmartIDE(&ideA4000Regs); }
 #define SCSI_READ_CAPACITY     0x25
 #define SCSI_READ_CAPACITY_LEN 8
 
+// SCSI's own SMART-equivalent: LOG SENSE(10), a standard SCSI-2+ command
+// (predates ATA SMART) most real SCSI hard drives from this era support.
+// Page 0x2F (Informational Exceptions) is where a drive reports predictive
+// failure; ASC=$5D is the standard "FAILURE PREDICTION THRESHOLD EXCEEDED"
+// family, the SCSI equivalent of ATA SMART's $F4/$2C trip signature. Page
+// 0x0D (Temperature) is optional/best-effort, not every drive supports it.
+#define SCSI_LOG_SENSE       0x4D
+#define SCSI_LOGPAGE_IE      0x2F
+#define SCSI_LOGPAGE_TEMP    0x0D
+#define SCSI_LOGSENSE_LEN    32
+
 static inline void a3k_wd_write(uint8_t reg, uint8_t val) {
     *WD_ADDR_REG = reg;
     *WD_REG_DATA = val;
@@ -2011,6 +2022,41 @@ static void a3k_print_capacity(const uint8_t *cap)
     print(" MB", WHITE);
 }
 
+// LOG SENSE response layout (SPC): byte 0=page code, 1=subpage, 2-3=page
+// length (big-endian), then one or more parameters: 4-5=parameter code,
+// 6=control byte, 7=parameter length, 8+=parameter value. Both pages we use
+// here have their first (and only) parameter at code $0000, so the value
+// always starts at byte 8 regardless of page — shared by A3000 and A4000T
+// SCSI, same as a3k_print_capacity() above.
+static void a3k_print_smart_ie(const uint8_t *buf, int len)
+{
+    if (len < 10) { print("  Status:   (short reply)\n", YELLOW); return; }
+    uint8_t asc  = buf[8];
+    uint8_t ascq = buf[9];
+    print("  Status:   ", WHITE);
+    if (asc == 0x00 && ascq == 0x00) {
+        print("OK\n", GREEN);
+    } else if (asc == 0x5D) {
+        print("FAILURE PREDICTED! (ASC=$5D ASCQ=$", RED);
+        print(binHexByte(ascq), RED);
+        print(")\n", RED);
+    } else {
+        print("ASC=$", YELLOW); print(binHexByte(asc), YELLOW);
+        print(" ASCQ=$", YELLOW); print(binHexByte(ascq), YELLOW);
+        print(" (informational)\n", YELLOW);
+    }
+}
+
+// Temperature page's first parameter value is 2 bytes: reserved, then
+// current temperature in Celsius ($FF = "not available"). Best-effort only
+// - plenty of real drives don't support this page at all, so the caller
+// just skips this line silently on failure rather than reporting an error.
+static void a3k_print_smart_temp(const uint8_t *buf, int len)
+{
+    if (len < 10 || buf[9] == 0xFF) return;
+    print("  Temp:     ", WHITE); print(binDec(buf[9]), CYAN); print(" C\n", WHITE);
+}
+
 static void a3k_scsi_strip(char *s, int len)
 {
     s[len] = '\0';
@@ -2317,10 +2363,44 @@ static void a3k_identify_unit(uint8_t unit)
     print("\n", WHITE);
 }
 
+// Real SCSI SMART via LOG SENSE - see the SCSI_LOG_SENSE block of #defines
+// and a3k_print_smart_ie()/a3k_print_smart_temp() above for the protocol
+// background. Returns 1 if the device answered LOG SENSE at all (matches
+// doSmartIDEUnit()'s "found" convention), even if the IE page reports OK.
+static int a3k_smart_unit(uint8_t unit)
+{
+    uint8_t buf[SCSI_LOGSENSE_LEN];
+    static const uint8_t ieCdb[10]   = { SCSI_LOG_SENSE, 0, (1<<6)|SCSI_LOGPAGE_IE,   0,0,0,0,0, 0, SCSI_LOGSENSE_LEN };
+    static const uint8_t tempCdb[10] = { SCSI_LOG_SENSE, 0, (1<<6)|SCSI_LOGPAGE_TEMP, 0,0,0,0,0, 0, SCSI_LOGSENSE_LEN };
+
+    if (!a3k_scsi_command(unit, ieCdb, 10, buf, SCSI_LOGSENSE_LEN)) {
+        print("  SMART/Log Sense not supported by this device.\n", YELLOW);
+        return 0;
+    }
+    a3k_print_smart_ie(buf, SCSI_LOGSENSE_LEN);
+
+    if (a3k_scsi_command(unit, tempCdb, 10, buf, SCSI_LOGSENSE_LEN))
+        a3k_print_smart_temp(buf, SCSI_LOGSENSE_LEN);
+
+    return 1;
+}
+
+// Whole-bus wrapper (matches doSmartIDE()'s shape) - currently unreachable
+// via any menu (SMART was removed as a top-level HDD menu entry, it's only
+// reached per-unit via the 'S' key inside Identify Devices - see
+// a3kBrowseSmart() below), kept working for HddController's own "smart"
+// field and in case a whole-bus entry point returns later.
 static int smartA3000SCSI(void)
 {
-    print("SMART data: not yet implemented for this controller.\n", YELLOW);
-    return 0;
+    print("\nSMART Data\n\n", WHITE);
+    int found = 0;
+    for (uint8_t id = 0; id < 8; id++) {
+        if (id == A3K_HOST_SCSI_ID) continue;
+        print("ID ", CYAN); print(binDec(id), CYAN); print(":\n", WHITE);
+        found += a3k_smart_unit(id);
+        print("\n", WHITE);
+    }
+    return found;
 }
 
 // Interactive per-unit browser: SCSI ID 0-7 one at a time, '+'/'-' or
@@ -2332,7 +2412,7 @@ static int smartA3000SCSI(void)
 // global-scope hardware access. skipUnit excludes the host adapter's own
 // ID (A3K_HOST_SCSI_ID) — a SELECT to yourself has nothing to respond.
 static void a3kBrowseIdentify(void *ctx, int unit) { (void)ctx; a3k_identify_unit((uint8_t)unit); }
-static void a3kBrowseSmart(void *ctx, int unit)     { (void)ctx; (void)unit; smartA3000SCSI(); }
+static void a3kBrowseSmart(void *ctx, int unit)     { (void)ctx; a3k_smart_unit((uint8_t)unit); }
 static int  a3kBrowseSkip(void *ctx, int unit)      { (void)ctx; return unit == A3K_HOST_SCSI_ID; }
 
 static int identifyA3000SCSI(void)
@@ -2954,15 +3034,35 @@ static void a4k_identify_unit(uint8_t unit)
     print("\n", WHITE);
 }
 
+// Real SCSI SMART via LOG SENSE - same protocol/decode as a3k_smart_unit(),
+// just issued over a4k_scsi_command()'s NCR SCRIPTS transport instead of
+// the WD33C93 phase-by-phase one. fullSettle=1: a fresh standalone
+// user-triggered action (browseUnits()'s 'S' key), not chained off a
+// just-completed presence check in the same call, so this matches
+// a4k_identify_unit()'s own INQUIRY/READ CAPACITY calls.
+static int a4k_smart_unit(uint8_t unit)
+{
+    uint8_t buf[SCSI_LOGSENSE_LEN];
+    static const uint8_t ieCdb[10]   = { SCSI_LOG_SENSE, 0, (1<<6)|SCSI_LOGPAGE_IE,   0,0,0,0,0, 0, SCSI_LOGSENSE_LEN };
+    static const uint8_t tempCdb[10] = { SCSI_LOG_SENSE, 0, (1<<6)|SCSI_LOGPAGE_TEMP, 0,0,0,0,0, 0, SCSI_LOGSENSE_LEN };
+
+    if (!a4k_scsi_command(unit, ieCdb, 10, buf, SCSI_LOGSENSE_LEN, 1)) {
+        print("  SMART/Log Sense not supported by this device.\n", YELLOW);
+        return 0;
+    }
+    a3k_print_smart_ie(buf, SCSI_LOGSENSE_LEN);
+
+    if (a4k_scsi_command(unit, tempCdb, 10, buf, SCSI_LOGSENSE_LEN, 0))
+        a3k_print_smart_temp(buf, SCSI_LOGSENSE_LEN);
+
+    return 1;
+}
+
 // Adapters for browseUnits(): no ctx needed, everything's reached via
 // global-scope hardware access. skipUnit excludes the host adapter's own
 // ID (NCR_OWN_SCSI_ID) - a SELECT to yourself has nothing to respond.
 static void a4kBrowseIdentify(void *ctx, int unit) { (void)ctx; a4k_identify_unit((uint8_t)unit); }
-static void a4kBrowseSmart(void *ctx, int unit)
-{
-    (void)ctx; (void)unit;
-    print("SMART data: not yet implemented for this controller.\n", YELLOW);
-}
+static void a4kBrowseSmart(void *ctx, int unit)     { (void)ctx; a4k_smart_unit((uint8_t)unit); }
 static int a4kBrowseSkip(void *ctx, int unit) { (void)ctx; return unit == NCR_OWN_SCSI_ID; }
 
 static int identifyA4000TSCSI(void)
@@ -2975,7 +3075,21 @@ static int identifyA4000TSCSI(void)
                         a4kBrowseIdentify, a4kBrowseSmart, a4kBrowseSkip);
 }
 
-static int smartA4000TSCSI(void) { return 0; }
+// Whole-bus wrapper (matches doSmartIDE()'s shape) - currently unreachable
+// via any menu (see smartA3000SCSI()'s comment above, same situation),
+// kept working for HddController's own "smart" field.
+static int smartA4000TSCSI(void)
+{
+    print("\nSMART Data\n\n", WHITE);
+    int found = 0;
+    for (uint8_t id = 0; id < 8; id++) {
+        if (id == NCR_OWN_SCSI_ID) continue;
+        print("ID ", CYAN); print(binDec(id), CYAN); print(":\n", WHITE);
+        found += a4k_smart_unit(id);
+        print("\n", WHITE);
+    }
+    return found;
+}
 
 // ---- stub functions (hardware not yet implemented) -------------------------
 
