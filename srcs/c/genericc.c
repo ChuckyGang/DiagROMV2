@@ -55,6 +55,13 @@ void setPos(uint32_t xPos __asm("d0"), uint32_t yPos __asm("d1"))
   #define ROM_CHECK_COLOR(sum, block) ((sum == checksums[block]) ? 2 : 1)
 #endif
 
+// Compiled at -O2 (project default is -O0): same trick as flashmenu.c's
+// hasImage() and its comment there documents the measured win on an
+// identical sum-of-longwords loop - at -O0 the accumulator/pointer get
+// spilled to the stack every iteration, at -O2 they stay in registers
+// (add.l (An)+,Dn). This loop is bigger (8*16K longs vs 64K), so the win
+// matters even more here - this is what made "ROM Checksumtest" feel slow.
+__attribute__((optimize("O2")))
 void romChecksum()
 {
     extern uint32_t checksums[];
@@ -68,19 +75,26 @@ void romChecksum()
     for(int block = 0; block < ROM_BLOCKS; block++)
     {
         uint32_t blockBase = (uint32_t)ROM_BASE + (uint32_t)block * (uint32_t)0x10000;
+        uint32_t blockEnd  = blockBase + 0x10000;
         volatile uint32_t *rom = (volatile uint32_t *)blockBase;
         uint32_t sum = 0;
-        int i;
 
-        // Sum all 4-aligned longwords in this block, skipping the checksum
-        // value array.  Matches checksum.c exactly: skip any 4-aligned address
-        // that falls in [csStart, csEnd).
-        for(i = 0; i < 0x4000; i++)
+        // The checksum table only ever lives in one block - every other
+        // block can sum straight through with a plain pointer increment,
+        // no per-iteration address recompute/range-check at all.
+        if (csEnd > blockBase && csStart < blockEnd)
         {
-            uint32_t addr = blockBase + (uint32_t)i * 4;
-            if (addr >= csStart && addr < csEnd)
-                continue;
-            sum += rom[i];
+            for(uint32_t i = 0; i < 0x4000; i++, rom++)
+            {
+                uint32_t addr = blockBase + i * 4;
+                if (addr < csStart || addr >= csEnd)
+                    sum += *rom;
+            }
+        }
+        else
+        {
+            for(uint32_t i = 0; i < 0x4000; i++)
+                sum += *rom++;
         }
 
         uint8_t color = ROM_CHECK_COLOR(sum, block);

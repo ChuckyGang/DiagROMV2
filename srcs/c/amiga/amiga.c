@@ -135,6 +135,14 @@ void putChar(char character __asm("d0"), uint8_t color __asm("d1"), uint8_t xPos
     }
 }
 
+// Compiled at -O2 (project default is -O0): same trick as genericc.c's
+// romChecksum()/flashmenu.c's hasImage() - at -O0 the bpl1/bpl2/bpl3
+// pointers get reloaded from stack on every one of the 24 loads/stores in
+// each unrolled iteration instead of staying in address registers, which
+// is most of why scrolling felt slow despite the hand-unrolling below.
+// Pure RAM-to-RAM copy (no memory-mapped hardware registers involved), so
+// -O2 reordering/register-allocation is safe here.
+__attribute__((optimize("O2")))
 void scrollScreen(void)
 {
     if (globals->NoDraw)
