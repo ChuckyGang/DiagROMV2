@@ -559,6 +559,19 @@ void updateFloppyData()
 // Known controllers — single source of truth for both menus
 // ---------------------------------------------------------------------------
 
+// Wrong-machine guard for each controller. The A3000 family and the A4000T
+// decode their SCSI chip in the same $DD0000 range, so probing the wrong
+// controller's registers false-positives AND corrupts the live chip that
+// actually lives there. Chipset (AGA vs ECS) canNOT arbitrate the SCSI
+// rows — the AA3000+ (rebuilt A3000+ prototype) is a full SDMAC-SCSI A3000
+// WITH real AGA — so those two gate on positive chip identification
+// (ncr710Present()) instead. AGA remains a valid gate for A4000 IDE only.
+#define HDD_GATE_NONE      0
+#define HDD_GATE_A4000_IDE 1   // AGA machine AND not an A3000-family SDMAC machine
+                               // (the AA3000+ is AGA WITH SDMAC and no IDE)
+#define HDD_GATE_NCR       2   // a real 53C710 must answer at $DD0040 (A4000T SCSI)
+#define HDD_GATE_NOT_NCR   3   // a real 53C710 there means A4000T — block (A3000 SCSI)
+
 typedef struct {
     const char *name;
     int bigBoxDDBus;            // 1 = this controller's registers live in the $DD0000
@@ -568,6 +581,8 @@ typedef struct {
                                 // recovery; confirmed on a real A1200 2026-07-25 by
                                 // selecting "A3000/A3000T SCSI"). Every operation on
                                 // these controllers is gated by isGayleMachine().
+    int gate;                   // HDD_GATE_* wrong-machine guard, enforced by
+                                // hddBlockedOnThisMachine() and the detect()s
     int (*detect)(void);        // 0 = absent, 1 = present
     int (*scan)(void);          // probe devices on bus; returns count found
     int (*identify)(void);      // show device info; returns count found
@@ -635,7 +650,7 @@ static int browseUnits(const char *title, int unitCount, int startUnit,
 
     for (;;) {
         if (redraw) {
-            initScreen();
+            clearScreen();
             print((char *)title, WHITE); print("\n\n", WHITE);
             if (unitLabels) {
                 print((char *)unitLabels[unit], CYAN); print(":\n", WHITE);
@@ -686,7 +701,7 @@ static int browseUnits(const char *title, int unitCount, int startUnit,
             redraw = 1;
         } else if (smartUnit && (ch == 's' || ch == 'S')) {
             waitReleased();
-            initScreen();
+            clearScreen();
             if (unitLabels) { print((char *)unitLabels[unit], CYAN); print(":\n\n", WHITE); }
             else            { print("Unit ", WHITE); print(binDec(unit), CYAN); print("\n\n", WHITE); }
             smartUnit(ctx, unit);
@@ -826,6 +841,27 @@ static int isGayleMachine(void)
     uint8_t b = gayleReadID();
     uint8_t c = gayleReadID();
     return (a == b) && (b == c) && ((a & 0xF0) == 0xD0);
+}
+
+// TRUE only when this machine positively has the AGA chipset, via Lisa's
+// DENISEID at $DFF07C: Lisa answers $F8, ECS Denise $FC, OCS leaves it
+// floating. Requiring several identical AGA answers makes floating-bus luck
+// practically impossible, and the worst failure direction is safe (a flaky
+// readback blocks a test, never enables a destructive one).
+//
+// IMPORTANT SCOPE LIMIT (learned on real hw 2026-08-07): chipset does NOT
+// determine which SCSI chip lives at $DD0000 — the AA3000+ (rebuilt A3000+
+// prototype, the user's own machine) is a full SDMAC-SCSI A3000 WITH real
+// AGA (genuine Alice "8374 R3"). So this gates only A4000 IDE; the two
+// SCSI controllers are arbitrated by ncr710Present() (positive chip
+// identification), never by chipset.
+static int isAgaMachine(void)
+{
+    for (int i = 0; i < 8; i++) {
+        if ((*(volatile uint16_t *)0xDFF07C & 0x00FF) != 0x00F8)
+            return 0;
+    }
+    return 1;
 }
 
 // ---- Generic ATA helpers ----
@@ -1467,9 +1503,21 @@ static int smartGayleIDE(void)    { return doSmartIDE(&ideA1200Regs); }
 // A4000/A4000T IDE
 // ---------------------------------------------------------------------------
 
+static int detectA3000SCSI(void);   // defined in the A3000 SCSI section below
+
 static int detectA4000IDE(void)
 {
     if (isGayleMachine()) return 0;   // $DD2020 is unterminated on A600/A1200 — see isGayleMachine()
+    if (!isAgaMachine()) return 0;    // A4000 IDE exists only in AGA machines
+    // A3000-family machines have no motherboard IDE, but the SDMAC's
+    // incomplete $DDxxxx decoding answers the status read below — confirmed
+    // false green on the real AA3000+ (AGA machine, so the chipset gate
+    // can't catch it; 2026-08-07). A positive SDMAC/WD33C93 answer at
+    // $DD0000 therefore rules IDE out. Safe on every machine type:
+    // detectA3000SCSI() is Gayle-gated, bails on a real 53C710 (A4000T,
+    // where IDE genuinely coexists) via ncr710Present(), and on a real
+    // A4000 just reads open bus and fails cleanly.
+    if (detectA3000SCSI()) return 0;
     // No chip ID register — check if IDE bus responds
     return (*ideA4000Regs.status != 0xFF);
 }
@@ -1675,6 +1723,8 @@ static int smartA4000IDE(void)    { return doSmartIDE(&ideA4000Regs); }
 #define WD_SCSI_STATUS  0x17
 #define WD_COMMAND      0x18
 #define WD_DATA         0x19
+#define WD_QUEUE_TAG    0x1A   // 33C93B ONLY — doesn't exist on 93/93A, which is
+                               // exactly what makes it the B-detector (Linux wd33c93.h)
 
 // WD33C93 commands. Real AmigaOS drivers never use the autonomous "Select
 // and Transfer" command for actual I/O — they SELECT_WITH_ATN, then manually
@@ -1938,6 +1988,69 @@ static void a3k_wd_init(void)
     // reselection". We always wrote 0 here (in a3k_scsi_inquiry, per-select) —
     // never enabling reselection at all. WDCF_ER = bit 7 ($80).
     a3k_wd_write(WD_SRC_ID, 0x80);
+
+    // Every reset+init pair marks the start of a fresh command batch, so a
+    // still-set ISR flag here is by definition STALE — an interrupt that
+    // landed after some earlier wait window expired (e.g. a select-timeout
+    // arriving late while the identify browser idled at a keypress). Left
+    // set, the next wait consumes it as a phantom status and every wait
+    // after that is one event behind — which is how stepping through empty
+    // IDs in Identify Devices wedged the bus solid on real hw (the real
+    // disk's SELECT succeeded on the bus but was declared "No device" off
+    // a stale status and abandoned mid-connection, BSY/LED latched on).
+    // Same failure class as the DMA path's phantom "$00 at SELECT" fix.
+    a3k_globals()->ScsiIrqPending = 0;
+}
+
+// Print the "WD33C93: ..." identification line: chip variant + microcode
+// revision. Chip-only, zero SCSI bus activity. Issues its own EAF reset
+// because the microcode revision is only DEFINED right after a completed
+// RESET — it parks in the first CDB register, which is exactly when Linux's
+// reset_wd33c93() reads it. Variant discrimination is Linux wd33c93_init()'s
+// technique: the QUEUE TAG register ($1A) physically exists only on the
+// 33C93B, so a write/readback latches only there — done with a bus-scrub
+// read from a different chip (Ramsey) between write and readback per this
+// file's anti-echo rule, TWO complementary patterns so a stuck value can't
+// fake a B, and the original byte restored. AMD's AM33C93A second-source is
+// indistinguishable from a WD "A" in software — only the package marking
+// knows. Returns 1 if the chip answered the reset (line printed either
+// way), and leaves the chip freshly reset + ready, so callers can continue
+// straight into their own setup.
+static int a3kPrintWdChip(void)
+{
+    a3k_wd_write(WD_OWN_ID, WD_OWN_ID_VAL | WD_OWN_ID_EAF);
+    a3k_wd_write(WD_COMMAND, WDCMD_RESET);
+    uint8_t rst = a3k_wd_wait_int();
+    print("WD33C93: ", WHITE);
+    if (rst != WDSTS_RESET && rst != WDSTS_RESET_AF) {
+        print("not responding\n", RED);
+        return 0;
+    }
+    uint8_t ucode = a3k_wd_read(WD_CDB1);   // microcode rev — valid only right after reset
+
+    uint8_t save = a3k_wd_read(WD_QUEUE_TAG);
+    a3k_wd_write(WD_QUEUE_TAG, 0xA5);
+    (void)*RAMSEY_VERSION_ADDR;             // scrub the bus so a float can't echo the pattern
+    int isB = (a3k_wd_read(WD_QUEUE_TAG) == 0xA5);
+    if (isB) {
+        a3k_wd_write(WD_QUEUE_TAG, 0x5A);
+        (void)*RAMSEY_VERSION_ADDR;
+        isB = (a3k_wd_read(WD_QUEUE_TAG) == 0x5A);
+    }
+    a3k_wd_write(WD_QUEUE_TAG, save);
+
+    if (isB)
+        print("33C93B", CYAN);
+    else if (rst == WDSTS_RESET_AF)
+        print("33C93A", CYAN);
+    else
+        print("33C93 (or early A)", CYAN);
+    print("  microcode $", WHITE);
+    print(binHexByte(ucode), CYAN);
+    print(rst == WDSTS_RESET_AF ? "  (Advanced Features)\n"
+                                : "  (no Advanced Features)\n", WHITE);
+    a3k_wd_wait_ready();
+    return 1;
 }
 
 // Wait for INT, returning SCSI_STATUS. 0xFF = our poll timed out. Same
@@ -2167,11 +2280,17 @@ static const char * const scsiDevTypes[] = {
     "JUKE", "COMM", NULL, NULL, NULL, NULL, "ENCL", NULL
 };
 
+static int ncr710Present(void);   // defined in the A4000T section below
+
 static int detectA3000SCSI(void)
 {
     if (isGayleMachine()) return 0;   // $DD00xx is unterminated on A600/A1200 — the very
                                       // first SDMAC access below froze a real A1200 solid
                                       // (2026-07-25); see isGayleMachine()
+    if (ncr710Present()) return 0;    // a real 53C710 answered at $DD0040: this is an A4000T,
+                                      // and the WD/SDMAC accesses below would scribble the NCR
+                                      // (mirror image of the A4000T-on-AA3000+ false green);
+                                      // see ncr710Present()
     *SDMAC_CNTR = SDMAC_CNTR_PDMD | SDMAC_CNTR_INTENA;   // SCSI mode + let status latch
     if (*WD_AUX_STATUS == 0xFF) return 0;   // bus float — nothing there
     // Issue RESET and check for completion interrupt
@@ -2207,22 +2326,11 @@ static int scanA3000SCSI(void)
         return 0;
     }
 
-    // Request Advanced Features on this reset only to learn whether the
-    // chip acknowledges them (at least a 33C93A) — the closest thing to a
-    // software-readable chip version this part exposes.
-    a3k_wd_write(WD_OWN_ID, WD_OWN_ID_VAL | WD_OWN_ID_EAF);
-    a3k_wd_write(WD_COMMAND, WDCMD_RESET);
-    uint8_t rst = a3k_wd_wait_int();
-    print("WD33C93: ", WHITE);
-    if (rst == WDSTS_RESET_AF)
-        print("present (Advanced Features supported)\n", GREEN);
-    else if (rst == WDSTS_RESET)
-        print("present (plain reset only)\n", GREEN);
-    else {
-        print("not responding\n", RED);
+    // Full chip identification (variant + microcode revision + AF) — the
+    // helper's own EAF reset replaces the plain "present/AF" reset that
+    // used to live here, and leaves the chip equally reset + ready.
+    if (!a3kPrintWdChip())
         return 0;
-    }
-    a3k_wd_wait_ready();
 
     // Enable the real PORTS (IRQ2) interrupt for the duration of the scan.
     // All Amiga HD controllers share this line, and it's edge/level-latched:
@@ -2366,7 +2474,17 @@ static void a3k_identify_unit(uint8_t unit)
     a3k_wd_init();
 
     if (!a3k_scsi_command(unit, inquiryCdb, 6, inqBuf, SCSI_INQUIRY_LEN)) {
-        print("  No device at this ID.\n", RED);
+        print("  No device at this ID.", RED);
+        // Broken-by-default visibility: a clean selection timeout leaves the
+        // chip idle. BSY/CIP still set here means the probe was abandoned
+        // mid-command — the wedged-bus signature, not an empty slot.
+        uint8_t asr = a3k_wd_aux();
+        if (asr != 0xFF && (asr & (WD_ASR_BSY | WD_ASR_CIP))) {
+            print("  (WD still busy, ASR $", YELLOW);
+            print(binHexByte(asr), YELLOW);
+            print(" - bus may be wedged)", YELLOW);
+        }
+        print("\n", WHITE);
         return;
     }
 
@@ -2591,6 +2709,9 @@ static int identifyA3000SCSI(void)
 #define NCR_SSTAT0   0x0E   // SCSI status 0 (read only) — select timeout etc.
 #define NCR_DSTAT    0x0F   // DMA status (read only) — reading clears DIP
 #define NCR_ISTAT    0x22   // interrupt status
+#define NCR_SCRATCH  0x34   // 4-byte general-purpose scratchpad (chip offset 0x34-0x37;
+                            // the XOR-3 byte-lane swap maps a whole longword onto the
+                            // same 4 addresses, so all 4 bytes are plain r/w scratch)
 #define NCR_DCNTL    0x38   // DMA control
 // Offsets computed from the official ncr710.h struct field order (verified
 // against the three offsets above, which all matched already): dien is the
@@ -2838,9 +2959,45 @@ static int ncrChipReset(int fullSettle, int busReset)
     return 1;
 }
 
+// Positive 53C710 identification, safe on every big-box machine — the gate
+// that decides whether $DD0040 really is an A4000T NCR chip or an
+// A3000-family SDMAC answering through its incomplete address decoding
+// ($DD0040 aliases $DD0000, confirmed on real hw 2026-07-05). A chipset
+// (AGA/ECS) check can NOT make this call: the user's own AA3000+ (rebuilt
+// A3000+ prototype) is a full A3000 — SDMAC SCSI and all — WITH real AGA,
+// and there the old ISTAT!=$FF probe showed "A4000T SCSI" green and the
+// scan scribbled the live SDMAC (wedged at ID 0, real hw 2026-08-07).
+//
+// Discriminator: SCRATCH is 4 bytes of pure r/w scratchpad on the real
+// chip. Via the SDMAC alias the same addresses land on SDMAC offsets
+// $34-$37 — unimplemented, no register and no access strobe there — so the
+// pattern can never latch. Byte-varied patterns plus a bus-scrub read from
+// a DIFFERENT chip (Ramsey version reg) between write and readback defeat
+// the floating-bus echo that plagued register probing before (same
+// anti-echo technique as the A3000 register test). Gayle machines must
+// never reach this (unterminated range) — every caller gates on
+// isGayleMachine() first.
+static int ncr710Present(void)
+{
+    if (NCR_BASE[NCR_ISTAT] == 0xFF)   // open bus — nothing decodes here at all
+        return 0;
+    static const uint8_t pats[2] = { 0xA5, 0x5A };
+    for (int p = 0; p < 2; p++) {
+        for (int i = 0; i < 4; i++)
+            NCR_BASE[NCR_SCRATCH + i] = (uint8_t)(pats[p] ^ i);
+        (void)*RAMSEY_VERSION_ADDR;    // scrub the data bus so a float can't echo the pattern
+        for (int i = 0; i < 4; i++)
+            if (NCR_BASE[NCR_SCRATCH + i] != (uint8_t)(pats[p] ^ i))
+                return 0;
+    }
+    return 1;
+}
+
 int detectA4000TSCSI(void)
 {
     if (isGayleMachine()) return 0;   // $DD0040 is unterminated on A600/A1200 — see isGayleMachine()
+    if (!ncr710Present()) return 0;   // SDMAC answering through its $DD0040 alias is NOT a 53C710 —
+                                      // see ncr710Present(); ncrChipReset() on it wedges A3000 SCSI
     return ncrChipReset(1, 1);
 }
 
@@ -3414,6 +3571,20 @@ static void a4kDmaPrintFail(const DmaFailInfo *fail)
     print(")\n", RED);
 }
 
+// Blank one display row. The repeat/soak tests draw their frame once and
+// overwrite numbers in place; only the variable-width "Last fail" lines can
+// shrink between redraws, so only those need explicit erasing. Must cover
+// the FULL 80 columns — wrapped fail lines reach the last one (a 78-space
+// blank left a 2-char "xp" remnant on real hw). The last column is done
+// with putChar() (no cursor advance): print()ing col 79 would auto-wrap,
+// and on the bottom screen row that wrap would scroll the whole frame.
+static void soakBlankRow(uint32_t row)
+{
+    setPos(0, row);
+    print("                                                                               ", WHITE);
+    putChar(' ', WHITE, 79, (uint8_t)row);
+}
+
 // Same ESC-or-both-buttons abort convention as browseUnits() above. Polled
 // between EVERY pattern, not once per pass: getInput()'s clearInput() means
 // nothing latches between polls, so a once-per-pass poll silently drops any
@@ -3559,18 +3730,19 @@ static int a4kDmaTest(void)
 // over until ESC or both mouse buttons together (polled between every
 // pattern via a4kDmaAbortRequested(), see its comment). Output is compact —
 // one line per direction per pass instead of one per pattern — so a whole
-// pass fits the screen without scrolling, and what matters for an overnight
-// soak PERSISTS across the per-pass initScreen() wipe: a cumulative fail
+// pass fits the screen without scrolling — the frame is drawn ONCE and each
+// pass overwrites only the numbers in place (no blink), and what matters
+// for an overnight soak stays visible: a cumulative fail
 // counter per direction (an intermittent fault at 3am must still be visible
 // at 8am) plus a "last fail" line preserving the full diagnostic detail
 // (pass number, direction, pattern, reason/dsp/ISTAT/DSTAT or mismatch
 // offset) of the most recent failure.
 // Buffers are allocated once, before the loop (not per-iteration):
-// getMemory()'s bump arena would otherwise run out after a handful of
-// iterations, and initScreen()'s per-iteration arena reset (see its own
-// comment in mainmenu.c) only resets the *counters*, not buffer contents,
-// so reusing the same pointers across iterations is safe as long as nothing
-// calls getMemory()/getChip() again inside the loop — which this doesn't.
+// getMemory()'s bump arena is never reset inside the loop (clearScreen()
+// only wipes the display), so per-iteration allocation would run it out
+// after a handful of passes. Reusing the same pointers across iterations
+// is safe as long as nothing calls getMemory()/getChip() again inside the
+// loop — which this doesn't.
 static int a4kDmaTestRepeat(void)
 {
     uint32_t seed = 0x87654321UL;
@@ -3600,17 +3772,27 @@ static int a4kDmaTestRepeat(void)
     int lastFailDir = 0, lastFailPattern = 0, haveFail = 0;
     int aborted = 0;
 
+    // The frame is drawn ONCE; each pass only overwrites the numbers in
+    // place with setPos() — a per-pass clearScreen() made the whole display
+    // blink. Every counter is monotonic so lines never get shorter; the one
+    // exception is the "Last fail" line (its detail text varies), which is
+    // blanked before each redraw and only redrawn when a NEW fail arrives.
+    clearScreen();
+    print("\002A4000T SCSI - DMA Test (Repeat)\n\n", WHITE);
+    print("ESC or both buttons: stop\n\n", WHITE);
+    if (!haveChip)
+        print("(Local (Chip) directions skipped - no Chip RAM buffer available)\n\n", YELLOW);
+    if (!haveFast)
+        print("(CPU board directions skipped - no Fast RAM detected/free)\n\n", YELLOW);
+    uint32_t passRow   = 4 + (haveChip ? 0 : 2) + (haveFast ? 0 : 2);
+    uint32_t totalsRow = passRow + (uint32_t)nDirs + 2;
+    uint32_t failRow   = totalsRow + 1;
+
     while (!aborted) {
-        initScreen();
-        print("\002A4000T SCSI - DMA Test (Repeat)\n\n", WHITE);
-        print("ESC or both buttons: stop\n\n", WHITE);
-        if (!haveChip)
-            print("(Local (Chip) directions skipped - no Chip RAM buffer available)\n\n", YELLOW);
-        if (!haveFast)
-            print("(CPU board directions skipped - no Fast RAM detected/free)\n\n", YELLOW);
+        setPos(0, passRow);
+        print("Pass ", WHITE); print(binDec((int32_t)(iterations + 1)), CYAN); print(":", WHITE);
 
-        print("Pass ", WHITE); print(binDec((int32_t)(iterations + 1)), CYAN); print(":\n", WHITE);
-
+        int newFail = 0;
         for (int d = 0; d < nDirs && !aborted; d++) {
             uint32_t passedDir = 0;
 
@@ -3625,30 +3807,36 @@ static int a4kDmaTestRepeat(void)
                     lastFailDir     = d;
                     lastFailPattern = p;
                     haveFail        = 1;
+                    newFail         = 1;
                 }
                 totalChecks++;
                 if (a4kDmaAbortRequested()) { aborted = 1; break; }
             }
             totalPassed += passedDir;
 
+            setPos(0, passRow + 1 + (uint32_t)d);
             print("  ", WHITE); print((char *)dirs[d].label, CYAN); print(": ", WHITE);
             print(binDec((int32_t)passedDir),
                   passedDir == NCR_DMATEST_NUM_PATTERNS ? GREEN : RED);
             print("/", WHITE); print(binDec(NCR_DMATEST_NUM_PATTERNS), WHITE);
             print("   fails so far: ", WHITE);
             print(binDec((int32_t)dirFails[d]), dirFails[d] ? RED : GREEN);
-            print("\n", WHITE);
+            print("  ", WHITE);   // pad: passedDir can lose a digit vs last pass
         }
         iterations++;
 
-        print("\nRunning totals over ", WHITE); print(binDec((int32_t)iterations), CYAN);
+        setPos(0, totalsRow);
+        print("Running totals over ", WHITE); print(binDec((int32_t)iterations), CYAN);
         print(" pass(es): ", WHITE);
         print(binDec((int32_t)totalPassed), totalPassed == totalChecks ? GREEN : YELLOW);
         print(" / ", WHITE);
         print(binDec((int32_t)totalChecks), WHITE);
-        print(" checks passed\n", WHITE);
+        print(" checks passed", WHITE);
 
-        if (haveFail) {
+        if (haveFail && newFail) {
+            soakBlankRow(failRow);
+            soakBlankRow(failRow + 1);   // fail line can wrap onto a second row
+            setPos(0, failRow);
             print("Last fail: pass ", WHITE);
             print(binDec((int32_t)lastFailPass), CYAN);
             print("  ", WHITE); print((char *)dirs[lastFailDir].label, CYAN);
@@ -3916,6 +4104,9 @@ static int a3kRegTestSetup(int *verOut)
         print("\n", WHITE);
     }
 
+    a3kPrintWdChip();   // variant + microcode line; non-fatal here — the
+                        // register test's own wdcOk logic handles a dead WD
+
     const char *why = "";
     int ver = a3kSdmacVersion(&why);
     print("SDMAC:  ", WHITE);
@@ -3952,7 +4143,8 @@ static int a3kDmaTest(void)
     A3kRegFail fail;
     int ver;
 
-    print("\nA3000/A3000T SCSI - DMA Register Test (no SCSI bus activity)\n\n", WHITE);
+    print("\nA3000/A3000T SCSI - DMA Register Test (no SCSI bus activity)\n", WHITE);
+    print("EXPERIMENTAL - please report results\n\n", YELLOW);
     print("The SDMAC cannot move memory-to-memory like the A4000T's 53C710,\n", WHITE);
     print("so this pattern-tests the DMA path's registers instead.\n\n", WHITE);
 
@@ -3995,8 +4187,8 @@ static int a3kDmaTest(void)
 }
 
 // Soak version — same shape as a4kDmaTestRepeat() (cumulative per-check fail
-// tallies surviving the per-pass screen wipe, "last fail" line with full
-// detail, abort via a4kDmaAbortRequested()). One structural difference: a
+// tallies, "last fail" line with full detail, in-place display updates,
+// abort via a4kDmaAbortRequested()). One structural difference: a
 // single register check finishes in microseconds, not the seconds an A4000T
 // DMA move takes, so one displayed pass runs each check A3K_REGSOAK_REPS
 // times — otherwise the screen would redraw hundreds of times a second and a
@@ -4011,7 +4203,8 @@ static int a3kDmaTestRepeat(void)
     uint32_t checkFails[A3K_MAX_REG_CHECKS] = { 0, 0, 0 };
     int ver;
 
-    print("\nA3000/A3000T SCSI - DMA Register Test (Repeat)\n\n", WHITE);
+    print("\002A3000/A3000T SCSI - DMA Register Test (Repeat)\n", WHITE);
+    print("\002EXPERIMENTAL - please report results\n\n", YELLOW);
     if (!a3kRegTestSetup(&ver))
         return 0;
 
@@ -4025,21 +4218,29 @@ static int a3kDmaTestRepeat(void)
     int lastFailCheck = 0, lastFailErrs = 0, haveFail = 0;
     int aborted = 0;
 
-    while (!aborted) {
-        initScreen();
-        print("\002A3000/A3000T SCSI - DMA Register Test (Repeat)\n\n", WHITE);
-        print("ESC or both buttons: stop\n\n", WHITE);
-        if (ver == 0)
-            print("(SDMAC revision probe failed - SDMAC check skipped)\n\n", YELLOW);
-        if (!wdcOk)
-            print("(WD33C93 busy - register check skipped)\n\n", YELLOW);
+    // Draw-once frame with in-place number updates, same shape as
+    // a4kDmaTestRepeat() — see the layout comment there. NO clearScreen():
+    // the frame starts BELOW the Ramsey/SDMAC identification the setup just
+    // printed, so that stays visible for the whole soak (user request). Row
+    // layout is therefore read off the live cursor, not hardcoded.
+    print("\nESC or both buttons: stop\n\n", WHITE);
+    if (ver == 0)
+        print("(SDMAC revision probe failed - SDMAC check skipped)\n\n", YELLOW);
+    if (!wdcOk)
+        print("(WD33C93 busy - register check skipped)\n\n", YELLOW);
+    uint32_t passRow   = *(volatile uint8_t *)&globals->Ypos;   // row lives in the MSB byte (see setPos)
+    uint32_t totalsRow = passRow + (uint32_t)nChecks + 2;
+    uint32_t failRow   = totalsRow + 1;
 
+    while (!aborted) {
+        setPos(0, passRow);
         print("Pass ", WHITE);
         print(binDec((int32_t)(iterations + 1)), CYAN);
         print(" (", WHITE);
         print(binDec(A3K_REGSOAK_REPS), CYAN);
-        print(" reps per check):\n", WHITE);
+        print(" reps per check):", WHITE);
 
+        int newFail = 0;
         for (int c = 0; c < nChecks && !aborted; c++) {
             uint32_t passedReps = 0;
 
@@ -4054,6 +4255,7 @@ static int a3kDmaTestRepeat(void)
                     lastFailCheck = c;
                     lastFailErrs  = errs;
                     haveFail      = 1;
+                    newFail       = 1;
                 }
                 if ((rep & 31) == 31 && a4kDmaAbortRequested()) {
                     aborted = 1;
@@ -4063,6 +4265,7 @@ static int a3kDmaTestRepeat(void)
             totalPassed += passedReps;
             totalChecks += A3K_REGSOAK_REPS;
 
+            setPos(0, passRow + 1 + (uint32_t)c);
             print("  ", WHITE);
             print((char *)checks[c].label, CYAN);
             print(": ", WHITE);
@@ -4072,19 +4275,23 @@ static int a3kDmaTestRepeat(void)
             print(binDec(A3K_REGSOAK_REPS), WHITE);
             print("   fails so far: ", WHITE);
             print(binDec((int32_t)checkFails[c]), checkFails[c] ? RED : GREEN);
-            print("\n", WHITE);
+            print("    ", WHITE);   // pad: passedReps can lose up to 3 digits vs last pass
         }
         iterations++;
 
-        print("\nRunning totals over ", WHITE);
+        setPos(0, totalsRow);
+        print("Running totals over ", WHITE);
         print(binDec((int32_t)iterations), CYAN);
         print(" pass(es): ", WHITE);
         print(binDec((int32_t)totalPassed), totalPassed == totalChecks ? GREEN : YELLOW);
         print(" / ", WHITE);
         print(binDec((int32_t)totalChecks), WHITE);
-        print(" reps passed\n", WHITE);
+        print(" reps passed", WHITE);
 
-        if (haveFail) {
+        if (haveFail && newFail) {
+            soakBlankRow(failRow);
+            soakBlankRow(failRow + 1);   // fail line can wrap onto a second row
+            setPos(0, failRow);
             print("Last fail: pass ", WHITE);
             print(binDec((int32_t)lastFailPass), CYAN);
             print("  ", WHITE);
@@ -4386,10 +4593,8 @@ static int a3k_scsi_read_blocks(uint8_t unit, uint32_t lba, uint8_t nblocks,
 {
     a3k_wd_reset();
     a3k_wd_init();
-    // Nothing is in flight here, so any pending ISR flag is stale — one real
-    // hw run had leftover reset noise consumed by the NEXT row's SELECT as a
-    // phantom $00 status ("at SELECT st=$00" verdict on an alive bus).
-    a3k_globals()->ScsiIrqPending = 0;
+    // Stale-ISR-flag clear (the "at SELECT st=$00" phantom found on real hw)
+    // now lives at the end of a3k_wd_init() itself, shared by every path.
 
     uint8_t cdb[10] = {
         SCSI_READ10, 0,
@@ -4617,8 +4822,8 @@ static void a3kXferPrintFail(const A3kXferFail *fail)
 // target, allocate/align every buffer, take the double-PIO reference.
 // Returns the target ID (>= 0) with dirs/nDirs/ref filled in, or -1 after
 // printing why. All allocations happen HERE, before any soak loop —
-// initScreen() resets the getMemory()/getChip() arena counters each pass
-// (see a4kDmaTestRepeat()'s comment), so nothing may allocate after it.
+// the getMemory()/getChip() bump arena has no free, so per-pass allocation
+// would exhaust it (see a4kDmaTestRepeat()'s comment).
 // Caller owns a3k_scsi_irq_enable()/_disable() bracketing.
 static int a3kXferSetup(A3kXferDir *dirs, int *nDirs, uint8_t **refOut)
 {
@@ -4743,7 +4948,8 @@ static int a3kXferTest(void)
     uint8_t *ref;
     int nDirs = 0;
 
-    print("\nA3000/A3000T SCSI - DMA Transfer Test (READ-ONLY, blocks 0-7)\n\n", WHITE);
+    print("\nA3000/A3000T SCSI - DMA Transfer Test (READ-ONLY, blocks 0-7)\n", WHITE);
+    print("EXPERIMENTAL - please report results\n\n", YELLOW);
     print("Reads the same 8 blocks via proven PIO and via real SDMAC DMA and\n", WHITE);
     print("compares - exercising the FIFO/Ramsey path the register test can't.\n\n", WHITE);
 
@@ -4799,7 +5005,8 @@ static int a3kXferTestRepeat(void)
     uint8_t *ref;
     int nDirs = 0;
 
-    print("\nA3000/A3000T SCSI - DMA Transfer Test (Repeat)\n\n", WHITE);
+    print("\002A3000/A3000T SCSI - DMA Transfer Test (Repeat)\n", WHITE);
+    print("\002EXPERIMENTAL - please report results\n\n", YELLOW);
     a3k_scsi_irq_enable(a3k_globals());
     int target = a3kXferSetup(dirs, &nDirs, &ref);
     if (target < 0) {
@@ -4813,18 +5020,32 @@ static int a3kXferTestRepeat(void)
     int lastFailDir = 0, haveFail = 0;
     int aborted = 0;
 
+    // Draw-once frame with in-place number updates, same shape as
+    // a4kDmaTestRepeat() — see the layout comment there. NO clearScreen():
+    // the frame starts BELOW the setup's buffer-address/target output, so
+    // that stays visible for the whole soak (user request); row layout is
+    // read off the live cursor. This test's "Last fail" block is the tall
+    // one: worst case (MISMATCH) is the FAILED line (long enough to wrap
+    // onto a second row) + lanes/poison/dump line + engine line + exp and
+    // got hex-dump lines + direction hint = 7 rows, all blanked before a
+    // redraw. On NTSC (25 rows) that block bottoms out around row 22 —
+    // only if the setup printed several retry-warning lines could the fail
+    // block's own prints reach the bottom row and scroll; rare enough to
+    // live with, and PAL (32 rows) has slack regardless.
+    print("\nESC or both buttons: stop\n\n", WHITE);
+    uint32_t passRow   = *(volatile uint8_t *)&globals->Ypos;   // row lives in the MSB byte (see setPos)
+    uint32_t totalsRow = passRow + (uint32_t)nDirs + 2;
+    uint32_t failRow   = totalsRow + 1;
+
     while (!aborted) {
-        initScreen();
-        print("\002A3000/A3000T SCSI - DMA Transfer Test (Repeat)\n\n", WHITE);
-        print("ESC or both buttons: stop\n\n", WHITE);
-        print("Target: SCSI ID ", WHITE);
-        print(binDec(target), CYAN);
-        print("   Pass ", WHITE);
+        setPos(0, passRow);
+        print("Pass ", WHITE);   // target ID already on screen from the setup output above
         print(binDec((int32_t)(iterations + 1)), CYAN);
         print(" (", WHITE);
         print(binDec(A3K_XFERSOAK_REPS), CYAN);
-        print(" reps per row):\n", WHITE);
+        print(" reps per row):", WHITE);
 
+        int newFail = 0;
         for (int d = 0; d < nDirs && !aborted; d++) {
             uint32_t passedReps = 0;
 
@@ -4837,6 +5058,7 @@ static int a3kXferTestRepeat(void)
                     lastFailPass = iterations + 1;
                     lastFailDir  = d;
                     haveFail     = 1;
+                    newFail      = 1;
                 }
                 totalChecks++;
                 if (a4kDmaAbortRequested()) {
@@ -4846,6 +5068,7 @@ static int a3kXferTestRepeat(void)
             }
             totalPassed += passedReps;
 
+            setPos(0, passRow + 1 + (uint32_t)d);
             print("  ", WHITE);
             print((char *)dirs[d].label, CYAN);
             print(": ", WHITE);
@@ -4855,19 +5078,22 @@ static int a3kXferTestRepeat(void)
             print(binDec(A3K_XFERSOAK_REPS), WHITE);
             print("   fails so far: ", WHITE);
             print(binDec((int32_t)dirFails[d]), dirFails[d] ? RED : GREEN);
-            print("\n", WHITE);
         }
         iterations++;
 
-        print("\nRunning totals over ", WHITE);
+        setPos(0, totalsRow);
+        print("Running totals over ", WHITE);
         print(binDec((int32_t)iterations), CYAN);
         print(" pass(es): ", WHITE);
         print(binDec((int32_t)totalPassed), totalPassed == totalChecks ? GREEN : YELLOW);
         print(" / ", WHITE);
         print(binDec((int32_t)totalChecks), WHITE);
-        print(" reads passed\n", WHITE);
+        print(" reads passed", WHITE);
 
-        if (haveFail) {
+        if (haveFail && newFail) {
+            for (uint32_t r = 0; r < 8; r++)
+                soakBlankRow(failRow + r);
+            setPos(0, failRow);
             print("Last fail: pass ", WHITE);
             print(binDec((int32_t)lastFailPass), CYAN);
             print("  ", WHITE);
@@ -4876,7 +5102,6 @@ static int a3kXferTestRepeat(void)
             a3kXferPrintFail(&lastFail);
             if (dirs[lastFailDir].failHint) {
                 print((char *)dirs[lastFailDir].failHint, YELLOW);
-                print("\n", YELLOW);
             }
         }
     }
@@ -4893,10 +5118,10 @@ static int a3kXferTestRepeat(void)
 // options for genuinely unimplemented hardware). Re-add when real
 // detect/scan/identify/smart implementations exist for them.
 static const HddController hddControllers[] = {
-    { "A1200/A600 IDE",    0, detectGayleIDE,   scanGayleIDE,   identifyGayleIDE,   smartGayleIDE,   NULL,       NULL,             NULL,        NULL               },
-    { "A4000/A4000T IDE",  1, detectA4000IDE,   scanA4000IDE,   identifyA4000IDE,   smartA4000IDE,   NULL,       NULL,             NULL,        NULL               },
-    { "A3000/A3000T SCSI", 1, detectA3000SCSI,  scanA3000SCSI,  identifyA3000SCSI,  smartA3000SCSI,  a3kDmaTest, a3kDmaTestRepeat, a3kXferTest, a3kXferTestRepeat  },
-    { "A4000T SCSI",       1, detectA4000TSCSI, scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI, a4kDmaTest, a4kDmaTestRepeat, NULL,        NULL               },
+    { "A1200/A600 IDE",    0, HDD_GATE_NONE,    detectGayleIDE,   scanGayleIDE,   identifyGayleIDE,   smartGayleIDE,   NULL,       NULL,             NULL,        NULL               },
+    { "A4000/A4000T IDE",  1, HDD_GATE_A4000_IDE, detectA4000IDE,   scanA4000IDE,   identifyA4000IDE,   smartA4000IDE,   NULL,       NULL,             NULL,        NULL               },
+    { "A3000/A3000T SCSI", 1, HDD_GATE_NOT_NCR, detectA3000SCSI,  scanA3000SCSI,  identifyA3000SCSI,  smartA3000SCSI,  a3kDmaTest, a3kDmaTestRepeat, a3kXferTest, a3kXferTestRepeat  },
+    { "A4000T SCSI",       1, HDD_GATE_NCR,     detectA4000TSCSI, scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI, a4kDmaTest, a4kDmaTestRepeat, NULL,        NULL               },
 };
 #define NUM_HDD_CONTROLLERS (int)(sizeof(hddControllers)/sizeof(hddControllers[0]))
 
@@ -4913,6 +5138,31 @@ static int hddBlockedOnThisMachine(int idx)
         print("\nNot possible on this machine: A600/A1200 Gayle detected.\n", RED);
         print("This controller's registers ($DD0000 range) are not decoded on\n", YELLOW);
         print("Gayle machines - accessing them would freeze this Amiga.\n", YELLOW);
+        return 1;
+    }
+    if (hddControllers[idx].gate == HDD_GATE_A4000_IDE) {
+        if (!isAgaMachine()) {
+            print("\nNot possible on this machine: no AGA chipset (Lisa) found.\n", RED);
+            print("This controller exists only in AGA machines (A4000/A4000T).\n", YELLOW);
+            return 1;
+        }
+        if (detectA3000SCSI()) {
+            print("\nNot possible on this machine: SDMAC/WD33C93 SCSI found at $DD0000.\n", RED);
+            print("A3000-family machines (incl. AA3000+) have no motherboard IDE - the\n", YELLOW);
+            print("$DD2020 range answers via the SDMAC and IDE ops would scribble it.\n", YELLOW);
+            return 1;
+        }
+    }
+    if (hddControllers[idx].gate == HDD_GATE_NCR && !ncr710Present()) {
+        print("\nNot possible on this machine: no NCR 53C710 answers at $DD0040.\n", RED);
+        print("On A3000-family machines (incl. AA3000+) that range is the SDMAC -\n", YELLOW);
+        print("running A4000T SCSI ops on it wedges the machine's real SCSI.\n", YELLOW);
+        return 1;
+    }
+    if (hddControllers[idx].gate == HDD_GATE_NOT_NCR && ncr710Present()) {
+        print("\nNot possible on this machine: an NCR 53C710 answers at $DD0040.\n", RED);
+        print("This is an A4000T - its SCSI range holds the NCR chip, and A3000\n", YELLOW);
+        print("SCSI ops on it would wedge the machine's real SCSI.\n", YELLOW);
         return 1;
     }
     return 0;
@@ -5016,7 +5266,7 @@ void HDDTestC()
 
                 case '2':
                     waitReleased();
-                    initScreen();
+                    clearScreen();
                     if (hddBlockedOnThisMachine(activeController))
                         ;   // guard printed its own message
                     else if (hddControllers[activeController].scan)
@@ -5031,7 +5281,7 @@ void HDDTestC()
 
                 case '3': {
                     waitReleased();
-                    initScreen();
+                    clearScreen();
                     // A return of 1 means the controller's own identify() is
                     // fully interactive and already handled its own
                     // dismissal (e.g. identifyA3000SCSI()'s unit browser) —
@@ -5054,7 +5304,7 @@ void HDDTestC()
 
                 case '4':
                     waitReleased();
-                    initScreen();
+                    clearScreen();
                     if (hddBlockedOnThisMachine(activeController))
                         ;   // guard printed its own message
                     else if (hddControllers[activeController].dma)
@@ -5069,7 +5319,7 @@ void HDDTestC()
 
                 case '5':
                     waitReleased();
-                    initScreen();
+                    clearScreen();
                     // dmaRepeat() runs its own loop and already consumes the
                     // ESC/both-buttons that stopped it (see a4kDmaTestRepeat()),
                     // same self-dismissing convention as case '3''s identify() —
@@ -5090,7 +5340,7 @@ void HDDTestC()
 
                 case '6':
                     waitReleased();
-                    initScreen();
+                    clearScreen();
                     if (hddBlockedOnThisMachine(activeController))
                         ;   // guard printed its own message
                     else if (hddControllers[activeController].xfer)
@@ -5105,7 +5355,7 @@ void HDDTestC()
 
                 case '7':
                     waitReleased();
-                    initScreen();
+                    clearScreen();
                     // xferRepeat() self-dismisses like dmaRepeat()/identify()
                     // — its loop already consumed the ESC/both-buttons.
                     if (hddBlockedOnThisMachine(activeController)) {
