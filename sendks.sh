@@ -4,7 +4,7 @@ PI_HOST="172.16.19.201"
 PI_USER="pi"
 PI_PASS="raspberry"
 ROM_FILE="$(dirname "$0")/diagrom.rom"
-HOSTSMASH="/home/kick/kicksmash/sw/hostsmash"
+HOSTSMASH="/home/pi/kicksmash32-main/sw/hostsmash"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 # Copy ROM to Pi
