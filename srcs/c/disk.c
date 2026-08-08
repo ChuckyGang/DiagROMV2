@@ -555,6 +555,15 @@ void updateFloppyData()
     print(binStringByte(CIAB->ciaprb),PURPLE);
 }
 
+// ===========================================================================
+// Everything below is the HDD-controller half of this file (Gayle IDE,
+// A4000 IDE, A3000/A3000T SCSI, A4000T SCSI). The DeMoN 256KB cartridge
+// build excludes it wholesale (~50KB) - none of these controllers can exist
+// on an A500-class cartridge host - and provides stubs at the bottom of the
+// file instead. The floppy half above stays in every build.
+// ===========================================================================
+#ifndef TARGET_DEMON
+
 // ---------------------------------------------------------------------------
 // Known controllers — single source of truth for both menus
 // ---------------------------------------------------------------------------
@@ -835,7 +844,10 @@ static int detectGayleIDE(void)
 // always matches deterministically. Worst possible failure is the safe
 // direction: gate open on a Gayle machine only if its own ID readback were
 // unstable, which a working Gayle never is.
-static int isGayleMachine(void)
+//
+// NOT static: autoconfig.c reuses this as one leg of its $FF000000 Z3
+// config space gate.
+int isGayleMachine(void)
 {
     uint8_t a = gayleReadID();
     uint8_t b = gayleReadID();
@@ -5419,6 +5431,31 @@ void HDDTestC()
         }
     }
 }
+
+#else  /* TARGET_DEMON */
+
+// Stubs for the excluded HDD half (see the banner where the #ifndef opens).
+// The menu entry stays selectable but explains itself instead of vanishing.
+void HDDTestC(void)
+{
+    initScreen();
+    print("\002HDD Controller Test\n\n", CYAN);
+    print("Not included in the DeMoN cartridge build: no supported HDD\n", YELLOW);
+    print("controller (Gayle/A3000/A4000 class) can exist on this machine.\n", YELLOW);
+    print("\nPress any key/button to return.\n", WHITE);
+    WaitButton();
+    initScreen();
+    globals->PrintMenuFlag = 1;
+}
+
+// autoconfig.c's Z3-space gate leg: an A500-class cartridge host never has
+// Gayle (its 68000 fails autoconfig's 24-bit gate first anyway).
+int isGayleMachine(void)
+{
+    return 0;
+}
+
+#endif /* TARGET_DEMON */
 
 void crap()
 {

@@ -56,6 +56,11 @@ CFLAGS_D := -DTARGET_DEMON=1 -DDEBUG=2 -DROM_BASE=0xA80000 \
 SRCS_C =  $(wildcard srcs/c/*.c)
 SRCS_C += $(wildcard srcs/c/amiga/*.c)
 SRCS_C += $(wildcard srcs/c/demon/*.c)
+# debugcode.c is the DEBUGCODE=1 dev test-bed; its call site compiles out in
+# normal builds but the ~14KB object still links. The 512KB kickstart ROM
+# shrugs that off - the 256KB cartridge cannot (it tipped the rom region
+# over its limit 2026-08-08). Not a demon feature: drop it.
+SRCS_C := $(filter-out srcs/c/debugcode.c,$(SRCS_C))
 
 SRCS_S =  $(wildcard srcs/asm/*.s)
 SRCS_S += $(wildcard srcs/asm/amiga/*.s)

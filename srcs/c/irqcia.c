@@ -786,6 +786,138 @@ void IRQTestC(VARS)
    //   PAUSEC();
 }
 
+// ---------------------------------------------------------------------------
+// CIA TOD-bug check — fingerprints early 8520s vs the late 391078-01 respin.
+//
+// The bug (verified against WinUAE cia.cpp checkalarm(), which models what
+// was measured on real chips): during a ripple carry the TOD counter shows a
+// TRANSIENT wrong value for a couple of cycles — it counts ...2D 2E 2F ->
+// 20 -> 30..., the just-wrapped digit visible before the carry lands. Time-
+// keeping is unaffected, but the ALARM comparator sees the transient, so an
+// alarm set to that phantom value false-triggers. All DIP-era 8520s
+// (A1000..A500+/A600 boards) have it; the PLCC 391078-01 (A1200/A4000/CD32)
+// fixed it. UAE only models the transient on the TODMED carry (alarm low 12
+// bits zero); real chips reportedly glitch on the TODLOW carry too — so leg
+// 3 is expected to stay silent in emulators either way and is a real-
+// hardware data point.
+//
+// Method per chip, pure ICR polling (all CIA int sources masked, no
+// vectors involved):
+//   leg 1  sanity: a real alarm a few ticks ahead MUST fire — proves the
+//          alarm/ICR path works, otherwise silence below would be
+//          meaningless and we say so instead of "bug fixed".
+//   leg 2  TOD=$002FFF alarm=$002000: never a stable counter value from
+//          here (next stop is $003000), but exactly the phantom shown
+//          during the MED carry -> fires only on a buggy chip.
+//   leg 3  TOD=$00002D alarm=$000020: same idea on the LOW carry.
+// CIA-A TOD ticks at the 50/60Hz TICK, CIA-B at HSYNC, hence the different
+// frame budgets. Every wait is frame-bounded AND iteration-capped.
+// ---------------------------------------------------------------------------
+static void todSet(volatile struct CIA *cia, uint32_t v)
+{
+    cia->ciacrb &= (uint8_t)~CIACRBF_ALARM;
+    cia->ciatodhi  = (uint8_t)(v >> 16);   // HI write stops the counter
+    cia->ciatodmid = (uint8_t)(v >> 8);
+    cia->ciatodlow = (uint8_t)v;           // LOW write restarts it
+}
+
+static void todSetAlarm(volatile struct CIA *cia, uint32_t v)
+{
+    cia->ciacrb |= CIACRBF_ALARM;
+    cia->ciatodhi  = (uint8_t)(v >> 16);
+    cia->ciatodmid = (uint8_t)(v >> 8);
+    cia->ciatodlow = (uint8_t)v;
+    cia->ciacrb &= (uint8_t)~CIACRBF_ALARM;
+}
+
+// Read the live TOD counter. HI read engages the latch, LOW read releases
+// it, so reading HI->MID->LOW is the correct full-value protocol.
+static uint32_t todRead(volatile struct CIA *cia)
+{
+    uint32_t hi  = cia->ciatodhi;
+    uint32_t mid = cia->ciatodmid;
+    uint32_t lo  = cia->ciatodlow;
+    return (hi << 16) | (mid << 8) | lo;
+}
+
+// 1 = ALRM flag set within `frames` VBL frames, 0 = stayed silent.
+static int todAlarmWait(volatile struct CIA *cia, int frames)
+{
+    uint32_t spin = 2000000UL;             // hard cap in case VBL/Frames dies
+    globals->Frames = 0;
+    do {
+        if (cia->ciaicr & CIAICRF_ALRM)    // read also clears
+            return 1;
+        // Touch TODLOW every pass: side-effect-free on real chips (only a
+        // HI read engages the latch), but REQUIRED under UAE, whose lazy
+        // TOD machinery only materializes pending increments (and their
+        // alarm compares) on register access — found 2026-08-08 when the
+        // CIA-A leg starved on an emulated A3000 while CIA-B passed.
+        (void)cia->ciatodlow;
+    } while ((int)globals->Frames < frames && --spin);
+    return 0;
+}
+
+static void todBugTestOne(volatile struct CIA *cia, const char *name, int isCiaA)
+{
+    int budget = isCiaA ? 60 : 3;          // frames; covers >=3 TOD ticks each
+
+    print((char *)name, CYAN);
+    cia->ciaicr = 0x7F;                    // mask ALL CIA int sources: poll only
+    (void)cia->ciaicr;                     // clear stale flags
+
+    todSet(cia, 0x000010);
+    todSetAlarm(cia, 0x000013);            // real alarm 3 ticks ahead
+    if (!todAlarmWait(cia, budget)) {
+        // Print the evidence, not just a verdict: where TOD actually is
+        // tells apart a dead tick source, an ignored TOD write, and a dead
+        // alarm compare.
+        uint32_t now = todRead(cia);
+        print(" alarm never fired. TOD $000010 -> ", RED);
+        print(binHex(now), RED);
+        print(" during wait:\n   ", RED);
+        if (now == 0x000010)
+            print("TOD never ticked - tick source dead?", RED);
+        else if (now < 0x000013)
+            print("TOD ticking but too slow for the wait budget?!", RED);
+        else
+            print("TOD passed the alarm value silently - alarm/ICR faulty.", RED);
+        print(" No TOD-bug verdict.\n", RED);
+        return;
+    }
+    print(" alarm circuit OK.", GREEN);
+
+    (void)cia->ciaicr;
+    todSet(cia, 0x002FFF);
+    todSetAlarm(cia, 0x002000);            // phantom value of the MED carry
+    int med = todAlarmWait(cia, budget);
+
+    (void)cia->ciaicr;
+    todSet(cia, 0x00002D);
+    todSetAlarm(cia, 0x000020);            // phantom value of the LOW carry
+    int low = todAlarmWait(cia, budget);
+
+    print("  carry glitch: MED ", WHITE);
+    print(med ? "YES" : "no ", med ? YELLOW : GREEN);
+    print("  LOW ", WHITE);
+    print(low ? "YES" : "no ", low ? YELLOW : GREEN);
+    print("\n   -> ", WHITE);
+    if (med || low)
+        print("TOD BUG PRESENT - early 8520 (pre-391078-01)\n", YELLOW);
+    else
+        print("TOD bug not detected - 391078-01 class (or fixed)\n", GREEN);
+
+    cia->ciaicr = 0x7F;                    // leave nothing armed
+    (void)cia->ciaicr;
+}
+
+static void todBugTest(void)
+{
+    print("\nCIA TOD-bug check (early 8520 vs 391078-01):\n", WHITE);
+    todBugTestOne((volatile struct CIA *)0xbfe001, " ODD  CIA (A):", 1);
+    todBugTestOne((volatile struct CIA *)0xbfd000, " EVEN CIA (B):", 0);
+}
+
 void IRQCIATestC(VARS)
 {
        initScreen();
@@ -820,8 +952,7 @@ void IRQCIATestC(VARS)
        polledcia(globals);
        timedcia(globals);
 
-//       print("\nEXPERIMENTAL Probably not working test to find TOD bug\n",PURPLE);
-//       detectTOD(globals);
+       todBugTest();                      // last CIA test: 8520 revision fingerprint
        //ciaok(globals);
 
        print("\n\nDONE. Press any key/button to exit",WHITE);

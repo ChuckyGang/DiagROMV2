@@ -58,6 +58,8 @@ extern void GayleTest(void)           __asm("GayleTest");
 extern void GayleExp(void)            __asm("GayleExp");
 extern void floppyTestC(void);
 extern void HDDTestC(void);
+extern void AutoConfigDetailC(void);   // autoconfig.c — C rewrite (in progress)
+extern void AutoConfigAutoC(void);
 
 // C functions defined in mainmenu.c
 void mainMenu(void);
@@ -186,8 +188,28 @@ static const char *gfxMenuItems[] = {
     gfxMenu6, gfxMenu7, gfxMenu8, gfxMenu9,
     NULL
 };
+#if TARGET_DEMON
+// 256KB cartridge build: TestPIC.raw (50KB) is excluded from gfx.s, so the
+// two tests that blit it get a stub that says so instead of showing garbage.
+static void demonNoTestPic(void)
+{
+    initScreen();
+    print("\002GFX Test\n\n", CYAN);
+    print("The test picture is not included in the DeMoN cartridge build\n", YELLOW);
+    print("(256KB flash - the image alone is 50KB).\n", YELLOW);
+    print("\nPress any key/button to return.\n", WHITE);
+    WaitButton();
+    initScreen();
+    globals->PrintMenuFlag = 1;
+}
+#endif
+
 static MenuHandler gfxMenuCode[] = {
+#if TARGET_DEMON
+    demonNoTestPic, demonNoTestPic, GFXTestRaster, GFXTestRGB,
+#else
     GFXTestScreen, GFXTestScroll, GFXTestRaster, GFXTestRGB,
+#endif
     gfxC, gfxChigh, gfxCAga, gfxCAgaHigh, mainMenu
 };
 static uint8_t gfxMenuKey[] = { '1','2','3','4','5','6','7','8','9',0 };
@@ -222,20 +244,24 @@ static const char otherMenuK[] = "5 - Kickstart ROM check";
 #else
 static const char otherMenuK[] = "5 - Kickstart ROM check (DeMoN only)";
 #endif
+static const char otherMenuAC1[] = "6 - Autoconfig - NEW - Detailed";
+static const char otherMenuAC2[] = "7 - Autoconfig - NEW - Automatic";
 static const char otherMenu5[] = "8 - TF360/TF1260 Diag";
 static const char otherMenu6[] = "9 - Mainmenu";
 
 static const char *otherMenuItems[] = {
     otherText,
     otherMenu1, otherMenu2, otherMenu3, otherMenu4, otherMenuK,
+    otherMenuAC1, otherMenuAC2,
     otherMenu5, otherMenu6,
     NULL
 };
 static MenuHandler otherMenuCode[] = {
     RTCTest, AutoConfigDetail, ShowMemAddress, RTCTestC, kickCheck,
+    AutoConfigDetailC, AutoConfigAutoC,
     TF1260, mainMenu
 };
-static uint8_t otherMenuKey[] = { '1','2','3','4','5','8','9',0 };
+static uint8_t otherMenuKey[] = { '1','2','3','4','5','6','7','8','9',0 };
 
 // ---------------------------------------------------------------------------
 // Disk Test Menu  (MenuNumber 8)
