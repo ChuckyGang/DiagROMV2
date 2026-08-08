@@ -402,7 +402,7 @@ void polledcia(VARS)
               print("Counter: ",WHITE);
               print(binDec(tod),CYAN);
               int ntsc = 0;
-              if(tod>26000 && tod <28000)
+              if(tod>25900 && tod <26800)   // ~101 NTSC frames x 262.5 lines
               {
                      print("  - OK", GREEN);
                      print(" 60Hz",WHITE);
@@ -410,12 +410,12 @@ void polledcia(VARS)
               }
               if(ntsc!=1)
               {
-                     if(tod<31000)
+                     if(tod<30800)
                      {
                             print(" - TOO SLOW",RED);
                      }
                      else
-                     if(tod>34000)
+                     if(tod>31700)
                      {
                             print("  - TOO FAST",RED);
                      }
@@ -496,9 +496,9 @@ int checkCiaOK(int counter)
 {
               int result=0;
 
-              if(counter<2200)
-              {
-                     result=2;
+              if(counter<2050)     // was 2200: real-68000 loop overhead
+              {                    // (DMA contention, E-clock sync) lands
+                     result=2;     // healthy machines near ~2100-2180
               }
               else
               if(counter>2600)
@@ -513,12 +513,12 @@ int checkCiaOK(int counter)
 
               if(result!=1)
                      {
-                     if(counter<1800)
+                     if(counter<1700)
                      {
                             result=2;
                      }
                      else
-                     if(counter>2080)
+                     if(counter>2049)
                      {
                             result=3;
                      }
