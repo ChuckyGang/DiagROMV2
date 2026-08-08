@@ -165,41 +165,6 @@ void clearHiRes(uint8_t *bitPlane)
     custom->bltsize = 0x8028;
 }
 
-void plotPixel(int x, int y, int color,
-               int scaleX, int scaleY, int scaleCol,
-               uint8_t **bplPointers)
-{
-
-   /* Scale coordinates */
-    x >>= scaleX;
-    y >>= scaleY;
-
-    /* Bytes per line */
-    int bytesPerLine = 80 >> scaleX;
-    /* Scale color */
-    color >>= scaleCol;
-
-    /* X position */
-    int byteOffset = x / 8;
-    int bitOffset  = 7 - (x % 8);
-
-    /* Y position (NO MULTIPLY) */
-    int address = byteOffset;
-    for (int i = 0; i < y; i++) {
-        address += bytesPerLine;
-    }
-
-    uint8_t mask = (uint8_t)(1 << bitOffset);
-
-    for (int p = 0; p < scaleColToBpl(scaleCol); p++) {
-        uint8_t *ptr = (uint8_t *)((uintptr_t)bplPointers[p] + address);
-        if (color & (1 << p))
-            *ptr |= mask;
-        else
-            *ptr &= (uint8_t)~mask;
-    }
-}
-
 static inline int32_t muls_16x16(int16_t a, int16_t b)
 {
     int32_t result = a;
@@ -221,19 +186,52 @@ static inline int32_t divs_32by16(int32_t dividend, int16_t divisor)
     return (int16_t)dividend;
 }
 
+void plotPixel(int x, int y, int color,
+               int scaleX, int scaleY, int scaleCol,
+               uint8_t **bplPointers)
+{
+
+   /* Scale coordinates */
+    x >>= scaleX;
+    y >>= scaleY;
+
+    /* Bytes per line */
+    int bytesPerLine = 80 >> scaleX;
+    /* Scale color */
+    color >>= scaleCol;
+
+    /* Y * bytesPerLine + X/8 */
+    int address = muls_16x16((int16_t)y, (int16_t)bytesPerLine) + (x >> 3);
+
+    uint8_t mask = (uint8_t)(0x80 >> (x & 7));
+
+    int planes = scaleColToBpl(scaleCol);
+    for (int p = 0; p < planes; p++) {
+        uint8_t *ptr = bplPointers[p] + address;
+        if (color & 1)
+            *ptr |= mask;
+        else
+            *ptr &= (uint8_t)~mask;
+        color >>= 1;
+    }
+}
+
 void drawCircle(int xc, int yc, int r, int color, int scaleX, int scaleY, int scaleCol, uint8_t **bplPointers)
 {
     short x = 0;
     short y = r;
     short d = 3 - (2 * r);
-    short y_num = 110;
-    short y_den = 100;
+    /* Y-axis aspect scale 110/100 (= 1.1) as fixed point to avoid a divs.w
+       per value: 1.1 * 8192 = 9011.2, rounded up to 9012.  (v*9012)>>13
+       equals v*110/100 exactly for 0 <= v < 1024. */
+    const short y_fix = 9012;
+
+    short ay = (short)(muls_16x16(y, y_fix) >> 13);
 
     while (x <= y) {
 
         // Y-axis scaling (integer only)
-        short ay = divs_32by16(muls_16x16(y, y_num), y_den);
-        short by = divs_32by16(muls_16x16(x, y_num), y_den);
+        short by = (short)(muls_16x16(x, y_fix) >> 13);
 
         // Octants
         plotPixel(xc + x, yc + ay, color, scaleX, scaleY, scaleCol, bplPointers);
@@ -252,6 +250,7 @@ void drawCircle(int xc, int yc, int r, int color, int scaleX, int scaleY, int sc
         else {
             d += 4 * (x - y) + 10;
             y--;
+            ay = (short)(muls_16x16(y, y_fix) >> 13);
         }
         x++;
     }
