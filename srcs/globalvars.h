@@ -395,6 +395,8 @@ typedef struct GlobalVars
 	uint8_t	ScsiIrqPending;		// Set by ScsiPortsIRQ when a WD33C93 completion IRQ was serviced
 	uint8_t	ScsiIrqStatus;		// SCSI_STATUS byte read by ScsiPortsIRQ
 	uint16_t	ScsiIrqCount;		// Total times ScsiPortsIRQ has actually run, for on-screen confirmation
+	uint8_t	HddEscLatch;		// ESC/both-buttons seen by hddInputService() inside a long HDD wait loop; consumed by a4kDmaAbortRequested()
+	uint8_t	HddPad0;		// keep EndVar word-aligned
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

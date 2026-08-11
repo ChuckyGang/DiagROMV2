@@ -1744,6 +1744,10 @@ static int smartA4000IDE(void)    { return doSmartIDE(&ideA4000Regs); }
 // phase the target requests next via the status byte below.
 #define WDCMD_RESET             0x00
 #define WDCMD_ABORT             0x01
+#define WDCMD_ASSERT_ATN        0x02   // level-I quick command, no completion INT of its
+                                       // own — the consequence shows up as the target's
+                                       // next phase request (MSG_OUT), same convention
+                                       // as NEGATE_ACK below
 #define WDCMD_NEGATE_ACK        0x03
 #define WDCMD_SELECT_WITH_ATN   0x06
 #define WDCMD_TRANSFER_INFO     0x20
@@ -1760,6 +1764,13 @@ static int smartA4000IDE(void)    { return doSmartIDE(&ideA4000Regs); }
 // 33C93A) — the closest thing to a software-readable version this chip
 // exposes (WD33C93B datasheet, no separate revision register documented).
 #define WD_OWN_ID_EAF           0x08
+// Own ID register bit 5 = RAF ("Really Advanced Features"). The microcode
+// revision only parks in CDB1 after a RESET issued with THIS bit set — an
+// EAF-only reset leaves CDB1 at $00. Technique straight from Hooper's
+// sdmac.c (scsi_soft_reset(2)); found on real hw 2026-08-11 when his own
+// WD33C93A 00-08 (microcode $09) was reported as $00 — the common A3000
+// 00-03/00-04 parts genuinely have microcode $00, which masked the bug.
+#define WD_OWN_ID_RAF           0x20
 
 // WD33C93 SCSI_STATUS codes: upper nibble = group, lower nibble = code.
 #define WDSTS_RESET       0x00   // reset complete (standard)
@@ -1887,6 +1898,40 @@ static inline volatile struct GlobalVars *a3k_globals(void)
     return g;
 }
 
+// Keep the keyboard alive during long hardware waits, and latch abort
+// requests. The Amiga keyboard needs its scancode handshake within ~143ms
+// or it enters resync and the byte sitting in CIA-A's SDR gets clobbered —
+// and getKey() only handshakes when it is actually called. The soak tests'
+// abort poll runs once per rep, which is SECONDS apart once the bus is
+// timing out, so on real hw (cdh's A3000 + ZuluSCSI, 2026-08-11) ESC could
+// not stop a wedged DMA Transfer soak at all: every press arrived
+// resync-mangled, while the level-sampled both-mouse-buttons abort still
+// worked. Called from inside every bounded WD wait/pump loop — the call
+// sites are arranged so it only actually runs after ~10ms+ of continuous
+// WAITING, never in a healthy fast path, and never during an active SDMAC
+// DMA window (a3k_wd_wait_status_dma stays hands-off by design; its ~0.8s
+// bound is short enough that starvation there doesn't matter).
+//
+// Drains ALL queued scancodes (press+release pairs pile up between calls;
+// the keyboard's own buffer is 10 deep) and LATCHES rather than returns:
+// the consumer is a4kDmaAbortRequested(), whose getInput()->clearInput()
+// would otherwise wipe a key consumed here before ever seeing it. Mouse
+// buttons are sampled directly (CIA-A PRA bit 6 / POTGOR bit 10, both
+// active-low) so a held both-buttons abort also lands mid-rep.
+static void hddInputService(void)
+{
+    for (int i = 0; i < 12; i++) {
+        getKey();
+        if (!globals->keydown && !globals->keyup)
+            break;                       // nothing consumed — queue empty
+        if (globals->keynew && globals->key == 0x45)   // raw ESC scancode, key-down
+            globals->HddEscLatch = 1;
+    }
+    if (!(*(volatile uint8_t *)0xBFE001 & 0x40) &&
+        !(*(volatile uint16_t *)0xDFF016 & 0x0400))
+        globals->HddEscLatch = 1;
+}
+
 // waitShort() paces at ~640us/iteration via the video beam position register
 // (see amiga.c) — real elapsed time regardless of CPU speed, unlike a raw
 // iteration-count spin. a3k_wd_init() sets the WD33C93's own internal
@@ -1913,6 +1958,7 @@ static uint8_t a3k_wd_wait_int(void)
         if (a3k_wd_aux() & WD_ASR_INT)
             return a3k_wd_read(WD_SCSI_STATUS);
         waitShort();
+        if ((i & 15) == 15) hddInputService();   // only fires after ~10ms of waiting
     }
     return 0xFF;
 }
@@ -1932,6 +1978,7 @@ static void a3k_wd_wait_ready(void)
 
     uint32_t t = 1500000UL;
     while (t--) {
+        if ((t & 0xFFFF) == 0) hddInputService();
         uint8_t asr = a3k_wd_aux();
         if (asr == 0xFF) continue;
         if (!(asr & (WD_ASR_BSY | WD_ASR_CIP))) return;
@@ -1941,6 +1988,7 @@ static void a3k_wd_wait_ready(void)
     a3k_wd_write(WD_COMMAND, WDCMD_ABORT);
     t = 1500000UL;
     while (t--) {
+        if ((t & 0xFFFF) == 0) hddInputService();
         uint8_t asr = a3k_wd_aux();
         if (asr == 0xFF) continue;
         if (!(asr & (WD_ASR_BSY | WD_ASR_CIP))) return;
@@ -2038,18 +2086,42 @@ static int a3kPrintWdChip(void)
         print("not responding\n", RED);
         return 0;
     }
-    uint8_t ucode = a3k_wd_read(WD_CDB1);   // microcode rev — valid only right after reset
 
-    uint8_t save = a3k_wd_read(WD_QUEUE_TAG);
-    a3k_wd_write(WD_QUEUE_TAG, 0xA5);
-    (void)*RAMSEY_VERSION_ADDR;             // scrub the bus so a float can't echo the pattern
-    int isB = (a3k_wd_read(WD_QUEUE_TAG) == 0xA5);
-    if (isB) {
-        a3k_wd_write(WD_QUEUE_TAG, 0x5A);
-        (void)*RAMSEY_VERSION_ADDR;
-        isB = (a3k_wd_read(WD_QUEUE_TAG) == 0x5A);
+    // B-discrimination only for parts that answered the EAF reset with $01,
+    // exactly as Hooper's sdmac.c gates it — a genuine 33C93B ALWAYS does.
+    // Probing unconditionally is how a real-hw report (Bruce, AA3k+ZZ9000,
+    // 2026-08-11) got the self-contradictory "33C93B (no Advanced
+    // Features)": on a plain-$00 part the QUEUE_TAG address is undecoded,
+    // and one bus-scrub read evidently isn't always enough to keep a
+    // busy/loaded bus from echoing the pattern back anyway.
+    int isB = 0;
+    if (rst == WDSTS_RESET_AF) {
+        uint8_t save = a3k_wd_read(WD_QUEUE_TAG);
+        a3k_wd_write(WD_QUEUE_TAG, 0xA5);
+        (void)*RAMSEY_VERSION_ADDR;         // scrub the bus so a float can't echo the pattern
+        isB = (a3k_wd_read(WD_QUEUE_TAG) == 0xA5);
+        if (isB) {
+            a3k_wd_write(WD_QUEUE_TAG, 0x5A);
+            (void)*RAMSEY_VERSION_ADDR;
+            isB = (a3k_wd_read(WD_QUEUE_TAG) == 0x5A);
+        }
+        a3k_wd_write(WD_QUEUE_TAG, save);
     }
-    a3k_wd_write(WD_QUEUE_TAG, save);
+
+    // Microcode revision needs its own RESET with RAF set (see
+    // WD_OWN_ID_RAF) — only meaningful on A/B parts, and the chip must not
+    // be LEFT in RAF mode, so a normal EAF reset follows the read.
+    uint8_t ucode = 0;
+    if (rst == WDSTS_RESET_AF) {
+        a3k_wd_write(WD_OWN_ID, WD_OWN_ID_VAL | WD_OWN_ID_EAF | WD_OWN_ID_RAF);
+        a3k_wd_write(WD_COMMAND, WDCMD_RESET);
+        (void)a3k_wd_wait_int();
+        ucode = a3k_wd_read(WD_CDB1);
+        a3k_wd_wait_ready();
+        a3k_wd_write(WD_OWN_ID, WD_OWN_ID_VAL | WD_OWN_ID_EAF);
+        a3k_wd_write(WD_COMMAND, WDCMD_RESET);
+        (void)a3k_wd_wait_int();
+    }
 
     if (isB)
         print("33C93B", CYAN);
@@ -2059,6 +2131,13 @@ static int a3kPrintWdChip(void)
         print("33C93 (or early A)", CYAN);
     print("  microcode $", WHITE);
     print(binHexByte(ucode), CYAN);
+    // Package-marking decode for A-parts, from Hooper's sample table
+    // ($0D would be a 33C93B, covered by the B branch above already).
+    if (rst == WDSTS_RESET_AF && !isB) {
+        if (ucode == 0x00)      print(" (00-03/00-04)", CYAN);
+        else if (ucode == 0x08) print(" (00-06/AM33C93A)", CYAN);
+        else if (ucode == 0x09) print(" (00-08)", CYAN);
+    }
     print(rst == WDSTS_RESET_AF ? "  (Advanced Features)\n"
                                 : "  (no Advanced Features)\n", WHITE);
     a3k_wd_wait_ready();
@@ -2079,6 +2158,7 @@ static uint8_t a3k_wd_wait_status(void)
         if (asr != 0xFF && (asr & WD_ASR_INT))
             return a3k_wd_read(WD_SCSI_STATUS);
         waitShort();
+        if ((i & 15) == 15) hddInputService();   // only fires after ~10ms of waiting
     }
     return 0xFF;
 }
@@ -2092,6 +2172,9 @@ static int a3k_wd_pump(uint8_t *buf, int count, int read_dir)
     int idx = 0;
     uint32_t t = 1500000UL;
     while (t--) {
+        // t resets to a non-multiple-of-64K after every byte, so this only
+        // ever fires after ~65K consecutive empty polls — pure wait time.
+        if ((t & 0xFFFF) == 0) hddInputService();
         if (globals->ScsiIrqPending) return 0;   // phase ended early — ISR already caught it
         uint8_t asr = a3k_wd_aux();
         if (asr == 0xFF) continue;
@@ -2149,6 +2232,7 @@ static uint8_t a3k_wd_do_phase_sbt(uint8_t *byteBuf, int read_dir)
     uint32_t t = 500000UL;
     int gotDbr = 0;
     while (t--) {
+        if ((t & 0xFFFF) == 0) hddInputService();
         uint8_t asr = a3k_wd_aux();
         if (asr != 0xFF && (asr & WD_ASR_DBR)) { gotDbr = 1; break; }
     }
@@ -2176,6 +2260,83 @@ static void a3k_wd_negate_ack_if_paused(uint8_t st)
     }
 }
 
+// Best-effort release of an abandoned transaction, called on EVERY failure
+// exit from the phase walks. Before this existed, a failed walk just
+// returned with the target still connected — and the next command's WD
+// soft-RESET resets only the CHIP, never the target, so the target kept
+// holding BSY waiting for its phase to be served: bus wedged until power
+// cycle (every later SELECT st=$FF, ASR $20/$21, survives Ctrl-A-A because
+// the target is its own controller). Confirmed on real hw 2026-08-11
+// (cdh's A3000 + ZuluSCSI): one target latency spike beyond our poll
+// timeout mid-soak became a permanent wedge, and a slow LOG SENSE behind
+// the SMART key did the same temporarily. The only true bus reset (SDMAC
+// PRESET) is banned — it hard-hung a real A3000T (see SDMAC_CNTR_PRESET) —
+// so instead run the leftover transaction to COMPLETION the SCSI-correct
+// way: ABORT any stuck WD command, assert ATN, then serve whatever phases
+// the target still requests — IN bytes drained and discarded (bulk gulps
+// for DATA_IN), MSG_OUT answered with the ABORT message ($06: "initiator
+// aborts, go bus-free", honored since SCSI-1), other OUT phases fed zero
+// filler until the target gives up on the garbage and completes. Bounded
+// at every level — this must only ever improve a wedge, never become one.
+#define A3K_BAILOUT_STEPS 96   // full abandoned 4KB DATA_IN = 64 gulps + phase tail
+static void a3k_scsi_bailout(uint8_t lastSt)
+{
+    uint8_t junk[64];
+    int atnSent = 0, deadWaits = 0;
+
+    uint8_t asr = a3k_wd_aux();
+    if (asr == 0xFF) return;                     // bus float — nothing to release
+
+    // Chip still executing (a SELECT that can never win a held bus, or a
+    // TRANSFER_INFO the target stopped serving): ABORT to get it back first.
+    if (asr & (WD_ASR_BSY | WD_ASR_CIP)) {
+        a3k_wd_write(WD_COMMAND, WDCMD_ABORT);
+        lastSt = a3k_wd_wait_status();
+    }
+
+    for (int step = 0; step < A3K_BAILOUT_STEPS; step++) {
+        if (lastSt == 0xFF) {
+            asr = a3k_wd_aux();
+            if (asr == 0xFF ||
+                !(asr & (WD_ASR_INT | WD_ASR_DBR | WD_ASR_BSY | WD_ASR_CIP)))
+                return;                          // chip idle, nothing pending
+            if (++deadWaits >= 2) return;        // bus truly dead — stop meddling
+            lastSt = a3k_wd_wait_status();
+            continue;
+        }
+        deadWaits = 0;
+
+        uint8_t grp = lastSt & 0xF0, ph = lastSt & 0x0F;
+        if (grp == 0x20 && ph == 0x00) {         // transfer paused with ACK held
+            a3k_wd_write(WD_COMMAND, WDCMD_NEGATE_ACK);
+            lastSt = a3k_wd_wait_status();
+            continue;
+        }
+        if (ph < 0x8 || (grp != 0x10 && grp != 0x20 && grp != 0x40 && grp != 0x80))
+            return;   // completed / selection timeout / disconnected / unknown — done
+
+        // Target still requesting a phase. Ask for MSG_OUT once via ATN so
+        // it gives us a chance to send the ABORT message, then serve what
+        // it actually asks for until it lets go.
+        if (!atnSent) {
+            a3k_wd_write(WD_COMMAND, WDCMD_ASSERT_ATN);   // no INT of its own
+            atnSent = 1;
+        }
+        if (ph == WDPHASE_MSG_OUT) {
+            uint8_t abortMsg = 0x06;
+            lastSt = a3k_wd_do_phase_sbt(&abortMsg, 0);
+        } else if (ph == WDPHASE_DATA_IN) {
+            lastSt = a3k_wd_do_phase(junk, (int)sizeof(junk), 1);
+        } else if (ph == WDPHASE_STATUS || ph == WDPHASE_MSG_IN) {
+            junk[0] = 0;
+            lastSt = a3k_wd_do_phase_sbt(&junk[0], 1);
+        } else {                                 // DATA_OUT / CMD: feed filler
+            junk[0] = 0;
+            lastSt = a3k_wd_do_phase_sbt(&junk[0], 0);
+        }
+    }
+}
+
 // SELECT_WITH_ATN for one target. No DPD bit on DEST_ID — that only applies
 // to the autonomous Select-and-Transfer command, never the manual
 // phase-by-phase approach used here (confirmed against both the real
@@ -2198,22 +2359,36 @@ static uint8_t a3k_scsi_select(uint8_t unit)
 static int a3k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
                              uint8_t *dataBuf, int dataLen)
 {
+    // Every failure exit runs a3k_scsi_bailout(st) first: abandoning the
+    // walk with the target still connected is what wedged real buses (see
+    // the bailout's comment). The final status/msg check does NOT bail out —
+    // by then the transaction is complete and the target already released.
     uint8_t st = a3k_scsi_select(unit);
-    if (!((st & 0xF0) == 0x80 && (st & 0x0F) == WDPHASE_MSG_OUT)) return 0;
+    if (!((st & 0xF0) == 0x80 && (st & 0x0F) == WDPHASE_MSG_OUT)) {
+        a3k_scsi_bailout(st); return 0;
+    }
 
     uint8_t identify = 0x80;   // IDENTIFY, LUN 0, no DiscPriv — a scan has no reselect handling
     st = a3k_wd_do_phase_sbt(&identify, 0);
-    if (!((st & 0x0F) == WDPHASE_CMD && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) return 0;
+    if (!((st & 0x0F) == WDPHASE_CMD && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
+        a3k_scsi_bailout(st); return 0;
+    }
 
     st = a3k_wd_do_phase((uint8_t *)cdb, cdbLen, 0);
-    if (!((st & 0x0F) == WDPHASE_DATA_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) return 0;
+    if (!((st & 0x0F) == WDPHASE_DATA_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
+        a3k_scsi_bailout(st); return 0;
+    }
 
     st = a3k_wd_do_phase(dataBuf, dataLen, 1);
-    if (!((st & 0x0F) == WDPHASE_STATUS && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) return 0;
+    if (!((st & 0x0F) == WDPHASE_STATUS && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
+        a3k_scsi_bailout(st); return 0;
+    }
 
     uint8_t statusByte = 0xFF;
     st = a3k_wd_do_phase_sbt(&statusByte, 1);
-    if (!((st & 0x0F) == WDPHASE_MSG_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) return 0;
+    if (!((st & 0x0F) == WDPHASE_MSG_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
+        a3k_scsi_bailout(st); return 0;
+    }
 
     uint8_t msgByte = 0xFF;
     st = a3k_wd_do_phase_sbt(&msgByte, 1);
@@ -3604,8 +3779,15 @@ static void soakBlankRow(uint32_t row)
 // pass can spend many seconds in timeout waits.
 static int a4kDmaAbortRequested(void)
 {
+    // Drain the whole keyboard queue first (multiple press+release pairs
+    // pile up between polls once reps get slow) and pick up anything
+    // hddInputService() latched from inside a wait loop — getInput()'s
+    // clearInput() would wipe a key consumed there before we saw it.
+    hddInputService();
     getInput();
-    if ((globals->LMB && globals->RMB) || globals->GetCharData == 0x1b) {
+    if ((globals->LMB && globals->RMB) || globals->GetCharData == 0x1b ||
+        globals->HddEscLatch) {
+        globals->HddEscLatch = 0;
         waitReleased();
         return 1;
     }
@@ -3777,6 +3959,8 @@ static int a4kDmaTestRepeat(void)
         print("\nA4000T SCSI - DMA Test: Controller reset failed.\n", RED);
         return 0;
     }
+
+    globals->HddEscLatch = 0;   // stale-latch guard, same as the A3000 repeat modes
 
     uint32_t iterations = 0, totalPassed = 0, totalChecks = 0;
     DmaFailInfo lastFail;
@@ -4215,6 +4399,9 @@ static int a3kDmaTestRepeat(void)
     uint32_t checkFails[A3K_MAX_REG_CHECKS] = { 0, 0, 0 };
     int ver;
 
+    globals->HddEscLatch = 0;   // an ESC latched during an earlier scan/identify
+                                // wait must not insta-abort this fresh soak
+
     print("\002A3000/A3000T SCSI - DMA Register Test (Repeat)\n", WHITE);
     print("\002EXPERIMENTAL - please report results\n\n", YELLOW);
     if (!a3kRegTestSetup(&ver))
@@ -4450,6 +4637,7 @@ static uint8_t a3k_dma_drain(A3kDmaDebug *dbg)
     volatile struct GlobalVars *globals = a3k_globals();
     uint32_t t = 1500000UL;
     while (t--) {
+        if ((t & 0xFFFF) == 0) hddInputService();   // t resets per drained byte — wait time only
         if (globals->ScsiIrqPending) {
             globals->ScsiIrqPending = 0;
             return globals->ScsiIrqStatus;
@@ -4558,31 +4746,40 @@ static uint8_t a3k_wd_do_phase_dma_in(uint8_t *buf, int count, A3kDmaDebug *dbg)
 static int a3k_scsi_command_dma(uint8_t unit, const uint8_t *cdb, int cdbLen,
                                 uint8_t *dataBuf, int dataLen, A3kDmaDebug *dbg)
 {
+    // Same bailout-before-abandoning rule as a3k_scsi_command() — including
+    // after a DATA_IN whose internal drain couldn't finish the job (the WD
+    // is back in polled mode by then, so the bailout's machinery applies).
+    // The final status/msg check stays bailout-free: transaction complete.
     uint8_t st = a3k_scsi_select(unit);
     if (!((st & 0xF0) == 0x80 && (st & 0x0F) == WDPHASE_MSG_OUT)) {
-        dbg->failPhase = A3K_DMAPH_SELECT; dbg->st = st; return 0;
+        dbg->failPhase = A3K_DMAPH_SELECT; dbg->st = st;
+        a3k_scsi_bailout(st); return 0;
     }
 
     uint8_t identify = 0x80;
     st = a3k_wd_do_phase_sbt(&identify, 0);
     if (!((st & 0x0F) == WDPHASE_CMD && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
-        dbg->failPhase = A3K_DMAPH_MSGOUT; dbg->st = st; return 0;
+        dbg->failPhase = A3K_DMAPH_MSGOUT; dbg->st = st;
+        a3k_scsi_bailout(st); return 0;
     }
 
     st = a3k_wd_do_phase((uint8_t *)cdb, cdbLen, 0);
     if (!((st & 0x0F) == WDPHASE_DATA_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
-        dbg->failPhase = A3K_DMAPH_CMD; dbg->st = st; return 0;
+        dbg->failPhase = A3K_DMAPH_CMD; dbg->st = st;
+        a3k_scsi_bailout(st); return 0;
     }
 
     st = a3k_wd_do_phase_dma_in(dataBuf, dataLen, dbg);
     if (!((st & 0x0F) == WDPHASE_STATUS && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
-        dbg->failPhase = A3K_DMAPH_DATA; dbg->st = st; return 0;
+        dbg->failPhase = A3K_DMAPH_DATA; dbg->st = st;
+        a3k_scsi_bailout(st); return 0;
     }
 
     uint8_t statusByte = 0xFF;
     st = a3k_wd_do_phase_sbt(&statusByte, 1);
     if (!((st & 0x0F) == WDPHASE_MSG_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
-        dbg->failPhase = A3K_DMAPH_STATUS; dbg->st = st; return 0;
+        dbg->failPhase = A3K_DMAPH_STATUS; dbg->st = st;
+        a3k_scsi_bailout(st); return 0;
     }
 
     uint8_t msgByte = 0xFF;
@@ -5020,6 +5217,8 @@ static int a3kXferTestRepeat(void)
     print("\002A3000/A3000T SCSI - DMA Transfer Test (Repeat)\n", WHITE);
     print("\002EXPERIMENTAL - please report results\n\n", YELLOW);
     a3k_scsi_irq_enable(a3k_globals());
+    globals->HddEscLatch = 0;   // stale-latch guard; an ESC during the setup
+                                // below still latches and aborts at pass 1
     int target = a3kXferSetup(dirs, &nDirs, &ref);
     if (target < 0) {
         a3k_scsi_irq_disable();
