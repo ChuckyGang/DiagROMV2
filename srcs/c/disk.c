@@ -5027,6 +5027,42 @@ static void a3kXferPrintFail(const A3kXferFail *fail)
     print("\n", YELLOW);
 }
 
+// One-line verdict for the soak's "Last:" summary row. The full forensics
+// belong to the FIRST fail's block, drawn once and never overwritten —
+// learned from cdh's overnight BFG9060 run (2026-08-13): the wedge onset at
+// ~pass 71 was overwritten ~87000 times before anyone saw the screen, and
+// only the near-equal per-row tallies let the onset be reconstructed at
+// all. Every branch stays short enough that the whole "Last:" row fits in
+// 80 columns, and no newline is ever printed: on NTSC this row can be the
+// bottom one, where a wrap or newline would scroll the frame.
+static void a3kXferPrintTerse(const A3kXferFail *fail)
+{
+    switch (fail->reason) {
+    case A3K_XFERFAIL_CMD:
+        print("no completion", RED);
+        // PIO rows never fill dbg (failPhase stays NONE) — suffix is
+        // DMA-row-only.
+        if (fail->dbg.failPhase != A3K_DMAPH_NONE) {
+            print(" at ", RED);
+            print((char *)a3kDmaPhaseNames[fail->dbg.failPhase], RED);
+            print(" st=$", RED);
+            print(binHexByte(fail->dbg.st), RED);
+        }
+        return;
+    case A3K_XFERFAIL_DMASTALL:
+        print("DMA stall (drain freed bus)", RED);
+        return;
+    case A3K_XFERFAIL_NODATA:
+        print("no data reached memory", RED);
+        return;
+    default:
+        print("mismatch (", RED);
+        print(binDec((int32_t)fail->badBytes), RED);
+        print(" bytes)", RED);
+        return;
+    }
+}
+
 // One-time setup shared by both modes: SCSI mode + bus-float guard, find a
 // target, allocate/align every buffer, take the double-PIO reference.
 // Returns the target ID (>= 0) with dirs/nDirs/ref filled in, or -1 after
@@ -5206,6 +5242,15 @@ static int a3kXferTest(void)
 // hardware that's hanging every transfer.
 #define A3K_XFERSOAK_REPS 5
 
+// Consecutive completed passes in which EVERY rep of EVERY row failed with
+// a command timeout before the soak declares the bus wedged and halts
+// itself. Once a target wedges (holding the bus after an abandoned
+// transaction the drain couldn't finish — cdh's overnight BFG9060 run),
+// nothing ever passes again and further passes are pure noise that also
+// scrolls the onset forensics away; 3 passes = 15*nDirs straight timeouts,
+// beyond any transient flake, reached within seconds of the event.
+#define A3K_XFERSOAK_WEDGE_PASSES 3
+
 static int a3kXferTestRepeat(void)
 {
     A3kXferDir dirs[A3K_XFER_MAX_DIRS];
@@ -5226,29 +5271,32 @@ static int a3kXferTestRepeat(void)
     }
 
     uint32_t iterations = 0, totalPassed = 0, totalChecks = 0;
-    A3kXferFail lastFail;
-    uint32_t lastFailPass = 0;
-    int lastFailDir = 0, haveFail = 0;
-    int aborted = 0;
+    A3kXferFail firstFail, lastFail;
+    uint32_t firstFailPass = 0, lastFailPass = 0;
+    int firstFailDir = 0, lastFailDir = 0, haveFail = 0, firstDrawn = 0;
+    int aborted = 0, wedgeStreak = 0, wedged = 0;
 
     // Draw-once frame with in-place number updates, same shape as
     // a4kDmaTestRepeat() — see the layout comment there. NO clearScreen():
     // the frame starts BELOW the setup's buffer-address/target output, so
     // that stays visible for the whole soak (user request); row layout is
-    // read off the live cursor. This test's "Last fail" block is the tall
-    // one: worst case (MISMATCH) is the FAILED line (long enough to wrap
-    // onto a second row) + lanes/poison/dump line + engine line + exp and
-    // got hex-dump lines + direction hint = 7 rows, all blanked before a
-    // redraw. On NTSC (25 rows) that block bottoms out around row 22 —
-    // only if the setup printed several retry-warning lines could the fail
-    // block's own prints reach the bottom row and scroll; rare enough to
-    // live with, and PAL (32 rows) has slack regardless.
+    // read off the live cursor. The tall block is the FIRST fail's full
+    // forensics — drawn once when it happens and never blanked or redrawn,
+    // so the onset evidence survives an overnight soak: worst case
+    // (MISMATCH) is the header+FAILED line (long enough to wrap onto a
+    // second row) + lanes/poison/dump line + engine line + exp and got
+    // hex-dump lines + direction hint = 7 rows. Below it, later fails get
+    // a ONE-row "Last:" summary via a3kXferPrintTerse() (blanked before
+    // each redraw; guaranteed not to wrap). On NTSC (25 rows) that summary
+    // row IS roughly the bottom row — which is why it never prints a
+    // newline; PAL (32 rows) has slack regardless.
     print("\nESC or both buttons: stop\n\n", WHITE);
     uint32_t passRow   = *(volatile uint8_t *)&globals->Ypos;   // row lives in the MSB byte (see setPos)
     uint32_t totalsRow = passRow + (uint32_t)nDirs + 2;
     uint32_t failRow   = totalsRow + 1;
+    uint32_t lastRow   = failRow + 7;
 
-    while (!aborted) {
+    while (!aborted && !wedged) {
         setPos(0, passRow);
         print("Pass ", WHITE);   // target ID already on screen from the setup output above
         print(binDec((int32_t)(iterations + 1)), CYAN);
@@ -5257,17 +5305,26 @@ static int a3kXferTestRepeat(void)
         print(" reps per row):", WHITE);
 
         int newFail = 0;
+        int allCmdTimeouts = 1;   // whole pass = nothing but CMD timeouts?
         for (int d = 0; d < nDirs && !aborted; d++) {
             uint32_t passedReps = 0;
 
             for (int rep = 0; rep < A3K_XFERSOAK_REPS; rep++) {
                 if (a3kXferRun(target, &dirs[d], ref, &fail)) {
                     passedReps++;
+                    allCmdTimeouts = 0;
                 } else {
+                    if (fail.reason != A3K_XFERFAIL_CMD)
+                        allCmdTimeouts = 0;
                     dirFails[d]++;
                     lastFail     = fail;
                     lastFailPass = iterations + 1;
                     lastFailDir  = d;
+                    if (!haveFail) {
+                        firstFail     = fail;
+                        firstFailPass = iterations + 1;
+                        firstFailDir  = d;
+                    }
                     haveFail     = 1;
                     newFail      = 1;
                 }
@@ -5292,6 +5349,14 @@ static int a3kXferTestRepeat(void)
         }
         iterations++;
 
+        // Wedge watch — only COMPLETED passes count (an ESC mid-pass must
+        // not add a short pass to the streak).
+        if (!aborted) {
+            wedgeStreak = allCmdTimeouts ? wedgeStreak + 1 : 0;
+            if (wedgeStreak >= A3K_XFERSOAK_WEDGE_PASSES)
+                wedged = 1;
+        }
+
         setPos(0, totalsRow);
         print("Running totals over ", WHITE);
         print(binDec((int32_t)iterations), CYAN);
@@ -5301,23 +5366,57 @@ static int a3kXferTestRepeat(void)
         print(binDec((int32_t)totalChecks), WHITE);
         print(" reads passed", WHITE);
 
-        if (haveFail && newFail) {
-            for (uint32_t r = 0; r < 8; r++)
-                soakBlankRow(failRow + r);
-            setPos(0, failRow);
-            print("Last fail: pass ", WHITE);
+        if (newFail) {
+            if (!firstDrawn) {
+                // Immutable onset block — the rows below it were never
+                // written, so nothing needs blanking, now or ever.
+                setPos(0, failRow);
+                print("First fail: pass ", WHITE);
+                print(binDec((int32_t)firstFailPass), CYAN);
+                print("  ", WHITE);
+                print((char *)dirs[firstFailDir].label, CYAN);
+                print(": ", WHITE);
+                a3kXferPrintFail(&firstFail);
+                if (dirs[firstFailDir].failHint) {
+                    print((char *)dirs[firstFailDir].failHint, YELLOW);
+                }
+                firstDrawn = 1;
+            }
+            soakBlankRow(lastRow);
+            setPos(0, lastRow);
+            print("Last: pass ", WHITE);
             print(binDec((int32_t)lastFailPass), CYAN);
             print("  ", WHITE);
             print((char *)dirs[lastFailDir].label, CYAN);
             print(": ", WHITE);
-            a3kXferPrintFail(&lastFail);
-            if (dirs[lastFailDir].failHint) {
-                print((char *)dirs[lastFailDir].failHint, YELLOW);
-            }
+            a3kXferPrintTerse(&lastFail);
         }
     }
 
     a3k_scsi_irq_disable();
+
+    if (wedged) {
+        // The frame is done updating, so sequential prints (and the scroll
+        // they cause on NTSC, where lastRow is the bottom row) are safe
+        // now. Unlike the ESC path — which consumed its own dismissal
+        // keypress — a self-halt needs an explicit WaitButton() or the
+        // caller's initScreen() would wipe this verdict instantly.
+        setPos(0, lastRow);
+        print("\n\n", WHITE);
+        print("Bus wedged: every command in ", RED);
+        print(binDec(A3K_XFERSOAK_WEDGE_PASSES), RED);
+        print(" consecutive passes timed out.\n", RED);
+        print("Soak halted at pass ", WHITE);
+        print(binDec((int32_t)iterations), CYAN);
+        print(" (first fail: pass ", WHITE);
+        print(binDec((int32_t)firstFailPass), CYAN);
+        print(").\n", WHITE);
+        print("If Scan Devices now finds no IDs, the target is holding the bus:\n", YELLOW);
+        print("a warm reboot may not release it - power the machine off and on.\n", YELLOW);
+        print("\nPress any key/button to continue", WHITE);
+        WaitButton();
+    }
+
     return (int)totalPassed;
 }
 
