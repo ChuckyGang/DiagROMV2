@@ -1,5 +1,6 @@
 #include "globalvars.h"
 #include "generic.h"
+#include "platform.h"
 #include "menus.h"
 #include <exec/types.h>
 #include <hardware/custom.h>
@@ -3612,6 +3613,15 @@ typedef struct {
     uint32_t mismatch;   // first differing byte offset (MISMATCH)
     uint8_t  istat;      // chip status captured at failure (TIMEOUT/BADSTOP)
     uint8_t  dstat;
+    uint8_t  exp, got;   // MISMATCH: expected (src) vs actual (dst) byte
+    uint32_t srcLong;    // MISMATCH: the longword containing the first bad
+    uint32_t dstLong;    //   byte, from both sides — the src-vs-dst shape
+                         //   (lane swap / stale word / shifted burst) is the
+                         //   actual bug signature, not just "differed"
+    uint32_t badBytes;   // MISMATCH: total differing bytes in the buffer
+    uint32_t laneCnt[4]; // MISMATCH: differing bytes per byte lane (i&3) —
+                         //   "0/0/1024/1024" = every longword's LOW word bad
+                         //   (a lane/sizing fault), vs a few scattered beats
 } DmaFailInfo;
 
 // One src->dst pairing over the RAM regions this system actually has; the
@@ -3621,7 +3631,37 @@ typedef struct {
     uint8_t    *src;
     uint8_t    *dst;
 } DmaDirection;
-#define NCR_DMATEST_MAX_DIRS 4
+#define NCR_DMATEST_MAX_DIRS 7
+
+// Motherboard-fast control probe: $01000000-$07FFFFFF is the motherboard
+// RAM window on big-box machines (officially the top of it; unofficial
+// hacks fill it from $01000000 up, so the top is NOT always $07FFFFFF —
+// John's A4000T ends at $07BFFFFF), while $08000000+ is CPU-card space.
+// When the primary fast region lives in card space, finding RAM down here
+// gives the 53C710 a THIRD memory system to read through (Ramsey), which
+// separates "the card's own slave-read path is broken" from "the card
+// breaks bus-master reads in general". Scans 1MB boundaries top-down and
+// write/readback-verifies at BOTH ends of the would-be buffer pair with
+// distinct values — the far probe is written between the near writes and
+// reads, so open-bus echo (bus holds the LAST driven value) can't fake a
+// hit. Returns the longword-aligned base for two buffers, or NULL.
+static uint8_t *a4kDmaProbeMBFast(void)
+{
+    for (uint32_t top = 0x08000000UL; top >= 0x01000000UL + 2 * NCR_DMATEST_BUF_SIZE + 16;
+         top -= 0x100000UL) {
+        uint32_t base = (top - 2 * NCR_DMATEST_BUF_SIZE - 16) & ~3UL;
+        volatile uint32_t *lo = (volatile uint32_t *)(uintptr_t)base;
+        volatile uint32_t *hi = (volatile uint32_t *)(uintptr_t)(base + 2 * NCR_DMATEST_BUF_SIZE - 8);
+        lo[0] = 0xA5C33C5AUL;
+        lo[1] = base;
+        hi[0] = 0x5AC3C3A5UL;
+        hi[1] = ~base;
+        if (lo[0] == 0xA5C33C5AUL && lo[1] == base &&
+            hi[0] == 0x5AC3C3A5UL && hi[1] == ~base)
+            return (uint8_t *)(uintptr_t)base;
+    }
+    return NULL;
+}
 
 // const-of-const so the whole array lands in .rodata — a merely
 // pointer-mutable static would go to .data, which this linker script maps
@@ -3689,6 +3729,11 @@ static int a4k_dma_move(uint8_t *src, uint8_t *dst, uint32_t size, DmaFailInfo *
     int fired = 0;
     for (int i = 0; i < NCR_SCAN_WAIT_ITERS; i++) {
         if (globals->ScsiIrqPending) { fired = 1; break; }
+        // Blink the power LED through the timeout wait: on failing
+        // hardware this loop runs to the end (~2.5s) for EVERY move, and
+        // with the soak screen only updating numbers in place that reads
+        // as a hang — the LED says "still alive" (256*waitShort ~ 6Hz).
+        if ((i & 255) == 255) togglePwrLED();
         waitShort();
     }
 
@@ -3725,12 +3770,32 @@ static int a4kDmaRunPattern(uint8_t *src, uint8_t *dst, int pattern,
     if (!a4k_dma_move(src, dst, NCR_DMATEST_BUF_SIZE, fail))
         return 0;
 
+    // Walk the WHOLE buffer even after the first bad byte: the total count
+    // and the per-lane split separate "every longword's low word floats"
+    // (systematic sizing/lane fault) from a few scattered corrupt beats —
+    // for the card designer that distinction is the whole diagnosis.
+    uint32_t bad = 0, lanes[4] = { 0, 0, 0, 0 };
     for (uint32_t i = 0; i < NCR_DMATEST_BUF_SIZE; i++) {
         if (src[i] != dst[i]) {
-            fail->reason   = NCR_DMAFAIL_MISMATCH;
-            fail->mismatch = i;
-            return 0;
+            if (bad == 0) {
+                fail->reason   = NCR_DMAFAIL_MISMATCH;
+                fail->mismatch = i;
+                fail->exp      = src[i];
+                fail->got      = dst[i];
+                // Buffers are longword-aligned (a4kDmaBuildDirections
+                // forces it), so the containing longword reads directly.
+                uint32_t la    = i & ~3UL;
+                fail->srcLong  = *(uint32_t *)(src + la);
+                fail->dstLong  = *(uint32_t *)(dst + la);
+            }
+            bad++;
+            lanes[i & 3]++;
         }
+    }
+    if (bad) {
+        fail->badBytes = bad;
+        for (int l = 0; l < 4; l++) fail->laneCnt[l] = lanes[l];
+        return 0;
     }
     return 1;
 }
@@ -3745,6 +3810,16 @@ static void a4kDmaPrintFail(const DmaFailInfo *fail)
     if (fail->reason == NCR_DMAFAIL_MISMATCH) {
         print("FAILED (mismatch at offset ", RED);
         print(binHex(fail->mismatch), RED);
+        print(" exp=", RED); print(binHexByte(fail->exp), RED);
+        print(" got=", RED); print(binHexByte(fail->got), RED);
+        print(" src=", RED); print(binHex(fail->srcLong), RED);
+        print(" dst=", RED); print(binHex(fail->dstLong), RED);
+        print(" bad=", RED); print(binDec((int32_t)fail->badBytes), RED);
+        print("/4096 lanes=", RED);
+        for (int l = 0; l < 4; l++) {
+            if (l) print("/", RED);
+            print(binDec((int32_t)fail->laneCnt[l]), RED);
+        }
         print(")\n", RED);
         return;
     }
@@ -3810,27 +3885,42 @@ static int a4kDmaAbortRequested(void)
 // Chip buffer is never mislabeled "CPU board" (getMemory() alone could also
 // never produce a genuine cross-region pair, which is why getChip() is used
 // for the Chip side at all).
-static int a4kDmaBuildDirections(DmaDirection *dirs, int *haveChip, int *haveFast)
+static int a4kDmaBuildDirections(DmaDirection *dirs, int *haveChip, int *haveFast,
+                                 uint8_t **mbOut)
 {
     uint8_t *chipA = NULL, *chipB = NULL, *fastA = NULL, *fastB = NULL;
+    uint8_t *mbA = NULL, *mbB = NULL;
     int n = 0;
 
-    uint32_t caddr = getChip(2 * NCR_DMATEST_BUF_SIZE);
+    // The 710's Memory Move is ILLEGAL (DSTAT=IID; DIEN masks it, so it
+    // shows as a no-IRQ timeout) unless src and dst share the same low two
+    // address bits — and NEITHER allocator guarantees a longword base:
+    // getChip()'s ChipUnreservedAddr is only masked ~1 (even), and
+    // getMemory() hands out end-based slices whose phase is FastEnd's —
+    // an INCLUSIVE end like $xxFFFFF puts every Fast buffer at addr%4==3
+    // (only the rounded-up SIZE keeps later offsets consistent, the base
+    // is whatever the region end is). Same-region pairs share a phase
+    // (equal misalignment = legal, so those directions pass), but on a
+    // real A4000T+030 the cross-region directions died 100% with
+    // DSTAT=$81. Over-allocate every buffer by 4 and round up so all
+    // four sit on the same longword phase.
+    uint32_t caddr = getChip(2 * NCR_DMATEST_BUF_SIZE + 4);
     if (caddr != 0 && caddr != 1) {   // 0=no chip RAM, 1=not enough room
+        caddr = (caddr + 3) & ~3UL;
         chipA = (uint8_t *)(uintptr_t)caddr;
         chipB = chipA + NCR_DMATEST_BUF_SIZE;
     }
 
     if (globals->FastStart != 0) {
-        uint8_t *fa = (uint8_t *)getMemory(NCR_DMATEST_BUF_SIZE);
-        uint8_t *fb = (uint8_t *)getMemory(NCR_DMATEST_BUF_SIZE);
+        uint8_t *fa = (uint8_t *)getMemory(NCR_DMATEST_BUF_SIZE + 4);
+        uint8_t *fb = (uint8_t *)getMemory(NCR_DMATEST_BUF_SIZE + 4);
         uint32_t fs = (uint32_t)(uintptr_t)globals->FastStart;
         uint32_t fe = (uint32_t)(uintptr_t)globals->FastEnd;
         if (fa && fb &&
             (uint32_t)(uintptr_t)fa >= fs && (uint32_t)(uintptr_t)fa < fe &&
             (uint32_t)(uintptr_t)fb >= fs && (uint32_t)(uintptr_t)fb < fe) {
-            fastA = fa;
-            fastB = fb;
+            fastA = (uint8_t *)(((uintptr_t)fa + 3) & ~(uintptr_t)3);
+            fastB = (uint8_t *)(((uintptr_t)fb + 3) & ~(uintptr_t)3);
         }
     }
 
@@ -3838,19 +3928,44 @@ static int a4kDmaBuildDirections(DmaDirection *dirs, int *haveChip, int *haveFas
         dirs[n].label = "Local (Chip) -> Local (Chip)";
         dirs[n].src = chipA; dirs[n].dst = chipB; n++;
     }
+    // "Fast RAM", not "CPU board": FastStart is just the first fast region
+    // the memory scan found — which physical board answers there (CPU card,
+    // motherboard expansion, Zorro RAM) varies per system and per fitted
+    // CPU card, so the label must not claim more than the Buffers line's
+    // addresses can back up.
     if (fastA) {
-        dirs[n].label = "CPU board    -> CPU board   ";
+        dirs[n].label = "Fast RAM     -> Fast RAM    ";
         dirs[n].src = fastA; dirs[n].dst = fastB; n++;
     }
     if (chipA && fastA) {
-        dirs[n].label = "CPU board    -> Local (Chip)";
+        dirs[n].label = "Fast RAM     -> Local (Chip)";
         dirs[n].src = fastA; dirs[n].dst = chipA; n++;
-        dirs[n].label = "Local (Chip) -> CPU board   ";
+        dirs[n].label = "Local (Chip) -> Fast RAM    ";
         dirs[n].src = chipA; dirs[n].dst = fastA; n++;
+    }
+
+    // Motherboard-fast control block (see a4kDmaProbeMBFast): only when
+    // the primary fast region is in CPU-card space, so the same physical
+    // RAM is never tested twice under two labels.
+    if (fastA && (uint32_t)(uintptr_t)globals->FastStart >= 0x08000000UL) {
+        uint8_t *mb = a4kDmaProbeMBFast();
+        if (mb) {
+            mbA = mb;
+            mbB = mb + NCR_DMATEST_BUF_SIZE;
+            dirs[n].label = "MB Fast      -> MB Fast     ";
+            dirs[n].src = mbA; dirs[n].dst = mbB; n++;
+            if (chipA) {
+                dirs[n].label = "MB Fast      -> Local (Chip)";
+                dirs[n].src = mbA; dirs[n].dst = chipA; n++;
+                dirs[n].label = "Local (Chip) -> MB Fast     ";
+                dirs[n].src = chipA; dirs[n].dst = mbA; n++;
+            }
+        }
     }
 
     *haveChip = (chipA != NULL);
     *haveFast = (fastA != NULL);
+    *mbOut    = mbA;
     return n;
 }
 
@@ -3867,7 +3982,8 @@ static int a4kDmaTest(void)
         return 0;
     }
 
-    int nDirs = a4kDmaBuildDirections(dirs, &haveChip, &haveFast);
+    uint8_t *mbBase;
+    int nDirs = a4kDmaBuildDirections(dirs, &haveChip, &haveFast, &mbBase);
     if (nDirs == 0) {
         print("  Could not allocate any test buffers.\n", RED);
         return 0;
@@ -3875,7 +3991,7 @@ static int a4kDmaTest(void)
     if (!haveChip)
         print("  Local (Chip) directions skipped - no Chip RAM buffer available.\n", YELLOW);
     if (!haveFast)
-        print("  CPU board directions skipped - no Fast RAM detected/free.\n", YELLOW);
+        print("  Fast RAM directions skipped - no Fast RAM detected/free.\n", YELLOW);
 
     if (!a4kDmaEngineInit()) {
         print("  Controller reset failed.\n", RED);
@@ -3949,7 +4065,8 @@ static int a4kDmaTestRepeat(void)
         return 0;
     }
 
-    int nDirs = a4kDmaBuildDirections(dirs, &haveChip, &haveFast);
+    uint8_t *mbBase;
+    int nDirs = a4kDmaBuildDirections(dirs, &haveChip, &haveFast, &mbBase);
     if (nDirs == 0) {
         print("\nA4000T SCSI - DMA Test: Could not allocate any test buffers.\n", RED);
         return 0;
@@ -3976,11 +4093,34 @@ static int a4kDmaTestRepeat(void)
     clearScreen();
     print("\002A4000T SCSI - DMA Test (Repeat)\n\n", WHITE);
     print("ESC or both buttons: stop\n\n", WHITE);
+    // Buffer addresses in the static frame: shows the longword phase the
+    // Memory Move legality depends on (see a4kDmaBuildDirections), and
+    // doubles as an on-screen marker that THIS ROM build is the one
+    // actually running after a reflash.
+    print("Buffers: ", WHITE);
+    if (haveChip) {
+        print("Chip ", WHITE);
+        print(binHex((uint32_t)(uintptr_t)dirs[0].src), CYAN);
+        print("/", WHITE);
+        print(binHex((uint32_t)(uintptr_t)dirs[0].dst), CYAN);
+    }
+    if (haveFast) {
+        int fd = haveChip ? 1 : 0;
+        print("  Fast ", WHITE);
+        print(binHex((uint32_t)(uintptr_t)dirs[fd].src), CYAN);
+        print("/", WHITE);
+        print(binHex((uint32_t)(uintptr_t)dirs[fd].dst), CYAN);
+    }
+    if (mbBase) {
+        print("  MB ", WHITE);
+        print(binHex((uint32_t)(uintptr_t)mbBase), CYAN);
+    }
+    print("\n\n", WHITE);
     if (!haveChip)
         print("(Local (Chip) directions skipped - no Chip RAM buffer available)\n\n", YELLOW);
     if (!haveFast)
-        print("(CPU board directions skipped - no Fast RAM detected/free)\n\n", YELLOW);
-    uint32_t passRow   = 4 + (haveChip ? 0 : 2) + (haveFast ? 0 : 2);
+        print("(Fast RAM directions skipped - no Fast RAM detected/free)\n\n", YELLOW);
+    uint32_t passRow   = 6 + (haveChip ? 0 : 2) + (haveFast ? 0 : 2);
     uint32_t totalsRow = passRow + (uint32_t)nDirs + 2;
     uint32_t failRow   = totalsRow + 1;
 
@@ -4006,6 +4146,13 @@ static int a4kDmaTestRepeat(void)
                     newFail         = 1;
                 }
                 totalChecks++;
+                // Per-check activity teller (user ask): LED blink plus a
+                // corner spinner — putChar() at col 79 can't wrap/scroll
+                // (same rule soakBlankRow() relies on), and deriving the
+                // frame from totalChecks avoids a mutable static, which
+                // this linker script would put in ROM (A4000 IDE gotcha).
+                togglePwrLED();
+                putChar("|/-\\"[totalChecks & 3], GREEN, 79, 0);
                 if (a4kDmaAbortRequested()) { aborted = 1; break; }
             }
             totalPassed += passedDir;
@@ -4031,7 +4178,8 @@ static int a4kDmaTestRepeat(void)
 
         if (haveFail && newFail) {
             soakBlankRow(failRow);
-            soakBlankRow(failRow + 1);   // fail line can wrap onto a second row
+            soakBlankRow(failRow + 1);   // mismatch detail line can wrap onto
+            soakBlankRow(failRow + 2);   //   a second AND a third row
             setPos(0, failRow);
             print("Last fail: pass ", WHITE);
             print(binDec((int32_t)lastFailPass), CYAN);
