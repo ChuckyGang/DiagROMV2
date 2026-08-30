@@ -5878,6 +5878,892 @@ void HDDTestC()
     }
 }
 
+// ===========================================================================
+// CD32 CD test — Akiko chip + CD drive + disc (menu "6 - CD32 CD-test")
+// ===========================================================================
+//
+// Everything below is derived from WinUAE/Amiberry's akiko.cpp (the only
+// trustworthy public documentation of Akiko's CD interface; local copy at
+// ~/Documents/Code/amiberry-src/src/akiko.cpp) plus the CD32 Kickstart's
+// observable behavior as encoded there. Register map:
+//
+//   $B80000.L  ID, reads $C0CACAFE (Kickstart itself only checks the $CAFE
+//              word at $B80002)
+//   $B80004.L  INTREQ (read-only; per-bit clear methods, see AKINT_* below)
+//   $B80008.L  INTENA (we keep it 0 — this test polls, never interrupts)
+//   $B80010.L  sector-data DMA base (chip forces 4KB alignment)
+//   $B80014.L  command/status/subcode DMA base (chip forces 1KB alignment):
+//              +$000 256-byte circular STATUS ring   (drive -> memory)
+//              +$100 2x ~100-byte subcode buffers
+//              +$200 256-byte circular COMMAND ring  (memory -> drive)
+//              NOTE: akiko.cpp's own header comment documents +$000/+$200 the
+//              other way around — its CODE (cdrx_address/cdtx_address) and
+//              the working emulation say status=+0, commands=+$200.
+//   $B80018.B  read: subcode buffer offset / write: clear subcode irq
+//   $B8001D.B  read: command ring current index / write: command ring END
+//              index — writing a value != current starts the TX DMA that
+//              feeds the drive, and clears the TXDMA irq
+//   $B8001E.B  read: status ring current index
+//   $B8001F.B  write: status ring END index — starts the RX DMA that moves
+//              pending drive status bytes to memory, clears the RXDMA irq
+//   $B80020.W  PBX: sector-slot enable bits, one per 4KB block of the data
+//              base (write also clears the PBX irq; bits only ever set)
+//   $B80024.L  CONFIG (AKCFG_* below)
+//   $B80030.B  NVRAM I2C pins: bit7=SCL bit6=SDA; $B80032.B direction reg
+//   $B80038.L  C2P: write 8 chunky longwords, read back 8 planar longwords
+//
+// Drive protocol: commands are (sequence-nibble<<4 | command) + parameters +
+// a checksum byte chosen so the whole packet sums to $FF (mod 256).
+// Responses echo the command byte, carry a status byte (bit7=error,
+// bit3=playing, bit0=door closed) and end with the same checksum scheme.
+// Commands: 1=STOP 2=PAUSE 3=UNPAUSE 4=PLAY/READ(12 bytes) 5=LED(2)
+// 6=SUBQ 7=INFO. The drive also sends UNSOLICITED status packets (media
+// change, boot status, play start/end, TOC entries) which sit pending —
+// INTREQ bit 29 — until RX DMA fetches them; the drive will not accept a
+// new command while one is pending, so every send is preceded by a drain.
+
+#define AKIKO_ID      (*(volatile uint32_t *)0xB80000)
+#define AKIKO_INTREQ  (*(volatile uint32_t *)0xB80004)
+#define AKIKO_INTENA  (*(volatile uint32_t *)0xB80008)
+#define AKIKO_DMADATA (*(volatile uint32_t *)0xB80010)
+#define AKIKO_DMAMISC (*(volatile uint32_t *)0xB80014)
+#define AKIKO_SUBPOS  (*(volatile uint8_t  *)0xB80018)
+#define AKIKO_TXPOS   (*(volatile uint8_t  *)0xB8001D)
+#define AKIKO_RXPOS   (*(volatile uint8_t  *)0xB8001E)
+#define AKIKO_RXEND   (*(volatile uint8_t  *)0xB8001F)
+#define AKIKO_PBX     (*(volatile uint16_t *)0xB80020)
+#define AKIKO_CONFIG  (*(volatile uint32_t *)0xB80024)
+#define AKIKO_NVIO    (*(volatile uint8_t  *)0xB80030)
+#define AKIKO_NVDIR   (*(volatile uint8_t  *)0xB80032)
+#define AKIKO_C2P     (*(volatile uint32_t *)0xB80038)
+
+#define AKINT_SUBCODE 0x80000000UL
+#define AKINT_RECV    0x20000000UL  // drive has status/packet bytes pending
+#define AKINT_TXDMA   0x10000000UL  // command TX DMA reached its end index
+#define AKINT_RXDMA   0x08000000UL  // status RX DMA reached its end index
+#define AKINT_PBX     0x04000000UL  // one sector-data block transferred
+
+#define AKCFG_TXD     0x40000000UL  // command (memory->drive) DMA enable
+#define AKCFG_RXD     0x20000000UL  // status (drive->memory) DMA enable
+#define AKCFG_CAS     0x10000000UL  // Kickstart always sets this for reads
+#define AKCFG_PBX     0x08000000UL  // sector-slot register enable
+#define AKCFG_ENABLE  0x04000000UL  // sector-data DMA engine; command TX DMA
+                                    // is PAUSED while this is on, so it goes
+                                    // on only between command and data phase
+
+// All mutable state lives on CD32TestC()'s stack — the recurring DiagROM
+// gotcha: mutable file-scope/static data lands in ROM in this link layout
+// and writes to it are silently discarded (see the A4000 IDE section).
+typedef struct {
+    volatile uint8_t *misc;      // 1KB-aligned command/status/subcode base
+    volatile uint8_t *data;      // 4KB-aligned sector-data buffer (one slot)
+    uint8_t  cmdCount;           // rolling command sequence nibble
+    // TOC cache, filled by cd32FetchToc(), reused by the data/audio tests
+    int      tocValid;
+    uint8_t  firstTrack, lastTrack;
+    uint32_t leadoutLsn;
+    int      haveData;
+    uint32_t dataLsn;            // start of the first data track
+    int      haveAudio;
+    uint32_t audioLsn;           // start of the first audio track
+} Cd32Ctx;
+
+// berr.s guard helpers (shared with autoconfig.c's expansion-space probes)
+extern int acBerrReadLong(volatile uint32_t *addr, uint32_t *out);
+
+// TRUE only when an Akiko positively identifies itself. Same philosophy as
+// ncr710Present(): gate on positive chip identification, never on machine
+// inference. The read is BERR-guarded for machines whose Gary flavor times
+// out unmapped accesses; on classic machines $B80000 is inside the
+// CIA/expansion range that always DTACKs, and a floating bus can not
+// counterfeit three identical $C0CACAFE longwords.
+static int akikoPresent(void)
+{
+    for (int i = 0; i < 3; i++) {
+        uint32_t v = 0;
+        if (acBerrReadLong(&AKIKO_ID, &v))
+            return 0;               // bus error — nothing decodes here at all
+        if (v != 0xC0CACAFEUL)
+            return 0;
+    }
+    return 1;
+}
+
+static void cd32ExplainBlocked(void)
+{
+    print("\nNot possible on this machine: no Akiko chip found.\n", RED);
+    print("Akiko ($B80000, ID $C0CACAFE) exists only in the CD32 family,\n", YELLOW);
+    print("so there is no CD subsystem here to test.\n", YELLOW);
+}
+
+// waitShort()-paced INTREQ poll (~640us/iteration, real time on any CPU —
+// see A3K_WAIT_ITERS). Services the keyboard and honors ESC/both-buttons
+// via the same latch the HDD soak tests use. 1 = irq bit seen, 0 = timeout
+// or user abort (caller can tell them apart via globals->HddEscLatch).
+static int cd32WaitIrq(uint32_t mask, uint32_t iters)
+{
+    for (uint32_t i = 0; i < iters; i++) {
+        if (AKIKO_INTREQ & mask)
+            return 1;
+        waitShort();
+        if ((i & 15) == 15) {
+            hddInputService();
+            if (globals->HddEscLatch)
+                return 0;
+        }
+    }
+    return 0;
+}
+
+static void cd32DelayMs(uint32_t ms)
+{
+    for (uint32_t i = 0; i < ms + (ms >> 1); i++)   // ~640us per waitShort()
+        waitShort();
+}
+
+// No libgcc in this -nostdlib ROM link, so C-level 32-bit '/'+'%' don't
+// exist (__udivsi3/__umodsi3 unresolved) — plain shift-subtract long
+// division instead, plenty for MSF math (lsn tops out around 360000).
+static uint32_t cd32DivMod(uint32_t n, uint32_t d, uint32_t *rem)
+{
+    uint32_t q = 0, r = 0;
+    for (int i = 31; i >= 0; i--) {
+        r = (r << 1) | ((n >> i) & 1);
+        if (r >= d) {
+            r -= d;
+            q |= 1UL << i;
+        }
+    }
+    if (rem)
+        *rem = r;
+    return q;
+}
+
+static void cd32Print2d(uint32_t v, uint8_t color)
+{
+    uint32_t ones;
+    uint32_t tens = cd32DivMod(v, 10, &ones);
+    while (tens >= 10)
+        tens -= 10;
+    printChar((char)('0' + tens), color);
+    printChar((char)('0' + ones), color);
+}
+
+// lsn+150 -> minutes/seconds/frames (LSN 0 = MSF 00:02:00)
+static void cd32SplitMsf(uint32_t lsn, uint32_t *m, uint32_t *s, uint32_t *f)
+{
+    uint32_t t = cd32DivMod(lsn + 150, 75, f);      // t = total seconds
+    *m = cd32DivMod(t, 60, s);
+}
+
+static void cd32PrintLsnAsMsf(uint32_t lsn, uint8_t color)
+{
+    uint32_t m, s, f;
+    cd32SplitMsf(lsn, &m, &s, &f);
+    cd32Print2d(m, color);
+    printChar(':', color);
+    cd32Print2d(s, color);
+    printChar(':', color);
+    cd32Print2d(f, color);
+}
+
+static uint8_t cd32ToBcd(uint32_t v)
+{
+    uint32_t ones;
+    uint32_t tens = cd32DivMod(v, 10, &ones);
+    return (uint8_t)((tens << 4) | ones);
+}
+
+static uint32_t cd32FromBcd(uint8_t v)
+{
+    return (uint32_t)(v >> 4) * 10 + (v & 0x0F);
+}
+
+static void cd32LsnToBcdMsf(uint32_t lsn, uint8_t *out)
+{
+    uint32_t m, s, f;
+    cd32SplitMsf(lsn, &m, &s, &f);
+    out[0] = cd32ToBcd(m);
+    out[1] = cd32ToBcd(s);
+    out[2] = cd32ToBcd(f);
+}
+
+static uint32_t cd32BcdMsfToLsn(const uint8_t *msf)
+{
+    return (cd32FromBcd(msf[0]) * 60 + cd32FromBcd(msf[1])) * 75
+           + cd32FromBcd(msf[2]) - 150;
+}
+
+// Next command byte: rolling sequence nibble (drive echoes it back, which
+// is how responses are matched to commands) in the high nibble.
+static uint8_t akikoCmdByte(Cd32Ctx *cx, uint8_t cmd)
+{
+    cx->cmdCount = (uint8_t)((cx->cmdCount + 1) & 0x0F);
+    return (uint8_t)((cx->cmdCount << 4) | cmd);
+}
+
+// Program the interface and clear every stale condition. Buffer layout in
+// one getChip() block: getChip() hands out the TOP of unreserved chip RAM
+// without reserving it, and floppyTestC()'s track buffer (12980 bytes,
+// cached in globals->trackbuff for the whole session) lives at the very
+// top of that same region — so ask for enough to cover BOTH and use only
+// the space BELOW it, or running this test would corrupt a track image the
+// user just read. Chip RAM is mandatory: Akiko DMA is a chip-bus master.
+static int cd32Init(Cd32Ctx *cx)
+{
+    uint32_t raw = getChip(0x2400 + 12980);
+    if (raw == 0 || raw == 1) {
+        print("ERROR: not enough chip RAM for CD DMA buffers\n", RED);
+        return 0;
+    }
+    uint32_t dataBase = (raw + 0xFFF) & ~0xFFFUL;       // 4KB align (chip
+    cx->data = (volatile uint8_t *)dataBase;            // masks to this too)
+    cx->misc = (volatile uint8_t *)(dataBase + 0x1000); // 4KB => 1KB aligned
+
+    AKIKO_INTENA = 0;               // polled only — never interrupt-driven
+    AKIKO_CONFIG = 0;               // engines off while indexes get squared:
+    uint8_t t = AKIKO_TXPOS;        // a CONFIG write with TXD on while a
+    AKIKO_TXPOS = t;                // stale end!=current index lingered would
+    t = AKIKO_RXPOS;                // instantly DMA garbage at the drive.
+    AKIKO_RXEND = t;                // end := current also clears the TX/RX
+    AKIKO_SUBPOS = 0;               // DMA irqs; this write clears subcode's.
+    AKIKO_DMAMISC = (uint32_t)(uintptr_t)cx->misc;
+    AKIKO_DMADATA = dataBase;
+    AKIKO_CONFIG = AKCFG_TXD | AKCFG_RXD;
+    return 1;
+}
+
+// Fetch one pending drive packet, one RX-DMA byte at a time: bump the end
+// index by 1, wait for the RXDMA irq, collect the byte from the ring —
+// until the drive's "status pending" bit drops (== packet complete). This
+// needs no advance knowledge of the packet length, which also makes it the
+// drain for unsolicited packets. out may be NULL to discard. Returns the
+// byte count (0 = nothing arrived within firstIters).
+static int akikoRecvPacket(Cd32Ctx *cx, uint8_t *out, int max, uint32_t firstIters)
+{
+    if (!cd32WaitIrq(AKINT_RECV, firstIters))
+        return 0;
+    int count = 0;
+    while ((AKIKO_INTREQ & AKINT_RECV) && count < max) {
+        uint8_t pos = AKIKO_RXPOS;
+        AKIKO_RXEND = (uint8_t)(pos + 1);
+        if (!cd32WaitIrq(AKINT_RXDMA, 800))
+            break;
+        if (out)
+            out[count] = cx->misc[pos];
+        count++;
+    }
+    return count;
+}
+
+// Discard whatever the drive has queued up (boot status, media change,
+// play-end notifications...) — it refuses new commands while any packet
+// is pending delivery.
+static void akikoDrainQuiet(Cd32Ctx *cx)
+{
+    for (int p = 0; p < 6; p++) {
+        if (!(AKIKO_INTREQ & AKINT_RECV))
+            break;
+        if (akikoRecvPacket(cx, NULL, 64, 1) == 0)
+            break;
+    }
+}
+
+// Whole packet (data + trailing checksum byte) must sum to $FF mod 256.
+static int akikoChecksumOk(const uint8_t *pkt, int n)
+{
+    uint8_t sum = 0;
+    for (int i = 0; i < n; i++)
+        sum += pkt[i];
+    return sum == 0xFF;
+}
+
+// Write cmd[0..len-1] plus its checksum byte into the command ring at the
+// current index, then move the end index — that starts the TX DMA that
+// feeds the drive. 1 = drive fetched the whole command (TXDMA irq seen).
+static int akikoSendCmd(Cd32Ctx *cx, const uint8_t *cmd, int len)
+{
+    akikoDrainQuiet(cx);
+    uint8_t pos = AKIKO_TXPOS;
+    uint8_t sum = 0;
+    for (int i = 0; i < len; i++) {
+        cx->misc[0x200 + (uint8_t)(pos + i)] = cmd[i];
+        sum += cmd[i];
+    }
+    cx->misc[0x200 + (uint8_t)(pos + len)] = (uint8_t)(0xFF - sum);
+    AKIKO_TXPOS = (uint8_t)(pos + len + 1);
+    return cd32WaitIrq(AKINT_TXDMA, 800);
+}
+
+// ---------------------------------------------------------------------------
+// Test 1 — Akiko chip test: ID + C2P engine + NVRAM I2C presence
+// ---------------------------------------------------------------------------
+
+// Software reference for the C2P engine (the straightforward algorithm from
+// akiko.cpp): 8 chunky longwords in, 8 planar longwords out.
+static void cd32C2pRef(const uint32_t *chunky, uint32_t *planar)
+{
+    for (int i = 0; i < 8; i++)
+        planar[i] = 0;
+    for (int i = 0; i < 8 * 32; i++) {
+        if (chunky[7 - (i >> 5)] & (1UL << (i & 31)))
+            planar[i & 7] |= 1UL << (i >> 3);
+    }
+}
+
+// One C2P pass: longword writes fill the input FIFO (a full longword write
+// completes one entry), the first read triggers the conversion, 8 longword
+// reads step through the result. Returns 1 on exact match.
+static int cd32C2pPass(const uint32_t *chunky)
+{
+    uint32_t expect[8], got[8];
+    cd32C2pRef(chunky, expect);
+    for (int i = 0; i < 8; i++)
+        AKIKO_C2P = chunky[i];
+    for (int i = 0; i < 8; i++)
+        got[i] = AKIKO_C2P;
+    for (int i = 0; i < 8; i++) {
+        if (got[i] != expect[i]) {
+            print("\n  C2P mismatch at longword ", RED);
+            printChar((char)('0' + i), RED);
+            print(": got $", RED);
+            print(binHex(got[i]), RED);
+            print(" expected $", RED);
+            print(binHex(expect[i]), RED);
+            print("\n", RED);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// NVRAM (24C08 EEPROM) presence via a bit-banged I2C READ-address probe —
+// READ only, on purpose: proves the chip is there and answering without
+// ever going near the user's saved games. Open-drain signalling: the data
+// register is written 0 once and each edge is a direction-register change
+// (direction bit set = pin driven low, clear = released/pulled high);
+// Akiko samples pin state on data-register writes, so every edge rewrites
+// both registers (derived from akiko.cpp's nvram handlers).
+#define NV_SCL 0x80
+#define NV_SDA 0x40
+
+static void nvApply(uint8_t dir)
+{
+    AKIKO_NVDIR = dir;
+    AKIKO_NVIO  = 0;
+    waitShort();
+}
+
+static int cd32NvI2cProbe(void)
+{
+    uint8_t dir = 0;                    // both lines released (high)
+    nvApply(dir);
+    dir |= NV_SDA; nvApply(dir);        // START: SDA low while SCL high
+    dir |= NV_SCL; nvApply(dir);        // SCL low, ready to clock bits
+
+    uint8_t addr = 0xA1;                // 1010 000 1 = 24C08 block 0, READ
+    for (int b = 7; b >= 0; b--) {
+        if (addr & (1 << b))
+            dir &= ~NV_SDA;
+        else
+            dir |= NV_SDA;
+        nvApply(dir);
+        dir &= ~NV_SCL; nvApply(dir);   // clock the bit in
+        dir |= NV_SCL;  nvApply(dir);
+    }
+    dir &= ~NV_SDA; nvApply(dir);       // release SDA for the ACK slot
+    dir &= ~NV_SCL; nvApply(dir);
+    int ack = (AKIKO_NVIO & NV_SDA) == 0;   // EEPROM pulls SDA low = ACK
+    dir |= NV_SCL; nvApply(dir);
+
+    if (ack) {
+        // The EEPROM is now sourcing a data byte — clock all 8 bits out
+        // (discarded) and answer NAK so it releases the bus cleanly.
+        for (int b = 0; b < 8; b++) {
+            dir &= ~NV_SCL; nvApply(dir);
+            dir |= NV_SCL;  nvApply(dir);
+        }
+        dir &= ~NV_SCL; nvApply(dir);   // NAK: SDA stays released
+        dir |= NV_SCL;  nvApply(dir);
+    }
+    dir |= NV_SDA;  nvApply(dir);       // STOP: SDA low,
+    dir &= ~NV_SCL; nvApply(dir);       //       SCL high,
+    dir &= ~NV_SDA; nvApply(dir);       //       SDA released while SCL high
+    return ack;
+}
+
+static void cd32ChipTest(void)
+{
+    print("\002Akiko Chip Test\n\n", CYAN);
+
+    uint32_t id = 0;
+    int idOk = 1;
+    for (int i = 0; i < 3; i++) {
+        if (acBerrReadLong(&AKIKO_ID, &id) || id != 0xC0CACAFEUL)
+            idOk = 0;
+    }
+    print("ID register ($B80000): $", WHITE);
+    print(binHex(id), WHITE);
+    print(idOk ? "  OK\n" : "  FAIL (expected $C0CACAFE)\n", idOk ? GREEN : RED);
+
+    print("C2P engine ($B80038):  ", WHITE);
+    static const uint32_t zeros[8] = { 0 };
+    static const uint32_t ones[8]  = { 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL,
+                                       0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL,
+                                       0xFFFFFFFFUL, 0xFFFFFFFFUL };
+    int c2pOk = cd32C2pPass(zeros) && cd32C2pPass(ones);
+    uint32_t seed = 0x1234ABCDUL;
+    for (int set = 0; set < 3 && c2pOk; set++) {
+        uint32_t pat[8];
+        for (int i = 0; i < 8; i++) {
+            seed = seed * 1664525UL + 1013904223UL;     // LCG, deterministic
+            pat[i] = seed;
+        }
+        c2pOk = cd32C2pPass(pat);
+    }
+    if (c2pOk)
+        print("chunky->planar conversions all correct  OK\n", GREEN);
+
+    print("NVRAM (24C08 EEPROM):  ", WHITE);
+    if (cd32NvI2cProbe())
+        print("acknowledges on I2C  OK\n", GREEN);
+    else
+        print("no I2C acknowledge  FAIL\n", RED);
+    print("\n(NVRAM probe is read-only - saved games are never touched.)\n", CYAN);
+}
+
+// ---------------------------------------------------------------------------
+// Test 2 — CD drive communication: LED flash + INFO (firmware id) + status
+// ---------------------------------------------------------------------------
+
+static void cd32DriveTest(Cd32Ctx *cx)
+{
+    print("\002CD Drive Communication Test\n\n", CYAN);
+    if (!cd32Init(cx))
+        return;
+
+    // The drive queues a status packet at power-on (and on every disc
+    // change); show whatever is waiting before talking to it.
+    uint8_t pkt[40];
+    int n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 90);
+    if (n > 0) {
+        print("Pending drive status: ", WHITE);
+        for (int i = 0; i < n && i < 10; i++) {
+            print(binHexByte(pkt[i]), CYAN);
+            printChar(' ', CYAN);
+        }
+        if ((pkt[0] & 0x0F) == 0x0A && n >= 2)
+            print(pkt[1] & 0x01 ? " (disc present)" : " (no disc)",
+                  pkt[1] & 0x01 ? GREEN : YELLOW);
+        print("\n", WHITE);
+        akikoDrainQuiet(cx);
+    } else {
+        print("No pending drive status packet.\n", WHITE);
+    }
+
+    // LED command (5): arg bit0 = LED state, bit7 = respond please. On real
+    // hardware the front LED visibly blinks — a mechanism-free full loop
+    // through Akiko, the drive cable and the drive MCU and back.
+    print("\nFlashing the CD LED 3 times... ", WHITE);
+    uint8_t cmd[12];
+    int ledOk = 1;
+    for (int k = 0; k < 3 && ledOk; k++) {
+        cmd[0] = akikoCmdByte(cx, 5);
+        cmd[1] = 0x81;                              // LED on + respond
+        if (!akikoSendCmd(cx, cmd, 2) ||
+            akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600) < 2 ||
+            (pkt[0] & 0x0F) != 5) {
+            ledOk = 0;
+            break;
+        }
+        cd32DelayMs(250);
+        cmd[0] = akikoCmdByte(cx, 5);
+        cmd[1] = 0x80;                              // LED off + respond
+        if (!akikoSendCmd(cx, cmd, 2) ||
+            akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600) < 2) {
+            ledOk = 0;
+            break;
+        }
+        cd32DelayMs(250);
+    }
+    print(ledOk ? "drive responded  OK\n" : "NO RESPONSE  FAIL\n",
+          ledOk ? GREEN : RED);
+
+    // INFO command (7): 20-byte response = echo, status, 18 bytes of the
+    // drive MCU's firmware id string (e.g. "CHINON  O-658-2 24").
+    cmd[0] = akikoCmdByte(cx, 7);
+    if (!akikoSendCmd(cx, cmd, 1)) {
+        print("\nINFO command: drive never fetched it  FAIL\n", RED);
+        return;
+    }
+    n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600);
+    if (n < 3) {
+        print("\nINFO command: no response  FAIL\n", RED);
+        return;
+    }
+    int infoOk = ((pkt[0] & 0x0F) == 7) && akikoChecksumOk(pkt, n);
+    print("\nDrive firmware id:  ", WHITE);
+    for (int i = 2; i < n - 1 && i < 22; i++)
+        printChar((char)makePrintable(pkt[i]), CYAN);
+    print("\n", WHITE);
+    print("Drive status byte:  $", WHITE);
+    print(binHexByte(pkt[1]), WHITE);
+    print(pkt[1] & 0x01 ? "  (door closed)\n" : "  (door open)\n", WHITE);
+    print(infoOk ? "\nINFO response echo + checksum  OK\n"
+                 : "\nINFO response malformed (echo/checksum)  FAIL\n",
+          infoOk ? GREEN : RED);
+}
+
+// ---------------------------------------------------------------------------
+// Test 3 — TOC: PLAY aimed at MSF 00:00:00, i.e. "before the disc" — the
+// drive answers with the full table of contents as a stream of unsolicited
+// 15-byte packets, each entry sent 3 times. Exactly how the CD32 Kickstart
+// reads the TOC. Also caches first data/audio track for tests 4 and 5.
+// ---------------------------------------------------------------------------
+
+static int cd32FetchToc(Cd32Ctx *cx, int verbose)
+{
+    uint8_t cmd[12], pkt[40];
+    for (int i = 0; i < 12; i++)
+        cmd[i] = 0;
+    cmd[0]  = akikoCmdByte(cx, 4);      // PLAY/READ, start = end = 00:00:00
+    cmd[10] = 0x04;                     // no subcode stream, please
+    if (!akikoSendCmd(cx, cmd, 12)) {
+        if (verbose)
+            print("TOC request: drive never fetched the command  FAIL\n", RED);
+        return 0;
+    }
+    int n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600);
+    if (n < 2) {
+        if (verbose)
+            print("TOC request: no response  FAIL\n", RED);
+        return 0;
+    }
+    if (pkt[1] & 0x01) {
+        if (verbose)
+            print("Drive reports NO DISC - insert a CD and retry.\n", YELLOW);
+        return 0;
+    }
+
+    cx->tocValid = 0;
+    cx->haveData = cx->haveAudio = 0;
+    cx->firstTrack = cx->lastTrack = 0;
+    cx->leadoutLsn = 0;
+    int gotLeadout = 0, shown = 0;
+    uint8_t lastPoint = 0xFF;
+
+    // Entry packet: [0]=type [1]=status [2..14]=raw TOC entry, of which
+    // [3]=control/adr ([3]&$40 = data track), [5]=point (track number in
+    // BCD; $A0/$A1 = first/last track number in [10], $A2 = lead-out),
+    // [10..12]=MSF in BCD. Entries arrive ~75Hz; 99 tracks x 3 repeats
+    // tops out well under the 340-packet guard.
+    for (int guard = 0; guard < 340; guard++) {
+        n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 150);
+        if (n == 0)
+            break;                      // stream over (or disc stopped it)
+        if (n < 15 || !akikoChecksumOk(pkt, n))
+            continue;
+        uint8_t point = pkt[5];
+        if (point == lastPoint)
+            continue;                   // each entry repeats 3x back-to-back
+        lastPoint = point;
+
+        if (point == 0xA0) {
+            cx->firstTrack = (uint8_t)cd32FromBcd(pkt[10]);
+        } else if (point == 0xA1) {
+            cx->lastTrack = (uint8_t)cd32FromBcd(pkt[10]);
+        } else if (point == 0xA2) {
+            cx->leadoutLsn = cd32BcdMsfToLsn(&pkt[10]);
+            gotLeadout = 1;
+        } else if (point < 0xA0) {
+            uint32_t lsn   = cd32BcdMsfToLsn(&pkt[10]);
+            int      isDat = (pkt[3] & 0x40) != 0;
+            if (isDat && !cx->haveData)  { cx->haveData = 1;  cx->dataLsn  = lsn; }
+            if (!isDat && !cx->haveAudio){ cx->haveAudio = 1; cx->audioLsn = lsn; }
+            if (verbose && shown < 24) {
+                print("Track ", WHITE);
+                cd32Print2d(cd32FromBcd(point), WHITE);
+                print(":  ", WHITE);
+                cd32PrintLsnAsMsf(lsn, CYAN);
+                print(isDat ? "  DATA\n" : "  AUDIO\n", isDat ? YELLOW : GREEN);
+                shown++;
+            } else if (verbose && shown == 24) {
+                print("...\n", WHITE);
+                shown++;
+            }
+        }
+    }
+
+    cx->tocValid = (cx->lastTrack > 0 && gotLeadout);
+    if (verbose) {
+        if (cx->tocValid) {
+            print("\nTracks ", WHITE);
+            cd32Print2d(cx->firstTrack, WHITE);
+            print(" - ", WHITE);
+            cd32Print2d(cx->lastTrack, WHITE);
+            print(", disc length ", WHITE);
+            cd32PrintLsnAsMsf(cx->leadoutLsn, CYAN);
+            print("  OK\n", GREEN);
+        } else {
+            print("\nIncomplete TOC received  FAIL\n", RED);
+        }
+    }
+    return cx->tocValid;
+}
+
+static void cd32TocTest(Cd32Ctx *cx)
+{
+    print("\002Read TOC (Track List)\n\n", CYAN);
+    if (!cd32Init(cx))
+        return;
+    akikoDrainQuiet(cx);
+    cd32FetchToc(cx, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Test 4 — read a real data sector through the full DMA path and check it
+// is a sane mode-1/2 sector (sync pattern + MSF header echo); on an
+// ISO9660 disc the primary volume descriptor's "CD001" shows up too.
+// ---------------------------------------------------------------------------
+
+static void cd32DataTest(Cd32Ctx *cx)
+{
+    print("\002Read Data Sector\n\n", CYAN);
+    if (!cd32Init(cx))
+        return;
+    akikoDrainQuiet(cx);
+
+    if (!cx->tocValid)
+        cd32FetchToc(cx, 0);            // best effort — for track layout only
+    uint32_t lsn = 16;                  // ISO9660 PVD sits 16 sectors in
+    if (cx->tocValid && cx->haveData)
+        lsn = cx->dataLsn + 16;
+    if (cx->tocValid && !cx->haveData)
+        print("TOC shows no data track (audio CD?) - trying sector 16 anyway.\n\n",
+              YELLOW);
+
+    for (int i = 0; i < 0x1000; i++)    // poison the buffer so "nothing
+        cx->data[i] = 0xEE;             // arrived" can never look like data
+
+    // READ command first, sector engine off: Akiko pauses command TX DMA
+    // while AKCFG_ENABLE is set, so the order is command -> enable -> PBX.
+    uint8_t cmd[12], pkt[40];
+    for (int i = 0; i < 12; i++)
+        cmd[i] = 0;
+    cmd[0] = akikoCmdByte(cx, 4);
+    cd32LsnToBcdMsf(lsn, &cmd[1]);
+    cd32LsnToBcdMsf(lsn + 32, &cmd[4]);
+    cmd[7]  = 0x80;                     // data read (not audio play)
+    cmd[10] = 0x04;                     // no subcode stream
+    print("Requesting sector at ", WHITE);
+    cd32PrintLsnAsMsf(lsn, CYAN);
+    print("...\n", WHITE);
+    if (!akikoSendCmd(cx, cmd, 12)) {
+        print("Drive never fetched the READ command  FAIL\n", RED);
+        return;
+    }
+    int n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600);
+    if (n < 2) {
+        print("No response to READ command  FAIL\n", RED);
+        return;
+    }
+    if (pkt[1] & 0x01) {
+        print("Drive reports NO DISC - insert a CD and retry.\n", YELLOW);
+        return;
+    }
+
+    // Sector slot 0 -> the data lands at DMADATA+0. The PBX write must
+    // happen with AKCFG_PBX already set or the chip ignores it.
+    AKIKO_CONFIG = AKCFG_TXD | AKCFG_RXD | AKCFG_CAS | AKCFG_PBX | AKCFG_ENABLE;
+    AKIKO_PBX = 0x0001;
+    print("Waiting for sector DMA (spin-up can take a few seconds)...\n", WHITE);
+    globals->HddEscLatch = 0;
+    int got = cd32WaitIrq(AKINT_PBX, 12000);        // ~8s, ESC aborts
+    AKIKO_CONFIG = AKCFG_TXD | AKCFG_RXD;           // sector engine off again
+
+    if (!got) {
+        if (globals->HddEscLatch)
+            print("Aborted.\n", YELLOW);
+        else {
+            print("TIMEOUT - no sector data arrived  FAIL\n", RED);
+            if (cx->tocValid && !cx->haveData)
+                print("(expected on a disc with no data track)\n", YELLOW);
+        }
+    } else {
+        // Block layout (per akiko.cpp): [0..2]=0, [3]=sector count low 5
+        // bits, [4..] = raw 2352-byte sector from its own offset 4 — so
+        // [4..10] are the tail of the 00 FF..FF 00 sync run, [12..14] the
+        // sector's own MSF header, [15] the mode byte.
+        volatile uint8_t *d = cx->data;
+        int syncOk = 1;
+        for (int i = 4; i <= 10; i++)
+            if (d[i] != 0xFF)
+                syncOk = 0;
+        if (d[11] != 0x00)
+            syncOk = 0;
+        uint8_t wantMsf[3];
+        cd32LsnToBcdMsf(lsn, wantMsf);
+        int msfOk = (d[12] == wantMsf[0] && d[13] == wantMsf[1] &&
+                     d[14] == wantMsf[2]);
+        print("Sync pattern:  ", WHITE);
+        print(syncOk ? "OK\n" : "FAIL\n", syncOk ? GREEN : RED);
+        print("Header MSF:    ", WHITE);
+        cd32Print2d(cd32FromBcd(d[12]), CYAN); printChar(':', CYAN);
+        cd32Print2d(cd32FromBcd(d[13]), CYAN); printChar(':', CYAN);
+        cd32Print2d(cd32FromBcd(d[14]), CYAN);
+        print(msfOk ? "  OK (matches request)\n" : "  FAIL (wrong sector!)\n",
+              msfOk ? GREEN : RED);
+        print("Sector mode:   ", WHITE);
+        printChar((char)('0' + (d[15] & 0x0F)), CYAN);
+        print("\n", WHITE);
+        if (d[15] == 1 && d[16] == 0x01 && d[17] == 'C' && d[18] == 'D' &&
+            d[19] == '0' && d[20] == '0' && d[21] == '1')
+            print("ISO9660 volume descriptor (\"CD001\") found  OK\n", GREEN);
+        if (syncOk && msfOk)
+            print("\nFull Akiko sector DMA path works  OK\n", GREEN);
+    }
+
+    // The drive is still reading toward the end MSF — stop it.
+    cmd[0] = akikoCmdByte(cx, 1);       // STOP
+    if (akikoSendCmd(cx, cmd, 1))
+        akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 800);
+    akikoDrainQuiet(cx);
+}
+
+// ---------------------------------------------------------------------------
+// Test 5 — play the first audio track: audible end-to-end check of the
+// drive's CD-DA path (Akiko passes the audio straight to the DACs).
+// ---------------------------------------------------------------------------
+
+static void cd32AudioTest(Cd32Ctx *cx)
+{
+    print("\002Play Audio Track\n\n", CYAN);
+    if (!cd32Init(cx))
+        return;
+    akikoDrainQuiet(cx);
+
+    if (!cx->tocValid && !cd32FetchToc(cx, 0)) {
+        print("Could not read the TOC - is a disc inserted?  FAIL\n", RED);
+        return;
+    }
+    if (!cx->haveAudio) {
+        print("This disc has no audio track.\n", YELLOW);
+        print("Insert an audio CD (or a CD32 game with CD audio) and retry.\n",
+              YELLOW);
+        return;
+    }
+
+    uint32_t start = cx->audioLsn;
+    uint32_t end   = start + 75 * 30;               // up to 30 seconds
+    if (end > cx->leadoutLsn)
+        end = cx->leadoutLsn;
+
+    uint8_t cmd[12], pkt[40];
+    for (int i = 0; i < 12; i++)
+        cmd[i] = 0;
+    cmd[0] = akikoCmdByte(cx, 4);                   // PLAY (audio: bit7 clear)
+    cd32LsnToBcdMsf(start, &cmd[1]);
+    cd32LsnToBcdMsf(end, &cmd[4]);
+    cmd[10] = 0x04;                                 // no subcode stream
+    if (!akikoSendCmd(cx, cmd, 12)) {
+        print("Drive never fetched the PLAY command  FAIL\n", RED);
+        return;
+    }
+    int n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600);
+    if (n < 2) {
+        print("No response to PLAY command  FAIL\n", RED);
+        return;
+    }
+    print("Playing first audio track (starts at ", WHITE);
+    cd32PrintLsnAsMsf(start, CYAN);
+    print(") for up to 30s.\n", WHITE);
+    print("You should hear CD audio on the audio outputs now.\n\n", GREEN);
+    print("Press any key/button to stop playback", WHITE);
+    WaitButton();
+
+    cmd[0] = akikoCmdByte(cx, 1);                   // STOP
+    if (akikoSendCmd(cx, cmd, 1))
+        akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 800);
+    akikoDrainQuiet(cx);
+    print("\nStopped.\n", WHITE);
+}
+
+// ---------------------------------------------------------------------------
+// Menu
+// ---------------------------------------------------------------------------
+
+static const char CD32MenuText[] = "\002CD32 CD Test (Akiko)";
+static const char CD32Menu1[]    = "1 - Akiko chip test (ID / C2P / NVRAM)";
+static const char CD32Menu2[]    = "2 - CD drive communication test";
+static const char CD32Menu3[]    = "3 - Read TOC (track list)";
+static const char CD32Menu4[]    = "4 - Read data sector (ISO9660 check)";
+static const char CD32Menu5[]    = "5 - Play audio track";
+static const char CD32MenuBack[] = "9 - Main Menu";
+
+static const char *CD32MenuItems[] = {
+    CD32MenuText,
+    CD32Menu1, CD32Menu2, CD32Menu3, CD32Menu4, CD32Menu5, CD32MenuBack,
+    NULL
+};
+
+static const char **CD32TestMenu[] = {
+    CD32MenuItems,      // MenuNumber 0 — only slot used
+};
+
+void CD32TestC(void)
+{
+    Cd32Ctx ctx = { 0 };
+
+    initScreen();
+    globals->Menu          = (void *)CD32TestMenu;
+    globals->MenuVariable  = NULL;
+    globals->MenuNumber    = 0;
+    globals->PrintMenuFlag = 1;
+
+    for (;;) {
+        printMenu();
+        getInput();
+
+        uint8_t ch = globals->GetCharData;
+        if (globals->LMB || globals->RMB || ch == 0x0a) {
+            static const uint8_t posToKey[] = { '1','2','3','4','5','9' };
+            if (globals->MenuPos < (uint8_t)sizeof(posToKey))
+                ch = posToKey[globals->MenuPos];
+        }
+
+        switch (ch) {
+            case '1': case '2': case '3': case '4': case '5':
+                waitReleased();
+                clearScreen();
+                globals->HddEscLatch = 0;
+                // Fresh positive-ID gate on every dispatch, same chokepoint
+                // philosophy as hddBlockedOnThisMachine(): never let a CD
+                // operation loose on a machine where nothing identified.
+                if (!akikoPresent()) {
+                    cd32ExplainBlocked();
+                } else switch (ch) {
+                    case '1': cd32ChipTest();       break;
+                    case '2': cd32DriveTest(&ctx);  break;
+                    case '3': cd32TocTest(&ctx);    break;
+                    case '4': cd32DataTest(&ctx);   break;
+                    case '5': cd32AudioTest(&ctx);  break;
+                }
+                print("\nPress any key/button to continue", WHITE);
+                WaitButton();
+                initScreen();
+                globals->PrintMenuFlag = 1;
+                break;
+
+            case '9':
+                waitReleased();
+                GOTO_MAINMENU();
+
+            default:
+                break;
+        }
+    }
+}
+
 #else  /* TARGET_DEMON */
 
 // Stubs for the excluded HDD half (see the banner where the #ifndef opens).
@@ -5888,6 +6774,18 @@ void HDDTestC(void)
     print("\002HDD Controller Test\n\n", CYAN);
     print("Not included in the DeMoN cartridge build: no supported HDD\n", YELLOW);
     print("controller (Gayle/A3000/A4000 class) can exist on this machine.\n", YELLOW);
+    print("\nPress any key/button to return.\n", WHITE);
+    WaitButton();
+    initScreen();
+    globals->PrintMenuFlag = 1;
+}
+
+void CD32TestC(void)
+{
+    initScreen();
+    print("\002CD32 CD Test\n\n", CYAN);
+    print("Not included in the DeMoN cartridge build: Akiko exists only in\n", YELLOW);
+    print("the CD32, which has no port for this cartridge.\n", YELLOW);
     print("\nPress any key/button to return.\n", WHITE);
     WaitButton();
     initScreen();
