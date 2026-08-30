@@ -5937,10 +5937,15 @@ void HDDTestC()
 #define AKIKO_NVDIR   (*(volatile uint8_t  *)0xB80032)
 #define AKIKO_C2P     (*(volatile uint32_t *)0xB80038)
 
+// NOTE the TX/RX DMA-done bit values: akiko.cpp's header comment documents
+// them SWAPPED (it claims 28=transmit done, 27=receive done). Its CODE — and
+// the working emulation, verified live 2026-08-30 by watching INTREQ while
+// the DMA moved bytes — has RXDMADONE=$10000000 and TXDMADONE=$08000000.
+// Same trap as the cmd/status buffer-layout swap in that same comment.
 #define AKINT_SUBCODE 0x80000000UL
 #define AKINT_RECV    0x20000000UL  // drive has status/packet bytes pending
-#define AKINT_TXDMA   0x10000000UL  // command TX DMA reached its end index
-#define AKINT_RXDMA   0x08000000UL  // status RX DMA reached its end index
+#define AKINT_RXDMA   0x10000000UL  // status RX DMA reached its end index (bit 28)
+#define AKINT_TXDMA   0x08000000UL  // command TX DMA reached its end index (bit 27)
 #define AKINT_PBX     0x04000000UL  // one sector-data block transferred
 
 #define AKCFG_TXD     0x40000000UL  // command (memory->drive) DMA enable
@@ -5958,6 +5963,7 @@ typedef struct {
     volatile uint8_t *misc;      // 1KB-aligned command/status/subcode base
     volatile uint8_t *data;      // 4KB-aligned sector-data buffer (one slot)
     uint8_t  cmdCount;           // rolling command sequence nibble
+    int      infoDone;           // an INFO exchange has run (see cd32EnsureInfo)
     // TOC cache, filled by cd32FetchToc(), reused by the data/audio tests
     int      tocValid;
     uint8_t  firstTrack, lastTrack;
@@ -6134,17 +6140,27 @@ static int cd32Init(Cd32Ctx *cx)
 }
 
 // Fetch one pending drive packet, one RX-DMA byte at a time: bump the end
-// index by 1, wait for the RXDMA irq, collect the byte from the ring —
-// until the drive's "status pending" bit drops (== packet complete). This
-// needs no advance knowledge of the packet length, which also makes it the
-// drain for unsolicited packets. out may be NULL to discard. Returns the
-// byte count (0 = nothing arrived within firstIters).
-static int akikoRecvPacket(Cd32Ctx *cx, uint8_t *out, int max, uint32_t firstIters)
+// index by 1, wait for the RXDMA irq, collect the byte from the ring.
+// expect > 0: read exactly that many bytes (the protocol's response
+//   lengths are fixed per command) — a hard cap matters because the drive
+//   can queue its NEXT unsolicited packet the moment this one completes,
+//   and gluing the two together corrupts the checksum (seen live with
+//   INFO's media-status follow-up 2026-08-30). Stops early if the packet
+//   runs short (pending bit drops and stays down).
+// expect == 0: drain mode — read until the pending bit clears.
+// out may be NULL to discard. Returns bytes read (0 = nothing arrived
+// within firstIters).
+static int akikoRecvPacket(Cd32Ctx *cx, uint8_t *out, int expect, uint32_t firstIters)
 {
     if (!cd32WaitIrq(AKINT_RECV, firstIters))
         return 0;
+    int cap = expect ? expect : 64;
     int count = 0;
-    while ((AKIKO_INTREQ & AKINT_RECV) && count < max) {
+    while (count < cap) {
+        if (!(AKIKO_INTREQ & AKINT_RECV)) {
+            if (expect == 0 || count > 0)
+                break;              // packet complete (or ran short)
+        }
         uint8_t pos = AKIKO_RXPOS;
         AKIKO_RXEND = (uint8_t)(pos + 1);
         if (!cd32WaitIrq(AKINT_RXDMA, 800))
@@ -6164,7 +6180,7 @@ static void akikoDrainQuiet(Cd32Ctx *cx)
     for (int p = 0; p < 6; p++) {
         if (!(AKIKO_INTREQ & AKINT_RECV))
             break;
-        if (akikoRecvPacket(cx, NULL, 64, 1) == 0)
+        if (akikoRecvPacket(cx, NULL, 0, 1) == 0)
             break;
     }
 }
@@ -6226,9 +6242,9 @@ static int cd32C2pPass(const uint32_t *chunky)
         if (got[i] != expect[i]) {
             print("\n  C2P mismatch at longword ", RED);
             printChar((char)('0' + i), RED);
-            print(": got $", RED);
+            print(": got ", RED);
             print(binHex(got[i]), RED);
-            print(" expected $", RED);
+            print(" expected ", RED);
             print(binHex(expect[i]), RED);
             print("\n", RED);
             return 0;
@@ -6302,7 +6318,7 @@ static void cd32ChipTest(void)
         if (acBerrReadLong(&AKIKO_ID, &id) || id != 0xC0CACAFEUL)
             idOk = 0;
     }
-    print("ID register ($B80000): $", WHITE);
+    print("ID register ($B80000): ", WHITE);
     print(binHex(id), WHITE);
     print(idOk ? "  OK\n" : "  FAIL (expected $C0CACAFE)\n", idOk ? GREEN : RED);
 
@@ -6345,7 +6361,7 @@ static void cd32DriveTest(Cd32Ctx *cx)
     // The drive queues a status packet at power-on (and on every disc
     // change); show whatever is waiting before talking to it.
     uint8_t pkt[40];
-    int n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 90);
+    int n = akikoRecvPacket(cx, pkt, 0, 90);
     if (n > 0) {
         print("Pending drive status: ", WHITE);
         for (int i = 0; i < n && i < 10; i++) {
@@ -6371,7 +6387,7 @@ static void cd32DriveTest(Cd32Ctx *cx)
         cmd[0] = akikoCmdByte(cx, 5);
         cmd[1] = 0x81;                              // LED on + respond
         if (!akikoSendCmd(cx, cmd, 2) ||
-            akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600) < 2 ||
+            akikoRecvPacket(cx, pkt, 3, 1600) < 2 ||
             (pkt[0] & 0x0F) != 5) {
             ledOk = 0;
             break;
@@ -6380,7 +6396,7 @@ static void cd32DriveTest(Cd32Ctx *cx)
         cmd[0] = akikoCmdByte(cx, 5);
         cmd[1] = 0x80;                              // LED off + respond
         if (!akikoSendCmd(cx, cmd, 2) ||
-            akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600) < 2) {
+            akikoRecvPacket(cx, pkt, 3, 1600) < 2) {
             ledOk = 0;
             break;
         }
@@ -6396,12 +6412,14 @@ static void cd32DriveTest(Cd32Ctx *cx)
         print("\nINFO command: drive never fetched it  FAIL\n", RED);
         return;
     }
-    n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600);
+    n = akikoRecvPacket(cx, pkt, 21, 1600);
     if (n < 3) {
         print("\nINFO command: no response  FAIL\n", RED);
         return;
     }
     int infoOk = ((pkt[0] & 0x0F) == 7) && akikoChecksumOk(pkt, n);
+    if (infoOk)
+        cx->infoDone = 1;
     print("\nDrive firmware id:  ", WHITE);
     for (int i = 2; i < n - 1 && i < 22; i++)
         printChar((char)makePrintable(pkt[i]), CYAN);
@@ -6421,9 +6439,26 @@ static void cd32DriveTest(Cd32Ctx *cx)
 // reads the TOC. Also caches first data/audio track for tests 4 and 5.
 // ---------------------------------------------------------------------------
 
+// One INFO exchange, response discarded. The drive treats INFO as its
+// "wake up and take stock" command — the CD32 Kickstart always sends it
+// first, and TOC/data requests before a first INFO fail (the drive has
+// not read the disc's TOC yet; seen live under Amiberry 2026-08-30, where
+// TOC streaming and sector delivery both stayed dead until one INFO ran).
+static void cd32EnsureInfo(Cd32Ctx *cx)
+{
+    if (cx->infoDone)
+        return;
+    uint8_t cmd[1], pkt[40];
+    cmd[0] = akikoCmdByte(cx, 7);
+    if (akikoSendCmd(cx, cmd, 1) &&
+        akikoRecvPacket(cx, pkt, 21, 1600) >= 3)
+        cx->infoDone = 1;
+}
+
 static int cd32FetchToc(Cd32Ctx *cx, int verbose)
 {
     uint8_t cmd[12], pkt[40];
+    cd32EnsureInfo(cx);
     for (int i = 0; i < 12; i++)
         cmd[i] = 0;
     cmd[0]  = akikoCmdByte(cx, 4);      // PLAY/READ, start = end = 00:00:00
@@ -6433,7 +6468,7 @@ static int cd32FetchToc(Cd32Ctx *cx, int verbose)
             print("TOC request: drive never fetched the command  FAIL\n", RED);
         return 0;
     }
-    int n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600);
+    int n = akikoRecvPacket(cx, pkt, 3, 1600);
     if (n < 2) {
         if (verbose)
             print("TOC request: no response  FAIL\n", RED);
@@ -6458,7 +6493,7 @@ static int cd32FetchToc(Cd32Ctx *cx, int verbose)
     // [10..12]=MSF in BCD. Entries arrive ~75Hz; 99 tracks x 3 repeats
     // tops out well under the 340-packet guard.
     for (int guard = 0; guard < 340; guard++) {
-        n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 150);
+        n = akikoRecvPacket(cx, pkt, 16, 150);
         if (n == 0)
             break;                      // stream over (or disc stopped it)
         if (n < 15 || !akikoChecksumOk(pkt, n))
@@ -6542,6 +6577,9 @@ static void cd32DataTest(Cd32Ctx *cx)
         print("TOC shows no data track (audio CD?) - trying sector 16 anyway.\n\n",
               YELLOW);
 
+    cd32EnsureInfo(cx);                 // drive reads no sectors before its
+                                        // first INFO — see cd32EnsureInfo()
+
     for (int i = 0; i < 0x1000; i++)    // poison the buffer so "nothing
         cx->data[i] = 0xEE;             // arrived" can never look like data
 
@@ -6562,7 +6600,7 @@ static void cd32DataTest(Cd32Ctx *cx)
         print("Drive never fetched the READ command  FAIL\n", RED);
         return;
     }
-    int n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600);
+    int n = akikoRecvPacket(cx, pkt, 3, 1600);
     if (n < 2) {
         print("No response to READ command  FAIL\n", RED);
         return;
@@ -6605,8 +6643,14 @@ static void cd32DataTest(Cd32Ctx *cx)
         cd32LsnToBcdMsf(lsn, wantMsf);
         int msfOk = (d[12] == wantMsf[0] && d[13] == wantMsf[1] &&
                      d[14] == wantMsf[2]);
+        // Sync run is informational only: real drives (and BIN/CUE images)
+        // carry it, but an emulator serving a plain 2048-byte .iso
+        // synthesizes the header without the FF run (seen under Amiberry
+        // 2026-08-30: MSF/mode/CD001 all correct, sync bytes zero). The
+        // MSF header echo is the real proof the requested sector arrived.
         print("Sync pattern:  ", WHITE);
-        print(syncOk ? "OK\n" : "FAIL\n", syncOk ? GREEN : RED);
+        print(syncOk ? "OK\n" : "absent (normal for .iso images in emulators)\n",
+              syncOk ? GREEN : YELLOW);
         print("Header MSF:    ", WHITE);
         cd32Print2d(cd32FromBcd(d[12]), CYAN); printChar(':', CYAN);
         cd32Print2d(cd32FromBcd(d[13]), CYAN); printChar(':', CYAN);
@@ -6619,14 +6663,14 @@ static void cd32DataTest(Cd32Ctx *cx)
         if (d[15] == 1 && d[16] == 0x01 && d[17] == 'C' && d[18] == 'D' &&
             d[19] == '0' && d[20] == '0' && d[21] == '1')
             print("ISO9660 volume descriptor (\"CD001\") found  OK\n", GREEN);
-        if (syncOk && msfOk)
+        if (msfOk)
             print("\nFull Akiko sector DMA path works  OK\n", GREEN);
     }
 
     // The drive is still reading toward the end MSF — stop it.
     cmd[0] = akikoCmdByte(cx, 1);       // STOP
     if (akikoSendCmd(cx, cmd, 1))
-        akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 800);
+        akikoRecvPacket(cx, pkt, 3, 800);
     akikoDrainQuiet(cx);
 }
 
@@ -6669,7 +6713,7 @@ static void cd32AudioTest(Cd32Ctx *cx)
         print("Drive never fetched the PLAY command  FAIL\n", RED);
         return;
     }
-    int n = akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 1600);
+    int n = akikoRecvPacket(cx, pkt, 3, 1600);
     if (n < 2) {
         print("No response to PLAY command  FAIL\n", RED);
         return;
@@ -6683,7 +6727,7 @@ static void cd32AudioTest(Cd32Ctx *cx)
 
     cmd[0] = akikoCmdByte(cx, 1);                   // STOP
     if (akikoSendCmd(cx, cmd, 1))
-        akikoRecvPacket(cx, pkt, (int)sizeof(pkt), 800);
+        akikoRecvPacket(cx, pkt, 3, 800);
     akikoDrainQuiet(cx);
     print("\nStopped.\n", WHITE);
 }
