@@ -397,6 +397,7 @@ typedef struct GlobalVars
 	uint16_t	ScsiIrqCount;		// Total times ScsiPortsIRQ has actually run, for on-screen confirmation
 	uint8_t	HddEscLatch;		// ESC/both-buttons seen by hddInputService() inside a long HDD wait loop; consumed by a4kDmaAbortRequested()
 	uint8_t	HddPad0;		// keep EndVar word-aligned
+	uint32_t	A3kPumpMoved;		// bytes a3k_wd_pump() moved in the current phase (PIO forensics)
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

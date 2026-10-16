@@ -2171,6 +2171,7 @@ static int a3k_wd_pump(uint8_t *buf, int count, int read_dir)
 {
     volatile struct GlobalVars *globals = a3k_globals();
     int idx = 0;
+    globals->A3kPumpMoved = 0;   // forensics: how far this phase got (A3K_RECORD_FAIL)
     uint32_t t = 1500000UL;
     while (t--) {
         // t resets to a non-multiple-of-64K after every byte, so this only
@@ -2183,6 +2184,7 @@ static int a3k_wd_pump(uint8_t *buf, int count, int read_dir)
             if (read_dir) buf[idx] = a3k_wd_read(WD_DATA);
             else          a3k_wd_write(WD_DATA, buf[idx]);
             idx++;
+            globals->A3kPumpMoved = (uint32_t)idx;
             if (idx >= count) return 1;
             t = 1500000UL;
         } else if (asr & WD_ASR_INT) {
@@ -2279,7 +2281,15 @@ static void a3k_wd_negate_ack_if_paused(uint8_t st)
 // aborts, go bus-free", honored since SCSI-1), other OUT phases fed zero
 // filler until the target gives up on the garbage and completes. Bounded
 // at every level — this must only ever improve a wedge, never become one.
-#define A3K_BAILOUT_STEPS 96   // full abandoned 4KB DATA_IN = 64 gulps + phase tail
+// Step budget: an abandoned DATA_IN must be drained to the END of what the
+// target wants to send, or it keeps BSY and the bus is wedged until a power
+// cycle. 2026-10-16 (John's AA3000+): a 2048-byte-block target answered an
+// 8-block READ(10) with 16KB; the old 96-step budget (~6KB of 64-byte gulps)
+// ran out mid-stream and every later SELECT saw st=$FF ASR=$20 — the exact
+// "works once, then no devices" wedge. Successful gulps are fast, so a big
+// budget costs nothing; a target that stops responding still ends the loop
+// after two dead waits (deadWaits below), never the step count.
+#define A3K_BAILOUT_STEPS 4096   // 256KB of 64-byte gulps + phase tail
 static void a3k_scsi_bailout(uint8_t lastSt)
 {
     uint8_t junk[64];
@@ -2353,41 +2363,99 @@ static uint8_t a3k_scsi_select(uint8_t unit)
     return a3k_wd_wait_status();
 }
 
+// DMA-walk forensics block (also used by the PIO walk since 2026-10-16).
+#define A3K_DMAPH_NONE    0
+#define A3K_DMAPH_SELECT  1
+#define A3K_DMAPH_MSGOUT  2
+#define A3K_DMAPH_CMD     3
+#define A3K_DMAPH_DATA    4
+#define A3K_DMAPH_STATUS  5
+#define A3K_DMAPH_MSGIN   6
+
+static const char * const a3kDmaPhaseNames[] = {
+    "?", "SELECT", "MSG_OUT", "CMD", "DATA_IN", "STATUS", "MSG_IN"
+};
+
+typedef struct {
+    uint8_t  failPhase;   // A3K_DMAPH_* step where the walk stopped (NONE = clean)
+    uint8_t  st;          // WD status byte at that point (0xFF = poll timeout)
+    uint8_t  istr;        // SDMAC ISTR snapshot at the moment of a DATA_IN stall
+    uint8_t  stalled;     // DATA_IN DMA timed out (the drain below may still recover)
+    uint32_t acrDelta;    // bytes the engine's address counter (ACR) advanced
+    uint32_t drained;     // bytes recovered by the PIO fallback drain
+    // Engine-end forensics for the deterministic-corruption hunt (captured on
+    // every DMA data phase, at moments the real drivers also touch hw):
+    uint32_t acrArmDelta; // ACR readback minus programmed value BEFORE ST_DMA —
+                          // nonzero = the CPU('s card) mangled the register write
+    uint32_t acrEndDelta; // ACR minus buffer start right after the completion
+                          // INT: 4096 = engine did every longword beat; ~2048 =
+                          // it stepped in words; anything else = skipped beats
+    uint8_t  istrEnd;     // ISTR right after completion, BEFORE teardown clears
+                          // it — bit 3 = FIFO under-run, bit 2 = over-run
+                          // (latched, read-clear; never visible after teardown)
+    // Captured on EVERY failed walk (PIO or DMA), BEFORE a3k_scsi_bailout()
+    // runs — the bail-out leaves the chip idle, so a snapshot taken after it
+    // (what the first forensics did) always reads ASR $00 and says nothing.
+    uint8_t  asrFail;     // WD33C93 AUX_STATUS at the moment of failure
+    uint8_t  istrFail;    // SDMAC ISTR at the moment of failure
+    uint32_t pioMoved;    // bytes a3k_wd_pump() had moved when the DATA phase failed (PIO)
+    uint16_t irqs;        // ScsiPortsIRQ invocations since the test armed it
+} A3kDmaDebug;
+
+// Record a failed walk step into an optional forensics block.
+#define A3K_RECORD_FAIL(dbg, phase, stat) do { \
+    if (dbg) { \
+        (dbg)->failPhase = (phase); (dbg)->st = (stat); \
+        (dbg)->asrFail = a3k_wd_aux(); (dbg)->istrFail = *SDMAC_ISTR; \
+        (dbg)->pioMoved = a3k_globals()->A3kPumpMoved; \
+        (dbg)->irqs = a3k_globals()->ScsiIrqCount; \
+    } } while (0)
+
+
 // Runs one full SCSI command against `unit`: SELECT -> MSG_OUT(IDENTIFY) ->
 // CMD -> DATA_IN -> STATUS -> MSG_IN, translated directly from the real
 // scsidisk.device driver (scsitask.asm) and confirmed end-to-end on real
 // A3000 hardware. Returns 1 only on a clean COMMAND COMPLETE.
-static int a3k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
-                             uint8_t *dataBuf, int dataLen)
+// `dbg` (optional) receives where the walk stopped and the chip state at
+// that instant — the only way to tell a SELECT that never won the bus from
+// a DATA_IN that died 3000 bytes in, since the bail-out erases that evidence.
+static int a3k_scsi_command_dbg(uint8_t unit, const uint8_t *cdb, int cdbLen,
+                                uint8_t *dataBuf, int dataLen, A3kDmaDebug *dbg)
 {
     // Every failure exit runs a3k_scsi_bailout(st) first: abandoning the
     // walk with the target still connected is what wedged real buses (see
     // the bailout's comment). The final status/msg check does NOT bail out —
     // by then the transaction is complete and the target already released.
+    a3k_globals()->A3kPumpMoved = 0;
     uint8_t st = a3k_scsi_select(unit);
     if (!((st & 0xF0) == 0x80 && (st & 0x0F) == WDPHASE_MSG_OUT)) {
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_SELECT, st);
         a3k_scsi_bailout(st); return 0;
     }
 
     uint8_t identify = 0x80;   // IDENTIFY, LUN 0, no DiscPriv — a scan has no reselect handling
     st = a3k_wd_do_phase_sbt(&identify, 0);
     if (!((st & 0x0F) == WDPHASE_CMD && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_MSGOUT, st);
         a3k_scsi_bailout(st); return 0;
     }
 
     st = a3k_wd_do_phase((uint8_t *)cdb, cdbLen, 0);
     if (!((st & 0x0F) == WDPHASE_DATA_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_CMD, st);
         a3k_scsi_bailout(st); return 0;
     }
 
     st = a3k_wd_do_phase(dataBuf, dataLen, 1);
     if (!((st & 0x0F) == WDPHASE_STATUS && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_DATA, st);
         a3k_scsi_bailout(st); return 0;
     }
 
     uint8_t statusByte = 0xFF;
     st = a3k_wd_do_phase_sbt(&statusByte, 1);
     if (!((st & 0x0F) == WDPHASE_MSG_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_STATUS, st);
         a3k_scsi_bailout(st); return 0;
     }
 
@@ -2395,7 +2463,19 @@ static int a3k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
     st = a3k_wd_do_phase_sbt(&msgByte, 1);
     a3k_wd_negate_ack_if_paused(st);
 
-    return (statusByte == 0 && msgByte == 0);
+    if (statusByte != 0 || msgByte != 0) {
+        // Transaction complete but the target said no (e.g. $02 CHECK
+        // CONDITION): record the SCSI status byte itself as "st".
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_MSGIN, statusByte);
+        return 0;
+    }
+    return 1;
+}
+
+static int a3k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
+                             uint8_t *dataBuf, int dataLen)
+{
+    return a3k_scsi_command_dbg(unit, cdb, cdbLen, dataBuf, dataLen, NULL);
 }
 
 // READ CAPACITY(10) response decode: bytes 0-3 = last valid LBA, bytes 4-7 =
@@ -4552,8 +4632,12 @@ static int a3kDmaTestRepeat(void)
 
     print("\002A3000/A3000T SCSI - DMA Register Test (Repeat)\n", WHITE);
     print("\002EXPERIMENTAL - please report results\n\n", YELLOW);
-    if (!a3kRegTestSetup(&ver))
+    if (!a3kRegTestSetup(&ver)) {
+        // Same as a3kXferTestRepeat(): the caller won't wait, so we must.
+        print("\nPress any key/button to continue", WHITE);
+        WaitButton();
         return 0;
+    }
 
     uint8_t aux = a3k_wd_aux();
     int wdcOk = !(aux & (WD_ASR_BSY | WD_ASR_CIP));
@@ -4688,36 +4772,6 @@ static int a3kDmaTestRepeat(void)
 // engine that never moved a byte from one that stalled mid-FIFO (each points
 // at completely different hardware). Lives on the stack, never a static (this
 // linker script puts statics in read-only ROM — see A3kInquiryDebug's note).
-#define A3K_DMAPH_NONE    0
-#define A3K_DMAPH_SELECT  1
-#define A3K_DMAPH_MSGOUT  2
-#define A3K_DMAPH_CMD     3
-#define A3K_DMAPH_DATA    4
-#define A3K_DMAPH_STATUS  5
-#define A3K_DMAPH_MSGIN   6
-
-static const char * const a3kDmaPhaseNames[] = {
-    "?", "SELECT", "MSG_OUT", "CMD", "DATA_IN", "STATUS", "MSG_IN"
-};
-
-typedef struct {
-    uint8_t  failPhase;   // A3K_DMAPH_* step where the walk stopped (NONE = clean)
-    uint8_t  st;          // WD status byte at that point (0xFF = poll timeout)
-    uint8_t  istr;        // SDMAC ISTR snapshot at the moment of a DATA_IN stall
-    uint8_t  stalled;     // DATA_IN DMA timed out (the drain below may still recover)
-    uint32_t acrDelta;    // bytes the engine's address counter (ACR) advanced
-    uint32_t drained;     // bytes recovered by the PIO fallback drain
-    // Engine-end forensics for the deterministic-corruption hunt (captured on
-    // every DMA data phase, at moments the real drivers also touch hw):
-    uint32_t acrArmDelta; // ACR readback minus programmed value BEFORE ST_DMA —
-                          // nonzero = the CPU('s card) mangled the register write
-    uint32_t acrEndDelta; // ACR minus buffer start right after the completion
-                          // INT: 4096 = engine did every longword beat; ~2048 =
-                          // it stepped in words; anything else = skipped beats
-    uint8_t  istrEnd;     // ISTR right after completion, BEFORE teardown clears
-                          // it — bit 3 = FIFO under-run, bit 2 = over-run
-                          // (latched, read-clear; never visible after teardown)
-} A3kDmaDebug;
 
 // VERTB tick used purely to wake the STOP'd CPU in a3k_wd_wait_status_dma
 // below — ack Paula and return; the wait loop counts wakeups as its timeout.
@@ -4900,33 +4954,33 @@ static int a3k_scsi_command_dma(uint8_t unit, const uint8_t *cdb, int cdbLen,
     // The final status/msg check stays bailout-free: transaction complete.
     uint8_t st = a3k_scsi_select(unit);
     if (!((st & 0xF0) == 0x80 && (st & 0x0F) == WDPHASE_MSG_OUT)) {
-        dbg->failPhase = A3K_DMAPH_SELECT; dbg->st = st;
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_SELECT, st);
         a3k_scsi_bailout(st); return 0;
     }
 
     uint8_t identify = 0x80;
     st = a3k_wd_do_phase_sbt(&identify, 0);
     if (!((st & 0x0F) == WDPHASE_CMD && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
-        dbg->failPhase = A3K_DMAPH_MSGOUT; dbg->st = st;
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_MSGOUT, st);
         a3k_scsi_bailout(st); return 0;
     }
 
     st = a3k_wd_do_phase((uint8_t *)cdb, cdbLen, 0);
     if (!((st & 0x0F) == WDPHASE_DATA_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
-        dbg->failPhase = A3K_DMAPH_CMD; dbg->st = st;
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_CMD, st);
         a3k_scsi_bailout(st); return 0;
     }
 
     st = a3k_wd_do_phase_dma_in(dataBuf, dataLen, dbg);
     if (!((st & 0x0F) == WDPHASE_STATUS && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
-        dbg->failPhase = A3K_DMAPH_DATA; dbg->st = st;
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_DATA, st);
         a3k_scsi_bailout(st); return 0;
     }
 
     uint8_t statusByte = 0xFF;
     st = a3k_wd_do_phase_sbt(&statusByte, 1);
     if (!((st & 0x0F) == WDPHASE_MSG_IN && ((st & 0xF0) == 0x10 || (st & 0xF0) == 0x80))) {
-        dbg->failPhase = A3K_DMAPH_STATUS; dbg->st = st;
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_STATUS, st);
         a3k_scsi_bailout(st); return 0;
     }
 
@@ -4935,7 +4989,7 @@ static int a3k_scsi_command_dma(uint8_t unit, const uint8_t *cdb, int cdbLen,
     a3k_wd_negate_ack_if_paused(st);
 
     if (statusByte != 0 || msgByte != 0) {
-        dbg->failPhase = A3K_DMAPH_MSGIN; dbg->st = st; return 0;
+        A3K_RECORD_FAIL(dbg, A3K_DMAPH_MSGIN, st); return 0;
     }
     return 1;
 }
@@ -4959,7 +5013,7 @@ static int a3k_scsi_read_blocks(uint8_t unit, uint32_t lba, uint8_t nblocks,
         0, 0, nblocks, 0
     };
     return useDma ? a3k_scsi_command_dma(unit, cdb, 10, buf, dataLen, dbg)
-                  : a3k_scsi_command(unit, cdb, 10, buf, dataLen);
+                  : a3k_scsi_command_dbg(unit, cdb, 10, buf, dataLen, dbg);
 }
 
 // First SCSI ID that answers READ CAPACITY — any readable disk-like target
@@ -4969,14 +5023,62 @@ static int a3kXferFindTarget(void)
 {
     uint8_t capBuf[SCSI_READ_CAPACITY_LEN];
     static const uint8_t readCapCdb[10] = { SCSI_READ_CAPACITY, 0,0,0,0,0,0,0,0, 0 };
+    A3kDmaDebug idDbg[8];
 
     for (int id = 0; id <= 7; id++) {
         if (id == A3K_HOST_SCSI_ID) continue;
+        A3kDmaDebug *dbg = &idDbg[id];
+        dbg->failPhase = A3K_DMAPH_NONE; dbg->stalled = 0;
         a3k_wd_reset();
         a3k_wd_init();
-        if (a3k_scsi_command(id, readCapCdb, 10, capBuf, SCSI_READ_CAPACITY_LEN))
-            return id;
+        if (a3k_scsi_command_dbg(id, readCapCdb, 10, capBuf, SCSI_READ_CAPACITY_LEN, dbg)) {
+            // The test reads A3K_XFER_BLOCKS * 512 bytes and the WD counts
+            // bytes, so a target with bigger blocks (CD-ROM: 2048) sends
+            // more than we take, ends in "transfer done, still DATA_IN"
+            // (st=$19) and must be skipped, not fought.
+            uint32_t blockSize = ((uint32_t)capBuf[4] << 24) | ((uint32_t)capBuf[5] << 16)
+                               | ((uint32_t)capBuf[6] << 8)  |  (uint32_t)capBuf[7];
+            if (blockSize == 512)
+                return id;
+            print("  ID ", YELLOW);
+            print(binDec(id), YELLOW);
+            print(": ", YELLOW);
+            print(binDec((int32_t)blockSize), YELLOW);
+            print("-byte blocks - skipped (test needs a 512-byte-block disk)\n", YELLOW);
+            dbg->failPhase = A3K_DMAPH_NONE;   // answered fine, just unusable
+        }
     }
+
+    // Nothing answered. WHY matters: "works once, then no devices" on a
+    // TF4060 AA3000+ (Bruce Braun 2026-08, John 2026-10-16) is either a
+    // selection timeout on a free bus (targets silent/confused) or a
+    // SELECT that never completes because a target still holds BSY after
+    // our previous transaction — only the per-ID status tells them apart.
+    int held = 0, timeouts = 0;
+    for (int id = 0; id <= 7; id++) {
+        if (id == A3K_HOST_SCSI_ID) continue;
+        A3kDmaDebug *dbg = &idDbg[id];
+        print("    ID ", YELLOW);
+        print(binDec(id), YELLOW);
+        print(": at ", YELLOW);
+        print((char *)a3kDmaPhaseNames[dbg->failPhase], YELLOW);
+        print(" st=$", YELLOW);
+        print(binHexByte(dbg->st), YELLOW);
+        print(" ASR=$", YELLOW);
+        print(binHexByte(dbg->asrFail), YELLOW);
+        print(" ISTR=$", YELLOW);
+        print(binHexByte(dbg->istrFail), YELLOW);
+        print("\n", YELLOW);
+        if (dbg->failPhase == A3K_DMAPH_SELECT) {
+            if (dbg->st == 0x42) timeouts++;                         // WD: timeout during SELECT
+            if (dbg->st == 0xFF && (dbg->asrFail & (WD_ASR_BSY | WD_ASR_CIP))) held++;
+        }
+    }
+    if (held)
+        print("  SELECT never completes and the chip stays busy: a target is holding\n"
+              "  the bus (BSY) after an earlier transaction. Power cycle to clear.\n", RED);
+    else if (timeouts == 6)
+        print("  Bus is free but every selection timed out: no target is answering.\n", RED);
     return -1;
 }
 
@@ -5023,7 +5125,7 @@ typedef struct {
 static int a3kXferRun(int target, const A3kXferDir *dir, const uint8_t *ref,
                       A3kXferFail *fail)
 {
-    A3kDmaDebug dbg = { 0, 0, 0, 0, 0, 0 };
+    A3kDmaDebug dbg = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
     for (uint32_t i = 0; i < A3K_XFER_BYTES; i++)
         dir->buf[i] = (uint8_t)~ref[i];
@@ -5095,12 +5197,28 @@ static void a3kXferPrintBusState(void)
 static void a3kXferPrintDbg(const A3kDmaDebug *dbg)
 {
     if (dbg->failPhase == A3K_DMAPH_NONE && !dbg->stalled)
-        return;   // PIO row, or nothing captured — keep the old terse output
+        return;   // nothing captured — keep the old terse output
     print("    at ", YELLOW);
     print((char *)a3kDmaPhaseNames[dbg->stalled ? A3K_DMAPH_DATA
                                                 : dbg->failPhase], YELLOW);
     print(" st=$", YELLOW);
     print(binHexByte(dbg->st), YELLOW);
+    if (!dbg->stalled) {
+        // Chip state at the instant of failure (pre-bailout). $FF st = our
+        // poll timed out; MSG_IN with a nonzero st = SCSI status byte.
+        print(" ASR=$", YELLOW);
+        print(binHexByte(dbg->asrFail), YELLOW);
+        print(" ISTR=$", YELLOW);
+        print(binHexByte(dbg->istrFail), YELLOW);
+        if (dbg->failPhase == A3K_DMAPH_DATA) {
+            print(" moved ", YELLOW);
+            print(binDec((int32_t)dbg->pioMoved), YELLOW);
+            print("/", YELLOW);
+            print(binDec(A3K_XFER_BYTES), YELLOW);
+        }
+        print(" irqs ", YELLOW);
+        print(binDec((int32_t)dbg->irqs), YELLOW);
+    }
     if (dbg->stalled) {
         print(" ISTR=$", YELLOW);
         print(binHexByte(dbg->istr), YELLOW);
@@ -5130,12 +5248,19 @@ static void a3kXferPrintFail(const A3kXferFail *fail)
         print("FAILED (buffer untouched - no data reached memory)\n", RED);
         return;
     }
+    // The damage is longword-shaped (upper/lower word, whole beats), so
+    // report the first differing LONGWORD, not the byte inside it.
+    uint32_t expLw = 0, gotLw = 0;
+    for (int i = 0; i < 4; i++) {
+        expLw = (expLw << 8) | fail->exp16[i];
+        gotLw = (gotLw << 8) | fail->got16[i];
+    }
     print("FAILED (first diff at ", RED);   // binHex() supplies the '$' itself
-    print(binHex(fail->offset), RED);
-    print(": expected $", RED);
-    print(binHexByte(fail->expect), RED);
-    print(" got $", RED);
-    print(binHexByte(fail->got), RED);
+    print(binHex(fail->dumpOff), RED);
+    print(": exp ", RED);
+    print(binHex(expLw), RED);
+    print(" got ", RED);
+    print(binHex(gotLw), RED);
     print(", ", RED);
     print(binDec((int32_t)fail->badBytes), RED);
     print(" bytes differ)\n", RED);
@@ -5162,15 +5287,21 @@ static void a3kXferPrintFail(const A3kXferFail *fail)
         print(" UNDERRUN", RED);
     if (fail->dbg.istrEnd & 0x04)
         print(" OVERRUN", RED);
+    // Four longwords from dumpOff (longword-aligned), exp over got, so the
+    // upper/lower-word pattern reads straight off the screen.
     print("\n    exp", YELLOW);
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 16; i += 4) {
+        uint32_t v = ((uint32_t)fail->exp16[i] << 24) | ((uint32_t)fail->exp16[i+1] << 16)
+                   | ((uint32_t)fail->exp16[i+2] << 8) | fail->exp16[i+3];
         print(" ", YELLOW);
-        print(binHexByte(fail->exp16[i]), YELLOW);
+        print(binHex(v), YELLOW);
     }
     print("\n    got", YELLOW);
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 16; i += 4) {
+        uint32_t v = ((uint32_t)fail->got16[i] << 24) | ((uint32_t)fail->got16[i+1] << 16)
+                   | ((uint32_t)fail->got16[i+2] << 8) | fail->got16[i+3];
         print(" ", YELLOW);
-        print(binHexByte(fail->got16[i]), YELLOW);
+        print(binHex(v), YELLOW);
     }
     print("\n", YELLOW);
 }
@@ -5285,13 +5416,15 @@ static int a3kXferSetup(A3kXferDir *dirs, int *nDirs, uint8_t **refOut)
     // the per-attempt ASR/ISTR snapshot goes on screen instead of nothing.
     int refOk = 0;
     for (int attempt = 1; attempt <= A3K_XFER_PIO_TRIES && !refOk; attempt++) {
+        A3kDmaDebug refDbg = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
         refOk = a3k_scsi_read_blocks((uint8_t)target, A3K_XFER_LBA,
                                      A3K_XFER_BLOCKS, ref, A3K_XFER_BYTES,
-                                     0, NULL);
+                                     0, &refDbg);
         if (!refOk) {
             print("  PIO reference read failed - attempt ", YELLOW);
             print(binDec(attempt), YELLOW);
-            a3kXferPrintBusState();
+            a3kXferPrintBusState();   // post-bailout state (should be idle)
+            a3kXferPrintDbg(&refDbg); // where it died, and the state right then
         }
     }
     if (!refOk) {
@@ -5308,6 +5441,7 @@ static int a3kXferSetup(A3kXferDir *dirs, int *nDirs, uint8_t **refOut)
             print("  PIO stability read failed - attempt ", YELLOW);
             print(binDec(attempt), YELLOW);
             a3kXferPrintBusState();
+            a3kXferPrintDbg(&fail.dbg);
         }
     }
     if (!stabOk) {
@@ -5334,6 +5468,37 @@ static int a3kXferSetup(A3kXferDir *dirs, int *nDirs, uint8_t **refOut)
     return target;
 }
 
+// Raw buffer dump over the serial port only (no screen, no ANSI): one line
+// per 32 bytes, "TAG $OFFSET:HEX". tools/a3kdma_analyze.py reads a minicom
+// log of this and classifies every longword of a DMA destination against
+// the PIO reference — lost beats, their positions and spacing, lane damage —
+// which a 16-byte window on screen cannot show. ~10s per buffer at 9600bps.
+static void a3kXferDumpSerial(const uint8_t *buf, const char *tag)
+{
+    for (uint32_t off = 0; off < A3K_XFER_BYTES; off += 32) {
+        sendSerial((char *)tag);
+        sendSerial(" ");
+        sendSerial(binHex(off));
+        sendSerial(":");
+        for (uint32_t i = 0; i < 32; i++)
+            sendSerial(binHexByte(buf[off + i]));
+        sendSerial("\r\n");
+    }
+}
+
+// Returns 1 if the user pressed D (dump wanted), 0 on any other key/button.
+static int a3kXferOfferDump(void)
+{
+    waitReleased();
+    for (;;) {
+        waitShort();
+        getInput();
+        uint8_t ch = globals->GetCharData;
+        if (ch == 'd' || ch == 'D') { waitReleased(); return 1; }
+        if (globals->BUTTON || ch)  { waitReleased(); return 0; }
+    }
+}
+
 static int a3kXferTest(void)
 {
     A3kXferDir dirs[A3K_XFER_MAX_DIRS];
@@ -5354,6 +5519,8 @@ static int a3kXferTest(void)
     }
 
     uint32_t passed = 0, total = 0;
+    int dmaDataFail = 0;   // a DMA row delivered (wrong) data — worth dumping
+    uint32_t acrEnd[A3K_XFER_MAX_DIRS] = { 0, 0, 0 };
     for (int d = 0; d < nDirs; d++) {
         print("  ", WHITE);
         print((char *)dirs[d].label, CYAN);
@@ -5368,7 +5535,10 @@ static int a3kXferTest(void)
                 print((char *)dirs[d].failHint, YELLOW);
                 print("\n", YELLOW);
             }
+            if (dirs[d].useDma && fail.reason == A3K_XFERFAIL_MISMATCH)
+                dmaDataFail = 1;
         }
+        acrEnd[d] = fail.dbg.acrEndDelta;
     }
 
     print("\nResult: ", WHITE);
@@ -5378,6 +5548,34 @@ static int a3kXferTest(void)
     print(" checks passed\n", WHITE);
 
     a3k_scsi_irq_disable();
+
+    if (dmaDataFail) {
+        print("\nD = dump reference + DMA buffers to serial (~30s at 9600bps)\n", WHITE);
+        print("any other key/button = continue", WHITE);
+        if (a3kXferOfferDump()) {
+            print("\nDumping...", YELLOW);
+            sendSerial("\r\nA3KDMA BEGIN target=");
+            sendSerial(binDec(target));
+            sendSerial("\r\n");
+            a3kXferDumpSerial(ref, "REF");
+            for (int d = 0; d < nDirs; d++) {
+                if (!dirs[d].useDma) continue;
+                sendSerial("ROW");
+                sendSerial(binDec(d));
+                sendSerial(" label=");
+                sendSerial((char *)dirs[d].label);
+                sendSerial(" buf=");
+                sendSerial(binHex((uint32_t)(uintptr_t)dirs[d].buf));
+                sendSerial(" acrend=");
+                sendSerial(binDec((int32_t)acrEnd[d]));
+                sendSerial("\r\n");
+                char tag[5] = { 'R', 'O', 'W', (char)('0' + d), 0 };
+                a3kXferDumpSerial(dirs[d].buf, tag);
+            }
+            sendSerial("A3KDMA END\r\n");
+            print(" done.\n", GREEN);
+        }
+    }
     return (int)passed;
 }
 
@@ -5414,7 +5612,12 @@ static int a3kXferTestRepeat(void)
                                 // below still latches and aborts at pass 1
     int target = a3kXferSetup(dirs, &nDirs, &ref);
     if (target < 0) {
+        // The menu caller does NOT wait after this function (the soak loop
+        // normally consumes its own ESC), so a setup failure must hold the
+        // screen itself or its one red line is wiped by initScreen().
         a3k_scsi_irq_disable();
+        print("\nPress any key/button to continue", WHITE);
+        WaitButton();
         return 0;
     }
 
