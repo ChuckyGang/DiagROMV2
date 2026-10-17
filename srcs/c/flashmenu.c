@@ -35,6 +35,8 @@
  * ========================================================================== */
 #include "generic.h"
 
+extern void uploadSrec(void);         /* upload.c: Setup item 2 */
+
 /* ----------------------------------------------------------------------------
  * selectStep — one input step over a vertical list of `n` selectable rows.
  *
@@ -112,8 +114,11 @@ static void drawSetupItem(int idx, int hi)
 #else
         print("1 - Flash firmware (only on DeMoN)", col);
 #endif
+    } else if (idx == 1) {
+        setPos(20, 6);
+        print("2 - Upload data (S-records)", col);
     } else {
-        setPos(20, 7);
+        setPos(20, 8);
         print("9 - Mainmenu", col);
     }
 }
@@ -425,30 +430,35 @@ void setupMenu(void)
         clearScreen();
         setPos(0, 0);
         print("\002Setup\n\n", CYAN);    /* centred title, like other submenus */
-        for (i = 0; i < 2; i++)
+        for (i = 0; i < 3; i++)
             drawSetupItem(i, i == sel);
 
         globals->MenuMouseAdd = 0;
         globals->MenuMouseSub = 0;
 
         for (;;) {                       /* inner: input loop */
-            int r = selectStep(&sel, 2);
+            int r = selectStep(&sel, 3);
             if (r == SEL_MOVED) {
-                for (i = 0; i < 2; i++)
+                for (i = 0; i < 3; i++)
                     drawSetupItem(i, i == sel);
                 continue;
             }
 
-            int act = 0;                 /* 1=flash 2=mainmenu */
+            int act = 0;                 /* 1=flash 2=upload 3=mainmenu */
             if      (r == SEL_FIRE)       act = sel + 1;
             else if (r == '1')            act = 1;
-            else if (r == '9' || r == 'q' || r == 'Q' || r == 27) act = 2;
+            else if (r == '2')            act = 2;
+            else if (r == '9' || r == 'q' || r == 'Q' || r == 27) act = 3;
 
             if (act == 1) {
                 flashMenu();             /* DeMoN: flasher / kickstart: notice */
                 break;                   /* redraw the Setup screen on return  */
             }
-            if (act == 2)
+            if (act == 2) {
+                uploadSrec();            /* S-record upload into memory */
+                break;
+            }
+            if (act == 3)
                 return;
         }
     }

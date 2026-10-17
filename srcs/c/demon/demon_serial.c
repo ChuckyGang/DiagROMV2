@@ -78,6 +78,8 @@ void rs232_out(char character __asm("d0"))
     /* Diagrom uses globals->NoSerial to disable serial entirely.  Honour it. */
     if (globals->NoSerial == 1)
         return;
+    if (globals->SerNoEcho)         /* upload.c: receiving, never block on TX */
+        return;
 
     /* Sticky-disconnect: if a previous call timed out, probe once and
        either recover or drop instantly without any wait loop. */

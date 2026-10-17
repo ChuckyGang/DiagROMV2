@@ -208,6 +208,8 @@ void rs232_out(char character __asm("d0"))
 {
     if (globals->SerialSpeed == 0 || globals->SerialSpeed == 5 || globals->NoSerial == 1)
         return;
+    if (globals->SerNoEcho)                           // upload.c: receiving, never block on TX
+        return;
 
     readSerial();                                    // Poll serial input while we're here
 
