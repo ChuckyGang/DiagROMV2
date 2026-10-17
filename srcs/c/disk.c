@@ -581,6 +581,8 @@ void updateFloppyData()
                                // (the AA3000+ is AGA WITH SDMAC and no IDE)
 #define HDD_GATE_NCR       2   // a real 53C710 must answer at $DD0040 (A4000T SCSI)
 #define HDD_GATE_NOT_NCR   3   // a real 53C710 there means A4000T — block (A3000 SCSI)
+#define HDD_GATE_A4091     4   // an A4091/Re4091 (Zorro III, Commodore 514/84) must be in the
+                               // autoconfig board list — its 53C710 sits at board base+$800000
 
 typedef struct {
     const char *name;
@@ -2549,6 +2551,9 @@ static const char * const scsiDevTypes[] = {
 };
 
 static int ncr710Present(void);   // defined in the A4000T section below
+static uint32_t a4091FindBase(void);   // defined in the A4091 section below
+extern uint32_t acFindZ3Board(uint16_t mfr, uint8_t prod, uint32_t minBytes);   // autoconfig.c
+extern void AutoConfigQuietC(void);                                              // autoconfig.c
 
 static int detectA3000SCSI(void)
 {
@@ -2958,7 +2963,18 @@ static int identifyA3000SCSI(void)
 // later accesses can hang indefinitely — this isn't just wrong data, it's a
 // genuine bus hang risk. Never reorder this.
 
-#define NCR_BASE ((volatile uint8_t *)0xDD0040)
+// The register base is a RUNTIME value since the A4091/Re4091 (2026-10-17):
+// the same chip sits at $DD0040 on the A4000T motherboard and at Zorro III
+// board base + $800000 on an A4091 (NetBSD afsc.c, identical register map,
+// 50 MHz, same PORTS/INT2 line). Each NCR controller's detect() sets
+// globals->NcrBase before anything touches NCR_BASE; it lives in globals
+// because file-scope mutable statics land in ROM in this linker script.
+#define NCR_A4000T_BASE ((volatile uint8_t *)0xDD0040)
+#define NCR_BASE ((volatile uint8_t *)a3k_globals()->NcrBase)
+#define A4091_MANUFACTURER 514          // Commodore
+#define A4091_PRODUCT      84           // A4091 (the Re4091 reports the same IDs)
+#define A4091_NCR_OFFSET   0x00800000UL // 53C710 registers inside the 16MB Z3 window
+#define A4091_MIN_BYTES    0x01000000UL
 
 // Byte register offsets from NCR_BASE (see struct ncr710 in the official
 // a4091/ncr710.h — longword registers like dsa/dsp/temp/scratch are skipped
@@ -3245,27 +3261,71 @@ static int ncrChipReset(int fullSettle, int busReset)
 // anti-echo technique as the A3000 register test). Gayle machines must
 // never reach this (unterminated range) — every caller gates on
 // isGayleMachine() first.
-static int ncr710Present(void)
+static int ncr710PresentAt(volatile uint8_t *b)
 {
-    if (NCR_BASE[NCR_ISTAT] == 0xFF)   // open bus — nothing decodes here at all
+    if (b[NCR_ISTAT] == 0xFF)   // open bus — nothing decodes here at all
         return 0;
     static const uint8_t pats[2] = { 0xA5, 0x5A };
     for (int p = 0; p < 2; p++) {
         for (int i = 0; i < 4; i++)
-            NCR_BASE[NCR_SCRATCH + i] = (uint8_t)(pats[p] ^ i);
+            b[NCR_SCRATCH + i] = (uint8_t)(pats[p] ^ i);
         (void)*RAMSEY_VERSION_ADDR;    // scrub the data bus so a float can't echo the pattern
         for (int i = 0; i < 4; i++)
-            if (NCR_BASE[NCR_SCRATCH + i] != (uint8_t)(pats[p] ^ i))
+            if (b[NCR_SCRATCH + i] != (uint8_t)(pats[p] ^ i))
                 return 0;
     }
     return 1;
 }
 
+// The A4000T-motherboard question ("is $DD0040 a real 53C710?") — used by the
+// A3000/A4000T gates, so it deliberately does NOT depend on globals->NcrBase.
+static int ncr710Present(void)
+{
+    return ncr710PresentAt(NCR_A4000T_BASE);
+}
+
+// Name of the active NCR controller for the shared scan/identify/DMA screens.
+static char *ncrName(void)   // non-const only because print() takes char *
+{
+    return (char *)((NCR_BASE == NCR_A4000T_BASE) ? "A4000T SCSI" : "A4091/Re4091 SCSI");
+}
+
 int detectA4000TSCSI(void)
 {
+    a3k_globals()->NcrBase = (void *)NCR_A4000T_BASE;
     if (isGayleMachine()) return 0;   // $DD0040 is unterminated on A600/A1200 — see isGayleMachine()
     if (!ncr710Present()) return 0;   // SDMAC answering through its $DD0040 alias is NOT a 53C710 —
                                       // see ncr710Present(); ncrChipReset() on it wedges A3000 SCSI
+    return ncrChipReset(1, 1);
+}
+
+// ---------------------------------------------------------------------------
+// A4091 / Re4091 SCSI  (same NCR 53C710, on a Zorro III card)
+// ---------------------------------------------------------------------------
+//
+// Added 2026-10-17 for John's A4000 desktop + TF4060 + Re4091 bench rig: the
+// card gives an A/B for the A4000T DCNTL.EA hang (same chip and CPU card,
+// different bus path - Buster/Zorro III instead of the motherboard $DD0000
+// decode). The board only exists once autoconfig has assigned it a base, so
+// detect() runs the C autoconfig engine first if nobody has yet (DiagROM
+// boots with every Zorro board unconfigured). Lookup is by the recorded
+// manufacturer/product (Commodore 514 / 84 - the Re4091 is an exact clone
+// and reports the same IDs); the SCRATCH probe then positively identifies
+// the chip at base+$800000 before the chip reset, exactly like the A4000T.
+static uint32_t a4091FindBase(void)
+{
+    return acFindZ3Board(A4091_MANUFACTURER, A4091_PRODUCT, A4091_MIN_BYTES);
+}
+
+int detectA4091SCSI(void)
+{
+    volatile struct GlobalVars *globals = a3k_globals();
+    if (isGayleMachine()) return 0;          // no Zorro III on A600/A1200
+    if (!globals->AutoConfDone) AutoConfigQuietC();
+    uint32_t base = a4091FindBase();
+    if (!base) return 0;
+    globals->NcrBase = (void *)(uintptr_t)(base + A4091_NCR_OFFSET);
+    if (!ncr710PresentAt(NCR_BASE)) return 0;
     return ncrChipReset(1, 1);
 }
 
@@ -3393,7 +3453,8 @@ int scanA4000TSCSI(void)
 {
     volatile struct GlobalVars *globals = a3k_globals();
 
-    print("\nA4000T SCSI (NCR 53C710)\n", WHITE);
+    print("\n", WHITE); print(ncrName(), WHITE); print(" (NCR 53C710 at ", WHITE);
+    print(binHex((uint32_t)(uintptr_t)NCR_BASE), CYAN); print(")\n", WHITE);
 
     if (NCR_BASE[NCR_ISTAT] == 0xFF) {
         print("  Bus float - controller not responding.\n", RED);
@@ -3606,10 +3667,11 @@ static int a4kBrowseSkip(void *ctx, int unit) { (void)ctx; return unit == NCR_OW
 static int identifyA4000TSCSI(void)
 {
     if (!ncrChipReset(1, 1)) {
-        print("\nA4000T SCSI: not responding (bus float)\n", RED);
+        print("\n", WHITE); print(ncrName(), RED); print(": not responding (bus float)\n", RED);
         return 1;
     }
-    return browseUnits("A4000T SCSI - Identify Devices", 8, 0, NULL, NULL,
+    return browseUnits(NCR_BASE == NCR_A4000T_BASE ? "A4000T SCSI - Identify Devices"
+                                                   : "A4091/Re4091 SCSI - Identify Devices", 8, 0, NULL, NULL,
                         a4kBrowseIdentify, a4kBrowseSmart, a4kBrowseSkip);
 }
 
@@ -4055,7 +4117,8 @@ static int a4kDmaTest(void)
     DmaDirection dirs[NCR_DMATEST_MAX_DIRS];
     int haveChip, haveFast;
 
-    print("\nA4000T SCSI - DMA Test (memory-to-memory, no SCSI bus activity)\n\n", WHITE);
+    print("\n", WHITE); print(ncrName(), WHITE);
+    print(" - DMA Test (memory-to-memory, no SCSI bus activity)\n\n", WHITE);
 
     if (NCR_BASE[NCR_ISTAT] == 0xFF) {
         print("  Bus float - controller not responding.\n", RED);
@@ -5783,6 +5846,7 @@ static const HddController hddControllers[] = {
     { "A4000/A4000T IDE",  1, HDD_GATE_A4000_IDE, detectA4000IDE,   scanA4000IDE,   identifyA4000IDE,   smartA4000IDE,   NULL,       NULL,             NULL,        NULL               },
     { "A3000/A3000T SCSI", 1, HDD_GATE_NOT_NCR, detectA3000SCSI,  scanA3000SCSI,  identifyA3000SCSI,  smartA3000SCSI,  a3kDmaTest, a3kDmaTestRepeat, a3kXferTest, a3kXferTestRepeat  },
     { "A4000T SCSI",       1, HDD_GATE_NCR,     detectA4000TSCSI, scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI, a4kDmaTest, a4kDmaTestRepeat, NULL,        NULL               },
+    { "A4091/Re4091 SCSI", 0, HDD_GATE_A4091,   detectA4091SCSI,  scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI, a4kDmaTest, a4kDmaTestRepeat, NULL,        NULL               },
 };
 #define NUM_HDD_CONTROLLERS (int)(sizeof(hddControllers)/sizeof(hddControllers[0]))
 
@@ -5814,6 +5878,18 @@ static int hddBlockedOnThisMachine(int idx)
             return 1;
         }
     }
+    if (hddControllers[idx].gate == HDD_GATE_A4091) {
+        uint32_t base = a4091FindBase();
+        if (!base) {
+            print("\nNot possible on this machine: no A4091/Re4091 in the autoconfig board list\n", RED);
+            print("(Zorro III, Commodore 514/84). Re-select the controller to run autoconfig.\n", YELLOW);
+            return 1;
+        }
+        a3k_globals()->NcrBase = (void *)(uintptr_t)(base + A4091_NCR_OFFSET);
+        return 0;
+    }
+    if (hddControllers[idx].gate == HDD_GATE_NCR)
+        a3k_globals()->NcrBase = (void *)NCR_A4000T_BASE;
     if (hddControllers[idx].gate == HDD_GATE_NCR && !ncr710Present()) {
         print("\nNot possible on this machine: no NCR 53C710 answers at $DD0040.\n", RED);
         print("On A3000-family machines (incl. AA3000+) that range is the SDMAC -\n", YELLOW);
@@ -5871,11 +5947,12 @@ static const char HDDSel1[]     = "1 - A1200/A600 IDE";
 static const char HDDSel2[]     = "2 - A4000/A4000T IDE";
 static const char HDDSel3[]     = "3 - A3000/A3000T SCSI";
 static const char HDDSel4[]     = "4 - A4000T SCSI";
+static const char HDDSel5[]     = "5 - A4091/Re4091 SCSI (Zorro III)";
 static const char HDDSelBack[]  = "9 - Back";
 
 static const char *HDDSelItems[] = {
     HDDSelText,
-    HDDSel1, HDDSel2, HDDSel3, HDDSel4, HDDSelBack,
+    HDDSel1, HDDSel2, HDDSel3, HDDSel4, HDDSel5, HDDSelBack,
     NULL
 };
 
@@ -6046,12 +6123,12 @@ void HDDTestC()
         } else {
             // ---- controller select menu (MenuNumber 1) ----
             if (globals->LMB || globals->RMB || ch == 0x0a) {
-                static const uint8_t posToKey[] = { '1','2','3','4','9' };
+                static const uint8_t posToKey[] = { '1','2','3','4','5','9' };
                 if (globals->MenuPos < (uint8_t)sizeof(posToKey))
                     ch = posToKey[globals->MenuPos];
             }
             switch (ch) {
-                case '1': case '2': case '3': case '4': {
+                case '1': case '2': case '3': case '4': case '5': {
                     waitReleased();
                     int idx = ch - '1';
                     if (idx < NUM_HDD_CONTROLLERS) {

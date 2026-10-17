@@ -398,6 +398,7 @@ typedef struct GlobalVars
 	uint8_t	HddEscLatch;		// ESC/both-buttons seen by hddInputService() inside a long HDD wait loop; consumed by a4kDmaAbortRequested()
 	uint8_t	HddPad0;		// keep EndVar word-aligned
 	uint32_t	A3kPumpMoved;		// bytes a3k_wd_pump() moved in the current phase (PIO forensics)
+	void*		NcrBase;		// 53C710 register base of the ACTIVE NCR controller: $DD0040 (A4000T) or A4091 board base+$800000; set by that controller's detect()
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

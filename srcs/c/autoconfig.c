@@ -113,6 +113,53 @@ extern int acBerrWriteLong(volatile uint32_t *addr, uint32_t val);
 // Kickstart aborts after this many boards; so do we (runaway/looping board).
 #define AC_MAX_BOARDS 32
 
+// Product-ID side table. The 14-byte board records in globals->AutoConfList
+// are shared with the asm readers (terriblefire.s walks them with a fixed
+// 14-byte stride) and carry no product byte, so it cannot be added to the
+// record. AutoConfList is 14*33 longwords = 1848 bytes of which the records
+// use the first 14*33 = 462, so the products live right after them (33
+// bytes, never touched by asm), followed by a marker byte that says this C
+// engine has initialised the table since boot. Entries recorded by the OLD
+// asm autoconfig read as product 0 = unknown.
+#define AC_PRODUCT_TABLE  ((volatile uint8_t *)&globals->AutoConfList[0] + 14 * 33)
+#define AC_PRODUCT_MARKER (AC_PRODUCT_TABLE[33])
+#define AC_PRODUCT_VALID  0x5A
+
+static void acProductTableInit(void)
+{
+    if (AC_PRODUCT_MARKER == AC_PRODUCT_VALID) return;
+    for (int i = 0; i < 33; i++) AC_PRODUCT_TABLE[i] = 0;
+    AC_PRODUCT_MARKER = AC_PRODUCT_VALID;
+}
+
+// Look a configured board up by manufacturer/product in the recorded list.
+// Zorro III boards only, at least `minBytes` big; product 0 in the table
+// (= recorded by the old asm engine, product unknown) matches any product,
+// so callers must still positively identify the chip behind it. Returns the
+// board's assigned base, or 0.
+uint32_t acFindZ3Board(uint16_t mfr, uint8_t prod, uint32_t minBytes)
+{
+    if (!globals->AutoConfDone) return 0;
+    if (AC_PRODUCT_MARKER != AC_PRODUCT_VALID) acProductTableInit();
+    uint32_t n = globals->AutoConfBoards;
+    if (n > 33) n = 33;
+    for (uint32_t i = 0; i < n; i++) {
+        volatile uint8_t *rec = (volatile uint8_t *)&globals->AutoConfList[0] + i * 14;
+        uint16_t m = (uint16_t)((rec[0] << 8) | rec[1]);
+        if (m != mfr) continue;
+        if ((rec[4] & ERT_TYPEMASK) != ERT_ZORROIII) continue;
+        uint8_t p = AC_PRODUCT_TABLE[i];
+        if (p != 0 && p != prod) continue;
+        uint32_t start = ((uint32_t)rec[6] << 24) | ((uint32_t)rec[7] << 16) |
+                         ((uint32_t)rec[8] << 8)  |  (uint32_t)rec[9];
+        uint32_t end   = ((uint32_t)rec[10] << 24) | ((uint32_t)rec[11] << 16) |
+                         ((uint32_t)rec[12] << 8)  |  (uint32_t)rec[13];
+        if (start == 0 || end < start || end - start + 1 < minBytes) continue;
+        return start;
+    }
+    return 0;
+}
+
 // ---------------------------------------------------------------------------
 // Config-space access, Kickstart ReadExpansionByte/WriteExpansionByte/
 // WriteExpansionWord — byte-exact choreography and ordering.
@@ -438,6 +485,8 @@ static void acRecordBoard(const uint8_t *rom, uint32_t start, uint32_t end)
     rec[11] = (uint8_t)(end >> 16);
     rec[12] = (uint8_t)(end >> 8);
     rec[13] = (uint8_t)end;
+    if (globals->AutoConfBoards < 33)
+        AC_PRODUCT_TABLE[globals->AutoConfBoards] = rom[ER_PRODUCT];
     globals->AutoConfBoards++;
 }
 
@@ -757,7 +806,9 @@ static void acPrintBerr(int garyArmed, const char *hint)
 // detailed=1 -> full decode + Y/N/ESC prompt per board; detailed=0
 // (Automatic) -> compact output, always assign.
 // ---------------------------------------------------------------------------
-static void acRunAutoconfig(int detailed)
+// quiet = 1: no "press any key" at the end (called from a controller detect()
+// that needs the boards configured; the caller redraws its own screen).
+static void acRunAutoconfig(int detailed, int quiet)
 {
     uint8_t map[AC_TOTALSLOTS];       // stack, NOT static (ROM gotcha)
     uint8_t rom[ER_SIZEOF], prevRom[ER_SIZEOF];
@@ -769,6 +820,7 @@ static void acRunAutoconfig(int detailed)
     int stop = 0;
     int z3Probe;
 
+    acProductTableInit();
     clearScreen();
     print("\002Autoconfig - NEW - ", CYAN);
     print(detailed ? "Detailed" : "Automatic", CYAN);
@@ -1040,18 +1092,27 @@ static void acRunAutoconfig(int detailed)
     print(binDec((int32_t)globals->AutoConfBoards), CYAN);
     print(".\n", WHITE);
 
-    print("\nPress any key/button to return to the Others menu.\n", WHITE);
-    WaitButton();
+    if (!quiet) {
+        print("\nPress any key/button to return to the Others menu.\n", WHITE);
+        WaitButton();
+    }
     initScreen();
     globals->PrintMenuFlag = 1;   // make mainLoop's printMenu() redraw the menu
 }
 
 void AutoConfigDetailC(void)
 {
-    acRunAutoconfig(1);
+    acRunAutoconfig(1, 0);
 }
 
 void AutoConfigAutoC(void)
 {
-    acRunAutoconfig(0);
+    acRunAutoconfig(0, 0);
+}
+
+// Configure the boards without the closing key wait — for HDD controller
+// detect()s (A4091) that need Zorro boards live before they can look.
+void AutoConfigQuietC(void)
+{
+    acRunAutoconfig(0, 1);
 }
