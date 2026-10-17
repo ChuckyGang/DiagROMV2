@@ -98,3 +98,30 @@ _acBerrWriteLong:
 	move.l	d1,$8.w
 	movem.l	(sp)+,a2/a3
 	rts
+
+	XDEF	_acBerrWriteByte
+
+; int acBerrWriteByte(volatile uint8_t *addr, uint8_t val)
+;   0 = write cycle completed, 1 = bus error caught
+; Added 2026-10-17 for disk.c's guarded 53C710 first access (DCNTL.EA):
+; the chip registers are byte-wide, and gcc passes the uint8_t as a 32-bit
+; stack slot, so the byte itself sits in the slot's LAST byte (big-endian).
+_acBerrWriteByte:
+	move.l	4(sp),a0
+	movem.l	a2/a3,-(sp)		; arg 'val' slot now at 16(sp)
+	move.l	$8.w,d1
+	lea	.berrb(pc),a2
+	move.l	a2,$8.w
+	move.l	sp,a3
+	nop
+	move.b	19(sp),(a0)		; low byte of the 32-bit arg slot
+	nop
+	moveq	#0,d0
+	bra.s	.outb
+.berrb:
+	move.l	a3,sp
+	moveq	#1,d0
+.outb:
+	move.l	d1,$8.w
+	movem.l	(sp)+,a2/a3
+	rts

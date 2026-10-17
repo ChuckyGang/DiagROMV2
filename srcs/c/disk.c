@@ -3290,12 +3290,77 @@ static char *ncrName(void)   // non-const only because print() takes char *
     return (char *)((NCR_BASE == NCR_A4000T_BASE) ? "A4000T SCSI" : "A4091/Re4091 SCSI");
 }
 
+// ---------------------------------------------------------------------------
+// First access to the 53C710 (DCNTL.EA) — announced and timed, 2026-10-18
+// ---------------------------------------------------------------------------
+//
+// On an A4000T with a pre-release accelerator firmware (2026-10), selecting "A4000T SCSI"
+// hung the machine solid at the first DCNTL write that sets EA ("link STERM
+// and SLAC internally": from then on the chip terminates its own slave
+// cycles with STERM) - a breadcrumb ROM localized it 2026-10-16. On 2026-10-18
+// the same ROM no longer hung on the same machine (firmware had moved on),
+// but a hung bus cycle can never be caught in software: with Fat Gary in BERR
+// mode the timed-out cycle did not even reach berr.s's vector-2 guard on
+// that CPU card - the machine just stopped. So this routine does the two
+// things that ARE possible: it says on screen what it is about to do, so a
+// frozen machine shows its cause, and it measures what the bus does with
+// 53C710 register cycles. Reference (Re4091 over Zorro III, same CPU card):
+// 1024 ISTAT reads = 8-9 raster lines (~0.5us each). On the A4000T
+// motherboard path the same reads took 97-229 lines (6-14us each) - cycles
+// completing only through a bus timeout, not through the chip's STERM/DSACK.
+// That is reported as a finding (SCSI still works, register access is just
+// slow) and the user has to acknowledge it. Fat Gary's timeout is left
+// alone: it made no difference to the hang either way.
+#define VPOS_LO             (*(volatile uint8_t *)0x00DFF006UL)   // raster line, low 8 bits
+#define NCR_SLOW_LINES      64   // 1024 reads >= 64 lines = >= 4us per access
+
+// 1024 ISTAT reads, cost in raster lines (~64us each; wraps above 255).
+static uint32_t ncrTimeReads(void)
+{
+    uint8_t v0 = VPOS_LO, dummy = 0;
+    for (int i = 0; i < 1024; i++) dummy ^= NCR_BASE[NCR_ISTAT];
+    (void)dummy;
+    return (uint8_t)(VPOS_LO - v0);
+}
+
+static int ncrFirstAccess(void)
+{
+    clearScreen();
+    print("\002", CYAN); print(ncrName(), CYAN); print(" - first chip access\n\n", CYAN);
+    uint32_t linesPre = ncrTimeReads();
+    print("Setting 53C710 DCNTL.EA (STERM-SLAC link) at $", WHITE);
+    print(binHex((uint32_t)(uintptr_t)&NCR_BASE[NCR_DCNTL]), WHITE);
+    print(" ...\nIf the machine FREEZES here: the first STERM-terminated 53C710 cycle\n"
+          "never completed (CPU card / bus logic on the motherboard SCSI path).\n", YELLOW);
+    NCR_BASE[NCR_DCNTL] = NCR_DCNTL_EA | NCR_DCNTL_COM;
+    uint8_t istat = NCR_BASE[NCR_ISTAT];
+    print("DCNTL.EA write and first post-EA ISTAT read completed, ISTAT=$", GREEN);
+    print(binHex(istat), GREEN); print("\n", GREEN);
+    uint32_t linesPost = ncrTimeReads();
+    print("1024 ISTAT reads before EA: $", WHITE); print(binHex(linesPre), WHITE);
+    print(" raster lines, after EA: $", WHITE); print(binHex(linesPost), WHITE);
+    print(" (64us per line; Zorro III reference 8-9)\n\n", WHITE);
+
+    if (linesPre < NCR_SLOW_LINES && linesPost < NCR_SLOW_LINES) {
+        print("53C710 register termination OK.\n", GREEN);
+        return 1;                       // normal machine: no pause
+    }
+    print("53C710 register cycles are SLOW on this machine (>= 4us each):\n"
+          "they are not being terminated by the chip's STERM/DSACK but by a\n"
+          "bus timeout. CPU card / bus logic does not honour the chip's\n"
+          "termination. SCSI stays usable, register access is just slow.\n", RED);
+    print("\nPress any key/button.\n", WHITE);
+    WaitButton();
+    return 1;
+}
+
 int detectA4000TSCSI(void)
 {
     a3k_globals()->NcrBase = (void *)NCR_A4000T_BASE;
     if (isGayleMachine()) return 0;   // $DD0040 is unterminated on A600/A1200 — see isGayleMachine()
     if (!ncr710Present()) return 0;   // SDMAC answering through its $DD0040 alias is NOT a 53C710 —
                                       // see ncr710Present(); ncrChipReset() on it wedges A3000 SCSI
+    if (!ncrFirstAccess()) return 0;  // announced + timed DCNTL.EA first access — see above
     return ncrChipReset(1, 1);
 }
 
@@ -3303,7 +3368,7 @@ int detectA4000TSCSI(void)
 // A4091 / Re4091 SCSI  (same NCR 53C710, on a Zorro III card)
 // ---------------------------------------------------------------------------
 //
-// Added 2026-10-17 for John's A4000 desktop + TF4060 + Re4091 bench rig: the
+// Added 2026-10-17 for an A4000 desktop + 060 card + Re4091 bench rig: the
 // card gives an A/B for the A4000T DCNTL.EA hang (same chip and CPU card,
 // different bus path - Buster/Zorro III instead of the motherboard $DD0000
 // decode). The board only exists once autoconfig has assigned it a base, so
@@ -3326,6 +3391,7 @@ int detectA4091SCSI(void)
     if (!base) return 0;
     globals->NcrBase = (void *)(uintptr_t)(base + A4091_NCR_OFFSET);
     if (!ncr710PresentAt(NCR_BASE)) return 0;
+    if (!ncrFirstAccess()) return 0;  // announced + timed first access — see detectA4000TSCSI()
     return ncrChipReset(1, 1);
 }
 
@@ -5113,7 +5179,7 @@ static int a3kXferFindTarget(void)
     }
 
     // Nothing answered. WHY matters: "works once, then no devices" on a
-    // TF4060 AA3000+ (Bruce Braun 2026-08, John 2026-10-16) is either a
+    // 060-card AA3000+ (reports 2026-08 and 2026-10-16) is either a
     // selection timeout on a free bus (targets silent/confused) or a
     // SELECT that never completes because a target still holds BSY after
     // our previous transaction — only the per-ID status tells them apart.
