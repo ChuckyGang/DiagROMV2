@@ -3117,6 +3117,7 @@ static void ncr_irq_enable(volatile struct GlobalVars *globals)
 {
     globals->ScsiIrqPending = 0;
     globals->ScsiIrqStatus  = 0;
+    globals->ScsiIrqDstat   = 0;
     globals->ScsiIrqCount   = 0;
     *(volatile APTR *) + 0x68 = Ncr710PortsIRQ;
     custom->intreq = SCSI_PORTS_BIT;
@@ -3177,6 +3178,23 @@ static void ncr_irq_disable(void)
 // to the fallback INT (2026-10-18). Emulators/SCSI2SD settle instantly,
 // which is why the IF form ever looked right.
 #define NCR_SCRIPT_JUMP_IF(phase) (0x800B0000UL | (((uint32_t)(phase)) << 24))
+// CALL/RETURN pair (opcodes 001/010 of the same class): a message-in
+// subroutine can then be shared by every point of a transaction where the
+// target may slip a message in. RETURN pops the address CALL saved in TEMP.
+#define NCR_SCRIPT_CALL_IF(phase) (0x880B0000UL | (((uint32_t)(phase)) << 24))
+#define NCR_SCRIPT_RETURN         0x90080000UL
+// JUMP on the byte just received (SFBR), no phase compare: bit18 = compare
+// data, mask bits 15-8 clear = every bit significant.
+#define NCR_SCRIPT_JUMP_IFDATA(v) (0x800C0000UL | ((uint32_t)(v) & 0xFF))
+// I/O class (01): CLEAR ACK and WAIT DISCONNECT. The 53C710 leaves ACK
+// asserted after the LAST byte of every message-in move (so an initiator
+// can still reject the message); the target cannot change phase until a
+// CLEAR ACK releases it - missing it is what hung the first sync attempt
+// (bus stuck in MSG_IN with ACK up, 2026-10-18). WAIT DISCONNECT after the
+// command-complete message lets the target go bus-free cleanly, which
+// matters once commands no longer start with a bus reset.
+#define NCR_SCRIPT_CLEAR_ACK      0x60000040UL
+#define NCR_SCRIPT_WAIT_DISC      0x48000000UL
 #define NCR_SCRIPT_MOVE(phase, count) \
     (NCR_MOVE_OPCODE_BIT | (((uint32_t)(phase)) << 24) | ((uint32_t)(count) & 0xFFFFFFUL))
 
@@ -3249,6 +3267,12 @@ static int ncrChipReset(int fullSettle, int busReset)
             for (int i = 0; i < 500; i++) waitShort();   // ~320ms settle - real driver waits 250ms before touching the bus
         }
     }
+
+    // Consume whatever the chip latched from its own RST pulse (SSTAT0.RST)
+    // or the soft reset, so the transaction that follows never starts with
+    // a stale interrupt pending the moment SIEN is written.
+    (void)NCR_BASE[NCR_SSTAT0];
+    (void)NCR_BASE[NCR_DSTAT];
 
     NCR_BASE[NCR_SCID]   = (uint8_t)(1U << NCR_OWN_SCSI_ID);
     NCR_BASE[NCR_SCNTL1] |= NCR_SCNTL1_ESR;
@@ -3541,75 +3565,163 @@ typedef struct {
     uint16_t irqs, stopIdx;
 } NcrCmdDbg;
 
-static int a4k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
-                             uint8_t *dataBuf, int dataLen, int fullSettle,
-                             NcrCmdDbg *dbg)
+// Synchronous transfer agreement with one target (SCSI-2 SDTR). The 53C710
+// clocks a synchronous data phase by itself once SXFER holds the agreed
+// offset and period; the negotiation is only a message exchange. Facts from
+// the Linux 53c700 driver (drivers/scsi/53c700.c, a4000t.c: 50 MHz SCLK,
+// SBCL SSCF=01 -> sync clock = SCLK, XFERP = period*4*50/1000 - 4, offset
+// max 8 on the 710). A SCSI bus reset voids the agreement on the target
+// side, so `negotiated` is cleared whenever a command pulses RST.
+typedef struct {
+    uint8_t reqPeriod, reqOffset;  // our proposal (period in 4 ns units; offset 0 = never negotiate)
+    uint8_t period, offset;        // the agreement (offset 0 = asynchronous)
+    uint8_t sxfer;                 // SXFER sync bits for the agreement (0 = async)
+    uint8_t sbcl;                  // SBCL sync clock divider the sxfer value assumes
+    uint8_t negotiated;            // 1 = agreement live on the bus (no RST since)
+    uint8_t replied;               // 1 = target answered with an SDTR
+    uint8_t msg0, mlen, mcode;     // raw message-in bytes of the negotiation
+} NcrSync;
+
+#define NCR_SYNC_REQ_PERIOD 25     // 100 ns = 10 MB/s, the chip's fastest
+#define NCR_SYNC_REQ_OFFSET 8      // NCR_710_MAX_OFFSET
+
+// Agreement -> SXFER. Rounds the chip's period UP so it is never faster
+// than what the target agreed to. Tries sync clock SCLK/1 (20 ns steps,
+// periods 80-220 ns), then SCLK/2 (40 ns steps, up to 440 ns); a target
+// slower than that gets async.
+static void ncrSyncComputeSxfer(NcrSync *sy)
+{
+    sy->sxfer = 0;
+    sy->sbcl  = NCR_SBCL_SSCF0;                         // SCLK/1
+    if (sy->offset == 0 || sy->period == 0) { sy->offset = 0; return; }
+    uint32_t ns = (uint32_t)sy->period * 4, rem;
+    int32_t xferp = (int32_t)udiv32(ns + 19, 20, &rem) - 4;   // udiv32: no libgcc division here
+    if (xferp > 7) {
+        sy->sbcl = NCR_SBCL_SSCF1 | NCR_SBCL_SSCF0;     // SCLK/2
+        xferp = (int32_t)udiv32(ns + 39, 40, &rem) - 4;
+        if (xferp > 7) { sy->offset = 0; return; }      // too slow for sync here
+    }
+    if (xferp < 0) xferp = 0;
+    uint8_t off = sy->offset > NCR_SYNC_REQ_OFFSET ? NCR_SYNC_REQ_OFFSET : sy->offset;
+    sy->sxfer = (uint8_t)((off & 0x0F) | ((uint32_t)xferp << 4));
+}
+
+// One complete SCSI transaction (select, IDENTIFY [+SDTR], command, data-in,
+// status, command-complete) as a single SCRIPTS program. Phase jumps all
+// WAIT for a valid phase; a message-in subroutine (CALL/RETURN) handles a
+// message the target slips in after the IDENTIFY or after the command: a
+// 1-byte message (REJECT, ...) is consumed, an extended SDTR is captured,
+// any other extended message stops the script at an INT (the forensics say
+// where). A command without a data phase (dataLen 0) goes straight from
+// command to status. busReset=0 skips the RST pulse so an existing sync
+// agreement survives; sync=NULL is plain async exactly as before.
+static int a4k_scsi_command_ex(uint8_t unit, const uint8_t *cdb, int cdbLen,
+                               uint8_t *dataBuf, int dataLen, int fullSettle,
+                               int busReset, NcrSync *sync, NcrCmdDbg *dbg)
 {
     volatile struct GlobalVars *globals = a3k_globals();
 
-    if (!ncrChipReset(fullSettle, 1)) return 0;
+    if (!ncrChipReset(fullSettle, busReset)) return 0;
+    if (busReset && sync) sync->negotiated = 0;   // RST: the target is async again
+
+    // SXFER after the chip reset (which programs async) and before the
+    // script runs: a live agreement, else async. Negotiate only when asked
+    // to and nothing is live.
+    uint8_t sx = 0;
+    int negotiate = 0;
+    if (sync) {
+        if (sync->negotiated) sx = sync->sxfer;
+        else                  negotiate = 1;   // reqOffset 0 = explicitly ask for async
+        NCR_BASE[NCR_SBCL] = sync->sbcl ? sync->sbcl : NCR_SBCL_SSCF0;
+    }
+    NCR_BASE[NCR_SXFER] = NCR_SXFER_DHP | sx;
     ncr_irq_enable(globals);
 
-    uint8_t identify = 0x80;   // IDENTIFY, LUN 0, no DiscPriv
+    uint8_t msgOut[6] = { 0x80, 0x01, 0x03, 0x01, 0, 0 };   // IDENTIFY (LUN 0, no DiscPriv) [+ SDTR]
+    int msgOutLen = 1;
+    if (negotiate) {
+        msgOut[4] = sync->reqPeriod;
+        msgOut[5] = sync->reqOffset;
+        msgOutLen = 6;
+    }
     uint8_t statusByte = 0xFF, msgByte = 0xFF;
+    uint8_t m0 = 0, mlen = 0, mcode = 0, mparm[2] = { 0, 0 };
 
-    NCR_SCRIPT_BUF(script, 36);
-    script[0]  = NCR_SCRIPT_SELECT_ATN | ((1UL << unit) << 16);
-    script[1]  = (uint32_t)(uintptr_t)&script[34];   // reselect fallback
-    script[2]  = NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_OUT);
-    script[3]  = (uint32_t)(uintptr_t)&script[6];
-    script[4]  = NCR_SCRIPT_INT;                      // fallback: not MSG_OUT after SELECT
-    script[5]  = 0;
-    script[6]  = NCR_SCRIPT_MOVE(NCR_PHASE_MSG_OUT, 1);
-    script[7]  = (uint32_t)(uintptr_t)&identify;
-    script[8]  = NCR_SCRIPT_JUMP_IF(NCR_PHASE_CMD);
-    script[9]  = (uint32_t)(uintptr_t)&script[12];
-    script[10] = NCR_SCRIPT_INT;                      // fallback: not CMD after IDENTIFY
-    script[11] = 0;
-    script[12] = NCR_SCRIPT_MOVE(NCR_PHASE_CMD, cdbLen);
-    script[13] = (uint32_t)(uintptr_t)cdb;
-    script[14] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_DATA_IN);
-    script[15] = (uint32_t)(uintptr_t)&script[18];
-    script[16] = NCR_SCRIPT_INT;                      // fallback: not DATA_IN after CDB
-    script[17] = 0;
-    script[18] = NCR_SCRIPT_MOVE(NCR_PHASE_DATA_IN, dataLen);
-    script[19] = (uint32_t)(uintptr_t)dataBuf;
-    script[20] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_STATUS);
-    script[21] = (uint32_t)(uintptr_t)&script[24];
-    script[22] = NCR_SCRIPT_INT;                      // fallback: not STATUS after DATA_IN
-    script[23] = 0;
-    script[24] = NCR_SCRIPT_MOVE(NCR_PHASE_STATUS, 1);
-    script[25] = (uint32_t)(uintptr_t)&statusByte;
-    script[26] = NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_IN);
-    script[27] = (uint32_t)(uintptr_t)&script[30];
-    script[28] = NCR_SCRIPT_INT;                      // fallback: not MSG_IN after STATUS
-    script[29] = 0;
-    script[30] = NCR_SCRIPT_MOVE(NCR_PHASE_MSG_IN, 1);
-    script[31] = (uint32_t)(uintptr_t)&msgByte;
-    script[32] = NCR_SCRIPT_INT;                      // SUCCESS checkpoint
-    script[33] = 0;
-    script[34] = NCR_SCRIPT_INT;                      // reselected before winning arbitration
-    script[35] = 0;
+    NCR_SCRIPT_BUF(script, 96);
+    int n = 0;
+#define S_EMIT(op, arg) do { script[n] = (uint32_t)(op); script[n + 1] = (uint32_t)(arg); n += 2; } while (0)
+#define S_ADDR(idx)     ((uint32_t)(uintptr_t)&script[(idx)])
+    // --- message-in subroutine (placed first: every reference is backward) ---
+    const int MSGIN = n;
+    S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_MSG_IN, 1), (uintptr_t)&m0);
+    S_EMIT(NCR_SCRIPT_CLEAR_ACK, 0);
+    S_EMIT(NCR_SCRIPT_JUMP_IFDATA(0x01), S_ADDR(n + 4));    // extended message? (SFBR = m0)
+    S_EMIT(NCR_SCRIPT_RETURN, 0);                           // 1-byte message consumed
+    S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_MSG_IN, 1), (uintptr_t)&mlen);
+    S_EMIT(NCR_SCRIPT_CLEAR_ACK, 0);
+    S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_MSG_IN, 1), (uintptr_t)&mcode);
+    S_EMIT(NCR_SCRIPT_CLEAR_ACK, 0);
+    S_EMIT(NCR_SCRIPT_JUMP_IFDATA(0x01), S_ADDR(n + 4));    // SDTR?
+    S_EMIT(NCR_SCRIPT_INT, 0);                              // other extended message: stop
+    S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_MSG_IN, 2), (uintptr_t)&mparm[0]);   // period, offset
+    S_EMIT(NCR_SCRIPT_CLEAR_ACK, 0);
+    S_EMIT(NCR_SCRIPT_RETURN, 0);
+    const int RESEL = n;
+    S_EMIT(NCR_SCRIPT_INT, 0);                              // reselected before winning arbitration
+    // --- the transaction ---
+    const int START = n;
+    S_EMIT(NCR_SCRIPT_SELECT_ATN | ((1UL << unit) << 16), S_ADDR(RESEL));
+    S_EMIT(NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_OUT), S_ADDR(n + 4));
+    S_EMIT(NCR_SCRIPT_INT, 0);                              // not MSG_OUT after SELECT
+    S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_MSG_OUT, msgOutLen), (uintptr_t)&msgOut[0]);
+    S_EMIT(NCR_SCRIPT_CALL_IF(NCR_PHASE_MSG_IN), S_ADDR(MSGIN));   // SDTR reply / REJECT
+    S_EMIT(NCR_SCRIPT_JUMP_IF(NCR_PHASE_CMD), S_ADDR(n + 4));
+    S_EMIT(NCR_SCRIPT_INT, 0);                              // not CMD after the message(s)
+    S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_CMD, cdbLen), (uintptr_t)cdb);
+    S_EMIT(NCR_SCRIPT_CALL_IF(NCR_PHASE_MSG_IN), S_ADDR(MSGIN));   // reply after the command
+    if (dataLen > 0)
+        S_EMIT(NCR_SCRIPT_JUMP_IF(NCR_PHASE_DATA_IN), S_ADDR(n + 6));
+    const int patchA = n;
+    S_EMIT(NCR_SCRIPT_JUMP_IF(NCR_PHASE_STATUS), 0);        // -> STATUS_H (patched below)
+    S_EMIT(NCR_SCRIPT_INT, 0);                              // unexpected phase after CDB
+    int patchB = -1;
+    if (dataLen > 0) {
+        S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_DATA_IN, dataLen), (uintptr_t)dataBuf);
+        S_EMIT(NCR_SCRIPT_CALL_IF(NCR_PHASE_MSG_IN), S_ADDR(MSGIN));
+        patchB = n;
+        S_EMIT(NCR_SCRIPT_JUMP_IF(NCR_PHASE_STATUS), 0);
+        S_EMIT(NCR_SCRIPT_INT, 0);                          // not STATUS after DATA_IN
+    }
+    const int STATUS_H = n;
+    S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_STATUS, 1), (uintptr_t)&statusByte);
+    S_EMIT(NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_IN), S_ADDR(n + 4));
+    S_EMIT(NCR_SCRIPT_INT, 0);                              // not MSG_IN after STATUS
+    S_EMIT(NCR_SCRIPT_MOVE(NCR_PHASE_MSG_IN, 1), (uintptr_t)&msgByte);
+    S_EMIT(NCR_SCRIPT_CLEAR_ACK, 0);
+    S_EMIT(NCR_SCRIPT_WAIT_DISC, 0);                        // target goes bus-free
+    const int SUCCESS = n;
+    S_EMIT(NCR_SCRIPT_INT, 0);                              // SUCCESS checkpoint
+    script[patchA + 1] = S_ADDR(STATUS_H);
+    if (patchB >= 0) script[patchB + 1] = S_ADDR(STATUS_H);
+#undef S_EMIT
+#undef S_ADDR
 
     globals->ScsiIrqPending = 0;
-    ncr_lwrite(NCR_DSP, (uint32_t)(uintptr_t)&script[0]);
+    ncr_lwrite(NCR_DSP, (uint32_t)(uintptr_t)&script[START]);
 
     for (int i = 0; i < NCR_SCAN_WAIT_ITERS; i++) {
         if (globals->ScsiIrqPending) break;
         waitShort();
     }
 
-    // Off-by-one-corrected checkpoint: s->dsp rests at &script[N+2] once
-    // the INT at script[N]/script[N+1] actually fires and stops the
-    // script (lsi_execute_script() advances dsp by the full 8-byte
-    // instruction pair BEFORE dispatching, not after) - see
-    // [[project_diagrom_a4000t_scsi]] memory for the gdb-verified proof.
+    // dsp rests 8 bytes past the INT that stopped the script (the chip
+    // advances before dispatching) - success = &script[SUCCESS + 2].
     int reachedEnd = 0;
     if (dbg) dbg->stopIdx = 0xFFFF;
     if (globals->ScsiIrqPending) {
         globals->ScsiIrqPending = 0;
         uint32_t dsp = ncr_lread(NCR_DSP);
-        reachedEnd = (dsp == (uint32_t)(uintptr_t)&script[34]);
+        reachedEnd = (dsp == (uint32_t)(uintptr_t)&script[SUCCESS + 2]);
         if (dbg) dbg->stopIdx = (uint16_t)((dsp - (uint32_t)(uintptr_t)&script[0]) >> 2);
     }
     if (dbg) {
@@ -3621,13 +3733,45 @@ static int a4k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
         dbg->msg    = msgByte;
         dbg->irqs   = globals->ScsiIrqCount;
     }
-    // Caller reads globals->ScsiIrqCount immediately after this call
-    // returns if it wants to accumulate an events-serviced total (see
-    // scanA4000TSCSI() below) - ncr_irq_disable() doesn't touch it, only
-    // the NEXT call's ncr_irq_enable() resets it.
+    if (negotiate) {
+        sync->msg0 = m0; sync->mlen = mlen; sync->mcode = mcode;
+        sync->replied = 0; sync->period = 0; sync->offset = 0; sync->sxfer = 0;
+        if (m0 == 0x01 && mcode == 0x01) {        // extended, SDTR
+            sync->replied = 1;
+            sync->period  = mparm[0];
+            sync->offset  = mparm[1];
+        }
+        ncrSyncComputeSxfer(sync);
+        // Whatever came back (SDTR, REJECT, or silence = async by the
+        // standard) is the agreement until the next RST - provided the
+        // transaction itself ran to the end.
+        sync->negotiated = reachedEnd ? 1 : 0;
+    }
     ncr_irq_disable();
 
     return reachedEnd && statusByte == 0 && msgByte == 0;
+}
+
+static int a4k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
+                             uint8_t *dataBuf, int dataLen, int fullSettle,
+                             NcrCmdDbg *dbg)
+{
+    return a4k_scsi_command_ex(unit, cdb, cdbLen, dataBuf, dataLen, fullSettle, 1, NULL, dbg);
+}
+
+// The chip-side failure forensics of one transaction, on one line.
+static void a4kPrintCmdDbg(const NcrCmdDbg *dbg)
+{
+    print("      SSTAT0=", WHITE); print(binHexByte(dbg->sstat0), CYAN);
+    print(" DSTAT=", WHITE);  print(binHexByte(dbg->dstat), CYAN);
+    print(" SSTAT1=", WHITE); print(binHexByte(dbg->sstat1), CYAN);
+    print(" SBCL=", WHITE);   print(binHexByte(dbg->sbcl), CYAN);
+    print(" st=", WHITE);     print(binHexByte(dbg->status), CYAN);
+    print(" msg=", WHITE);    print(binHexByte(dbg->msg), CYAN);
+    print(" irq=", WHITE);    print(binDec(dbg->irqs), CYAN);
+    print(" stop@", WHITE);
+    if (dbg->stopIdx == 0xFFFF) print("none", CYAN); else print(binDec(dbg->stopIdx), CYAN);
+    print("\n", WHITE);
 }
 
 int scanA4000TSCSI(void)
@@ -3669,18 +3813,9 @@ int scanA4000TSCSI(void)
                 waitShort();
                 continue;
             }
-            if (dbg.stopIdx == 0xFFFF) print("  no IRQ", YELLOW);
-            else {                     // a device answered, the script stopped at an INT
-                print("  answered, stop@", YELLOW); print(binDec(dbg.stopIdx), YELLOW);
-            }
-            print("\n      SSTAT0=", WHITE); print(binHexByte(dbg.sstat0), CYAN);
-            print(" DSTAT=", WHITE);  print(binHexByte(dbg.dstat), CYAN);
-            print(" SSTAT1=", WHITE); print(binHexByte(dbg.sstat1), CYAN);
-            print(" SBCL=", WHITE);   print(binHexByte(dbg.sbcl), CYAN);
-            print(" st=", WHITE);     print(binHexByte(dbg.status), CYAN);
-            print(" msg=", WHITE);    print(binHexByte(dbg.msg), CYAN);
-            print(" irq=", WHITE);    print(binDec(dbg.irqs), CYAN);
-            print("\n", WHITE);
+            if (dbg.stopIdx == 0xFFFF) print("  no IRQ\n", YELLOW);
+            else print("  answered, then the transaction failed\n", YELLOW);
+            a4kPrintCmdDbg(&dbg);
             waitShort();   // let the host redraw before moving to the next ID
             continue;
         }
@@ -5019,6 +5154,430 @@ static int a3kDmaTestRepeat(void)
 }
 
 // ---------------------------------------------------------------------------
+// A4000T / A4091 DMA Transfer Test (menu entries 6/7): real READ(10)s through
+// the 53C710 into Chip and Fast RAM, asynchronous AND synchronous.
+// ---------------------------------------------------------------------------
+//
+// Everything else in this menu drives the bus asynchronously, which is NOT
+// what the OS does: scsi.device negotiates synchronous transfer, and the
+// first sizeable synchronous read after a boot is the 68040/68060 library
+// SetPatch loads into Fast RAM. A machine that passes the async scan and the
+// memory-to-memory DMA test can still corrupt exactly that read - so this
+// test reads the same 64 blocks (LBA 0-63, the RDB area; strictly READ-ONLY)
+// async twice as the reference, then async and sync into Chip and Fast RAM,
+// and compares every byte. Sync is negotiated with a TEST UNIT READY (no
+// data phase, so the agreement never applies mid-transaction) at the chip's
+// fastest (100 ns / 10 MB/s, offset 8); the target answers with what it can
+// do. Rows then run WITHOUT the per-command bus reset, because RST voids
+// the agreement; the async rows keep it (and clear the agreement), so the
+// sync rows re-negotiate after them.
+#define A4K_XFER_BLOCKS   64                       // 32 KB per read: library-sized
+#define A4K_XFER_BYTES    (A4K_XFER_BLOCKS * 512UL)
+#define A4K_XFER_LBA      0
+#define A4K_XFER_MAX_DIRS 4
+#define A4K_XFERFAIL_CMD      1   // transaction did not complete (chip forensics)
+#define A4K_XFERFAIL_MISMATCH 2   // data delivered, compared bad
+#define A4K_XFERFAIL_NODATA   3   // command "completed", buffer untouched
+#define A4K_XFERFAIL_NOSYNC   4   // sync row: target would not go synchronous
+
+typedef struct {
+    const char *label;
+    uint8_t    *buf;        // longword-aligned destination
+    int         useSync;    // 1 = synchronous row
+    const char *hint;       // extra line under a failure, or NULL
+} A4kXferDir;
+
+typedef struct {
+    int       reason;       // A4K_XFERFAIL_*
+    NcrCmdDbg cmd;          // CMD: the chip's view
+    uint8_t   retried;      // the read was retried once after CHECK CONDITION
+    uint32_t  offset, badBytes, poison, laneBad[4], dumpOff;
+    uint8_t   expect, got, exp16[16], got16[16];
+} A4kXferFail;
+
+// READ(10), A4K_XFER_BLOCKS blocks from A4K_XFER_LBA. One retry on CHECK
+// CONDITION: the first command after a bus reset may carry a UNIT ATTENTION
+// on a standards-minded target, and reporting it clears it.
+static int a4kXferRead(int target, uint8_t *buf, int busReset, NcrSync *sync,
+                       NcrCmdDbg *dbg, uint8_t *retried)
+{
+    const uint8_t cdb[10] = {
+        A4K_SCSI_READ10, 0,
+        (uint8_t)(A4K_XFER_LBA >> 24), (uint8_t)(A4K_XFER_LBA >> 16),
+        (uint8_t)(A4K_XFER_LBA >> 8),  (uint8_t)A4K_XFER_LBA,
+        0, 0, A4K_XFER_BLOCKS, 0
+    };
+    *retried = 0;
+    int ok = a4k_scsi_command_ex((uint8_t)target, cdb, 10, buf, (int)A4K_XFER_BYTES,
+                                 busReset, busReset, sync, dbg);
+    if (!ok && dbg->status == 0x02) {
+        *retried = 1;
+        ok = a4k_scsi_command_ex((uint8_t)target, cdb, 10, buf, (int)A4K_XFER_BYTES,
+                                 0, 0, sync, dbg);
+    }
+    return ok;
+}
+
+// First responding ID that is a disk (or anything readable if no disk answers).
+static int a4kXferFindTarget(void)
+{
+    static const uint8_t inquiryCdb[6] = { SCSI_INQUIRY, 0, 0, 0, SCSI_INQUIRY_LEN, 0 };
+    int any = -1;
+    for (int id = 0; id <= 6; id++) {
+        uint8_t buf[SCSI_INQUIRY_LEN];
+        NcrCmdDbg dbg;
+        if (!a4k_scsi_command((uint8_t)id, inquiryCdb, 6, buf, SCSI_INQUIRY_LEN, 1, &dbg))
+            continue;
+        if ((buf[0] & 0x1F) == 0) return id;
+        if (any < 0) any = id;
+    }
+    return any;
+}
+
+// SDTR exchange on a TEST UNIT READY (no data phase). offset 0 asks the
+// target to go asynchronous explicitly: at least one target was seen to
+// keep its sync agreement across our RST pulse (2026-10-18), so the test
+// never relies on the bus reset alone to return to async.
+static int a4kSyncNegotiate(int target, NcrSync *sync, NcrCmdDbg *dbg, uint8_t offset)
+{
+    static const uint8_t tur[6] = { 0, 0, 0, 0, 0, 0 };
+    sync->reqPeriod = NCR_SYNC_REQ_PERIOD;
+    sync->reqOffset = offset;
+    sync->negotiated = 0;
+    (void)a4k_scsi_command_ex((uint8_t)target, tur, 6, NULL, 0, 1, 1, sync, dbg);
+    return sync->negotiated;
+}
+
+static void a4kXferPrintSync(const NcrSync *sync)
+{
+    if (!sync->replied) {
+        print("Sync: no SDTR reply (target stays asynchronous)", YELLOW);
+        if (sync->msg0 == 0x07) print(" - request REJECTED", YELLOW);
+        print("\n", WHITE);
+        return;
+    }
+    if (sync->offset == 0) {
+        print("Sync: target answered asynchronous (offset 0)\n", YELLOW);
+        return;
+    }
+    uint32_t ns = (uint32_t)sync->period * 4, rem, tenths;
+    uint32_t rate10 = udiv32(10000UL, ns, &rem);           // MB/s in tenths
+    uint32_t whole  = udiv32(rate10, 10, &tenths);
+    print("Sync: agreed ", WHITE); print(binDec((int32_t)ns), GREEN);
+    print(" ns (", WHITE); print(binDec((int32_t)whole), GREEN);
+    print(".", GREEN); print(binDec((int32_t)tenths), GREEN);
+    print(" MB/s), offset ", WHITE); print(binDec(sync->offset), GREEN);
+    print(", SXFER ", WHITE); print(binHexByte(sync->sxfer), CYAN);
+    print(sync->sbcl == NCR_SBCL_SSCF0 ? " (sync clock SCLK/1)\n" : " (sync clock SCLK/2)\n", WHITE);
+}
+
+// One read into dir->buf (prefilled with the byte-wise complement of the
+// reference so "moved nothing" is its own verdict), compared byte for byte.
+static int a4kXferRun(int target, const A4kXferDir *dir, const uint8_t *ref,
+                      NcrSync *sync, A4kXferFail *fail)
+{
+    for (uint32_t i = 0; i < A4K_XFER_BYTES; i++)
+        dir->buf[i] = (uint8_t)~ref[i];
+
+    // Every row states its own transfer mode with an SDTR (sync rows only
+    // when no sync agreement is live), then reads WITHOUT a bus reset so
+    // that agreement is what the data phase actually runs under.
+    int ok;
+    if (dir->useSync) {
+        if ((!sync->negotiated || sync->offset == 0) &&
+            !a4kSyncNegotiate(target, sync, &fail->cmd, NCR_SYNC_REQ_OFFSET)) {
+            fail->reason = A4K_XFERFAIL_CMD;        // the TUR itself failed
+            return 0;
+        }
+        if (sync->offset == 0) { fail->reason = A4K_XFERFAIL_NOSYNC; return 0; }
+    } else {
+        if (!a4kSyncNegotiate(target, sync, &fail->cmd, 0)) {
+            fail->reason = A4K_XFERFAIL_CMD;
+            return 0;
+        }
+    }
+    ok = a4kXferRead(target, dir->buf, 0, sync, &fail->cmd, &fail->retried);
+    if (!ok) { fail->reason = A4K_XFERFAIL_CMD; return 0; }
+
+    uint32_t bad = 0, untouched = 0, first = 0;
+    int haveFirst = 0;
+    fail->laneBad[0] = fail->laneBad[1] = fail->laneBad[2] = fail->laneBad[3] = 0;
+    for (uint32_t i = 0; i < A4K_XFER_BYTES; i++) {
+        if (dir->buf[i] == (uint8_t)~ref[i]) untouched++;
+        if (dir->buf[i] != ref[i]) {
+            if (!haveFirst) { haveFirst = 1; first = i; }
+            bad++;
+            fail->laneBad[i & 3]++;
+        }
+    }
+    if (bad == 0) return 1;
+
+    fail->reason   = (untouched == A4K_XFER_BYTES) ? A4K_XFERFAIL_NODATA : A4K_XFERFAIL_MISMATCH;
+    fail->offset   = first;
+    fail->expect   = ref[first];
+    fail->got      = dir->buf[first];
+    fail->badBytes = bad;
+    fail->poison   = untouched;
+    fail->dumpOff  = first & ~3UL;
+    if (fail->dumpOff > A4K_XFER_BYTES - 16) fail->dumpOff = A4K_XFER_BYTES - 16;
+    for (uint32_t i = 0; i < 16; i++) {
+        fail->exp16[i] = ref[fail->dumpOff + i];
+        fail->got16[i] = dir->buf[fail->dumpOff + i];
+    }
+    return 0;
+}
+
+static void a4kXferPrintFail(const A4kXferFail *fail)
+{
+    switch (fail->reason) {
+    case A4K_XFERFAIL_CMD:
+        print("FAILED (transaction did not complete", RED);
+        if (fail->retried) print(", retried after CHECK CONDITION", RED);
+        print(")\n", RED);
+        a4kPrintCmdDbg(&fail->cmd);
+        return;
+    case A4K_XFERFAIL_NOSYNC:
+        print("SKIPPED (no synchronous agreement with this target)\n", YELLOW);
+        return;
+    case A4K_XFERFAIL_NODATA:
+        print("FAILED (command completed, buffer untouched - no data was moved)\n", RED);
+        return;
+    default:
+        break;
+    }
+    print("FAILED (mismatch at ", RED); print(binHex(fail->offset), RED);
+    print(" exp=", RED); print(binHexByte(fail->expect), RED);
+    print(" got=", RED); print(binHexByte(fail->got), RED);
+    print(", ", RED); print(binDec((int32_t)fail->badBytes), RED);
+    print(" bad bytes)\n", RED);
+    print("      lanes ", YELLOW);
+    for (int l = 0; l < 4; l++) {
+        print(binDec((int32_t)fail->laneBad[l]), YELLOW);
+        print(l < 3 ? "/" : "", YELLOW);
+    }
+    print("  untouched ", YELLOW); print(binDec((int32_t)fail->poison), YELLOW);
+    print("  at ", YELLOW); print(binHex(fail->dumpOff), YELLOW); print(":\n      exp", YELLOW);
+    for (int i = 0; i < 16; i++) { print(" ", WHITE); print(binHexByte(fail->exp16[i]), WHITE); }
+    print("\n      got", YELLOW);
+    for (int i = 0; i < 16; i++) {
+        print(" ", WHITE);
+        print(binHexByte(fail->got16[i]), fail->got16[i] == fail->exp16[i] ? WHITE : RED);
+    }
+    print("\n", WHITE);
+}
+
+// Buffers, target, double async reference, sync agreement, row list.
+// Returns the target ID or -1 (message already printed).
+static int a4kXferSetup(A4kXferDir *dirs, int *nDirs, uint8_t **refOut, NcrSync *sync)
+{
+    if (NCR_BASE[NCR_ISTAT] == 0xFF) {
+        print("  Bus float - controller not responding.\n", RED);
+        return -1;
+    }
+
+    uint8_t *ref  = (uint8_t *)getMemory(A4K_XFER_BYTES);
+    uint8_t *chip = NULL, *fast = NULL;
+    uint32_t caddr = getChip(A4K_XFER_BYTES + 4);
+    if (caddr != 0 && caddr != 1)
+        chip = (uint8_t *)(uintptr_t)((caddr + 3) & ~3UL);
+    if (globals->FastStart != 0) {
+        uint8_t *fb = (uint8_t *)getMemory(A4K_XFER_BYTES + 4);
+        uint32_t fs = (uint32_t)(uintptr_t)globals->FastStart;
+        uint32_t fe = (uint32_t)(uintptr_t)globals->FastEnd;
+        if (fb && (uint32_t)(uintptr_t)fb >= fs && (uint32_t)(uintptr_t)fb < fe)
+            fast = (uint8_t *)(uintptr_t)(((uint32_t)(uintptr_t)fb + 3) & ~3UL);
+    }
+    if (!ref || !chip) {
+        print("  Could not allocate test buffers.\n", RED);
+        return -1;
+    }
+    print("Buffers: chip ", WHITE); print(binHex((uint32_t)(uintptr_t)chip), CYAN);
+    if (fast) { print("  fast ", WHITE); print(binHex((uint32_t)(uintptr_t)fast), CYAN); }
+    else        print("  (no Fast RAM: fast rows skipped)", YELLOW);
+    print("\n", WHITE);
+
+    print("Searching for a SCSI target...\n", WHITE);
+    int target = a4kXferFindTarget();
+    if (target < 0) {
+        print("  No responding target found - this test needs a readable disk.\n", RED);
+        return -1;
+    }
+    print("Target: SCSI ID ", WHITE); print(binDec(target), CYAN); print("\n", WHITE);
+
+    // Double async reference: two independent reads must agree before any
+    // DMA row is judged against them.
+    NcrCmdDbg dbg;
+    uint8_t retried;
+    int refOk = 0;
+    for (int attempt = 1; attempt <= 3 && !refOk; attempt++) {
+        refOk = a4kXferRead(target, ref, 1, NULL, &dbg, &retried);
+        if (!refOk) {
+            print("  Async reference read failed - attempt ", YELLOW);
+            print(binDec(attempt), YELLOW); print("\n", YELLOW);
+            a4kPrintCmdDbg(&dbg);
+        }
+    }
+    if (!refOk) {
+        print("  Async reference read failed - cannot establish a baseline.\n", RED);
+        return -1;
+    }
+    A4kXferDir stab = { "async stability", chip, 0, NULL };
+    A4kXferFail fail;
+    if (!a4kXferRun(target, &stab, ref, sync, &fail)) {
+        print("  Two async reads disagree - unstable medium/path, cannot judge: ", RED);
+        a4kXferPrintFail(&fail);
+        return -1;
+    }
+    print("Async baseline: two independent reads match (", GREEN);
+    print(binDec((int32_t)A4K_XFER_BYTES), GREEN); print(" bytes).\n", GREEN);
+
+    if (a4kSyncNegotiate(target, sync, &dbg, NCR_SYNC_REQ_OFFSET)) {
+        a4kXferPrintSync(sync);
+    } else {
+        print("Sync: negotiation transaction failed\n", RED);
+        a4kPrintCmdDbg(&dbg);
+    }
+    print("\n", WHITE);
+
+    int n = 0;
+    dirs[n].label = "ASYNC -> Chip RAM (re-read)"; dirs[n].buf = chip; dirs[n].useSync = 0; dirs[n].hint = NULL; n++;
+    if (fast) {
+        dirs[n].label = "ASYNC -> Fast RAM          "; dirs[n].buf = fast; dirs[n].useSync = 0;
+        dirs[n].hint = "  (an async Fast-only fail is the DMA path into that RAM, not sync timing)"; n++;
+    }
+    dirs[n].label = "SYNC  -> Chip RAM          "; dirs[n].buf = chip; dirs[n].useSync = 1; dirs[n].hint = NULL; n++;
+    if (fast) {
+        dirs[n].label = "SYNC  -> Fast RAM          "; dirs[n].buf = fast; dirs[n].useSync = 1;
+        dirs[n].hint = "  (this is the shape of SetPatch loading the CPU library)"; n++;
+    }
+    *nDirs  = n;
+    *refOut = ref;
+    return target;
+}
+
+static int a4kXferTest(void)
+{
+    A4kXferDir dirs[A4K_XFER_MAX_DIRS];
+    A4kXferFail fail;
+    NcrSync sync = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint8_t *ref;
+    int nDirs = 0;
+
+    print("\n", WHITE); print(ncrName(), WHITE);
+    print(" - DMA Transfer Test (READ-ONLY, 64 blocks, async + SYNC)\n", WHITE);
+    print("EXPERIMENTAL - please report results\n\n", YELLOW);
+
+    int target = a4kXferSetup(dirs, &nDirs, &ref, &sync);
+    if (target < 0) return 0;
+
+    uint32_t passed = 0, total = 0;
+    for (int d = 0; d < nDirs; d++) {
+        print("  ", WHITE); print((char *)dirs[d].label, CYAN); print(": ", WHITE);
+        total++;
+        if (a4kXferRun(target, &dirs[d], ref, &sync, &fail)) {
+            print("PASSED\n", GREEN);
+            passed++;
+        } else {
+            a4kXferPrintFail(&fail);
+            if (fail.reason == A4K_XFERFAIL_NOSYNC) { total--; continue; }
+            if (dirs[d].hint) { print((char *)dirs[d].hint, YELLOW); print("\n", YELLOW); }
+        }
+    }
+    print("\nResult: ", WHITE);
+    print(binDec((int32_t)passed), passed == total ? GREEN : RED);
+    print(" / ", WHITE); print(binDec((int32_t)total), WHITE);
+    print(" checks passed\n", WHITE);
+    return (int)passed;
+}
+
+// Soak version: every pass runs each row A4K_XFERSOAK_REPS times; tallies
+// update in place, the FIRST failure's forensics stay on screen, later ones
+// get a one-line summary. ESC / both buttons stop.
+#define A4K_XFERSOAK_REPS 5
+
+static int a4kXferTestRepeat(void)
+{
+    A4kXferDir dirs[A4K_XFER_MAX_DIRS];
+    A4kXferFail fail;
+    NcrSync sync = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint32_t dirFails[A4K_XFER_MAX_DIRS] = { 0, 0, 0, 0 };
+    uint8_t *ref;
+    int nDirs = 0;
+
+    print("\002", WHITE); print(ncrName(), WHITE);
+    print(" - DMA Transfer Test (Repeat)\n", WHITE);
+    print("\002EXPERIMENTAL - please report results\n\n", YELLOW);
+    globals->HddEscLatch = 0;
+    int target = a4kXferSetup(dirs, &nDirs, &ref, &sync);
+    if (target < 0) {
+        print("\nPress any key/button to continue", WHITE);
+        WaitButton();
+        return 0;
+    }
+
+    uint32_t iterations = 0, totalPassed = 0, totalChecks = 0;
+    int haveFail = 0, aborted = 0;
+    uint32_t firstFailPass = 0, lastFailPass = 0;
+    int lastFailDir = 0, lastReason = 0;
+
+    print("ESC or both buttons: stop\n\n", WHITE);
+    uint32_t passRow   = *(volatile uint8_t *)&globals->Ypos;   // row lives in the MSB byte (see setPos)
+    uint32_t totalsRow = passRow + (uint32_t)nDirs + 2;
+    uint32_t failRow   = totalsRow + 1;
+    uint32_t lastRow   = failRow + 6;
+
+    while (!aborted) {
+        setPos(0, passRow);
+        print("Pass ", WHITE); print(binDec((int32_t)(iterations + 1)), CYAN);
+        print(" (", WHITE); print(binDec(A4K_XFERSOAK_REPS), CYAN); print(" reps per row):", WHITE);
+
+        for (int d = 0; d < nDirs && !aborted; d++) {
+            uint32_t passedReps = 0;
+            for (int rep = 0; rep < A4K_XFERSOAK_REPS; rep++) {
+                if (a4kXferRun(target, &dirs[d], ref, &sync, &fail)) {
+                    passedReps++;
+                } else {
+                    dirFails[d]++;
+                    lastFailPass = iterations + 1;
+                    lastFailDir  = d;
+                    lastReason   = fail.reason;
+                    if (!haveFail) {
+                        haveFail = 1;
+                        firstFailPass = iterations + 1;
+                        setPos(0, failRow);
+                        print("First fail: pass ", WHITE); print(binDec((int32_t)firstFailPass), RED);
+                        print(" ", WHITE); print((char *)dirs[d].label, CYAN); print(": ", WHITE);
+                        a4kXferPrintFail(&fail);
+                    }
+                }
+                if (a4kDmaAbortRequested()) { aborted = 1; break; }
+            }
+            totalPassed += passedReps;
+            totalChecks += A4K_XFERSOAK_REPS;
+            setPos(0, passRow + 1 + (uint32_t)d);
+            print("  ", WHITE); print((char *)dirs[d].label, CYAN);
+            print(": ", WHITE); print(binDec((int32_t)passedReps), passedReps == A4K_XFERSOAK_REPS ? GREEN : RED);
+            print("/", WHITE); print(binDec(A4K_XFERSOAK_REPS), WHITE);
+            print("  fails ", WHITE); print(binDec((int32_t)dirFails[d]), dirFails[d] ? RED : GREEN);
+            print("   ", WHITE);
+        }
+        iterations++;
+        setPos(0, totalsRow);
+        print("Total: ", WHITE); print(binDec((int32_t)totalPassed), totalPassed == totalChecks ? GREEN : RED);
+        print(" / ", WHITE); print(binDec((int32_t)totalChecks), WHITE); print(" reads passed   ", WHITE);
+        if (haveFail) {
+            setPos(0, lastRow);
+            print("Last fail: pass ", WHITE); print(binDec((int32_t)lastFailPass), RED);
+            print(" ", WHITE); print((char *)dirs[lastFailDir].label, CYAN);
+            print(lastReason == A4K_XFERFAIL_CMD ? " (transaction)   " :
+                  lastReason == A4K_XFERFAIL_NODATA ? " (no data)       " :
+                  lastReason == A4K_XFERFAIL_NOSYNC ? " (no sync)       " : " (mismatch)      ", YELLOW);
+        }
+    }
+    return (int)totalPassed;
+}
+
+// ---------------------------------------------------------------------------
 // A3000 SCSI DMA Transfer Test (Tier 2) — real SDMAC DMA vs the proven PIO
 // path, menu entries 6/7.
 // ---------------------------------------------------------------------------
@@ -6065,8 +6624,8 @@ static const HddController hddControllers[] = {
     { "A1200/A600 IDE",    0, HDD_GATE_NONE,    detectGayleIDE,   scanGayleIDE,   identifyGayleIDE,   smartGayleIDE,   NULL,       NULL,             NULL,        NULL               },
     { "A4000/A4000T IDE",  1, HDD_GATE_A4000_IDE, detectA4000IDE,   scanA4000IDE,   identifyA4000IDE,   smartA4000IDE,   NULL,       NULL,             NULL,        NULL               },
     { "A3000/A3000T SCSI", 1, HDD_GATE_NOT_NCR, detectA3000SCSI,  scanA3000SCSI,  identifyA3000SCSI,  smartA3000SCSI,  a3kDmaTest, a3kDmaTestRepeat, a3kXferTest, a3kXferTestRepeat  },
-    { "A4000T SCSI",       1, HDD_GATE_NCR,     detectA4000TSCSI, scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI, a4kDmaTest, a4kDmaTestRepeat, NULL,        NULL               },
-    { "A4091/Re4091 SCSI", 0, HDD_GATE_A4091,   detectA4091SCSI,  scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI, a4kDmaTest, a4kDmaTestRepeat, NULL,        NULL               },
+    { "A4000T SCSI",       1, HDD_GATE_NCR,     detectA4000TSCSI, scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI, a4kDmaTest, a4kDmaTestRepeat, a4kXferTest, a4kXferTestRepeat },
+    { "A4091/Re4091 SCSI", 0, HDD_GATE_A4091,   detectA4091SCSI,  scanA4000TSCSI, identifyA4000TSCSI, smartA4000TSCSI, a4kDmaTest, a4kDmaTestRepeat, a4kXferTest, a4kXferTestRepeat },
 };
 #define NUM_HDD_CONTROLLERS (int)(sizeof(hddControllers)/sizeof(hddControllers[0]))
 
