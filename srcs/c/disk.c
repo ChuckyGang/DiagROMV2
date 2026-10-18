@@ -5535,11 +5535,18 @@ static int a4kXferSetup(A4kXferDir *dirs, int *nDirs, uint8_t **refOut, NcrSync 
         }
         if (!ok || sync->offset == 0) continue;
         agreed++;
+        // Offset 1 is the tightest legal agreement: the target may never raise
+        // a second REQ before the first ACK. A target whose REQ pipeline has
+        // a minimum depth of 2 agrees to it and then overruns it; the chip
+        // reports that as SGE. Seen on two different CPU cards with the same
+        // target, so it is the target's behaviour, not the host's.
+        const char *o1hint = (pf->offset == 1) ?
+            "  (SGE at offset 1 = the target sent more REQs ahead than it agreed to)" : NULL;
         dirs[n].label = chipLabels[pi]; dirs[n].buf = chip; dirs[n].useSync = 1;
-        dirs[n].hint = NULL; dirs[n].prof = pf; n++;
+        dirs[n].hint = o1hint; dirs[n].prof = pf; n++;
         if (fast) {
             dirs[n].label = fastLabels[pi]; dirs[n].buf = fast; dirs[n].useSync = 1;
-            dirs[n].hint = (pi == 0) ? "  (this is the shape of SetPatch loading the CPU library)" : NULL;
+            dirs[n].hint = (pi == 0) ? "  (this is the shape of SetPatch loading the CPU library)" : o1hint;
             dirs[n].prof = pf; n++;
         }
     }
