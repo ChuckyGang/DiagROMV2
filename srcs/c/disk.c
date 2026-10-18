@@ -3293,19 +3293,21 @@ static int ncr710PresentAt(volatile uint8_t *b)
     uint8_t v;
     if (acBerrProbeRead(&b[NCR_ISTAT], &v) || v == 0xFF)   // bus error / open bus
         return 0;
-    // FIRST WRITE = DCNTL.EA, exactly like the AmigaOS driver: with EA clear
-    // the chip ends its slave cycles through the board's SLAC path, which on
-    // an A4000T motherboard may never terminate the CPU's cycle (seen 2026-10:
-    // an 030 card gets a bus error, an 060 card runs into Gary's timeout).
-    // Once EA is latched the 53C710 terminates with STERM itself, and every
-    // access after this one - the SCRATCH probe included - completes.
-    if (acBerrWriteByte(&b[NCR_DCNTL], NCR_DCNTL_EA | NCR_DCNTL_COM))
-        return 0;
+    // Before DCNTL.EA is set the chip ends its slave cycles through the
+    // board's SLAC path, and on an A4000T motherboard a CPU card may not
+    // terminate the CPU's side of a WRITE cycle at all: an 030 card takes a
+    // bus error on every SCRATCH write (2026-10-18) even though the byte
+    // DOES land in the chip. So the write's bus-error verdict is ignored and
+    // the guarded readback alone decides. EA itself is deliberately NOT
+    // written here: this probe also runs on A3000-family machines, where
+    // $DD0040.. aliases the live SDMAC and only the SCRATCH bytes ($74-$77)
+    // are proven to land on nothing (real AA3000+, 2026-08-07). The first
+    // EA write happens, announced, in ncrFirstAccess() once the chip is
+    // positively identified.
     static const uint8_t pats[2] = { 0xA5, 0x5A };
     for (int p = 0; p < 2; p++) {
         for (int i = 0; i < 4; i++)
-            if (acBerrWriteByte(&b[NCR_SCRATCH + i], (uint8_t)(pats[p] ^ i)))
-                return 0;
+            (void)acBerrWriteByte(&b[NCR_SCRATCH + i], (uint8_t)(pats[p] ^ i));
         (void)*RAMSEY_VERSION_ADDR;    // scrub the data bus so a float can't echo the pattern
         for (int i = 0; i < 4; i++)
             if (acBerrProbeRead(&b[NCR_SCRATCH + i], &v) || v != (uint8_t)(pats[p] ^ i))
@@ -3405,7 +3407,9 @@ static char *ncrName(void)   // non-const only because print() takes char *
 // slow) and the user has to acknowledge it. Fat Gary's timeout is left
 // alone: it made no difference to the hang either way.
 #define VPOS_LO             (*(volatile uint8_t *)0x00DFF006UL)   // raster line, low 8 bits
-#define NCR_SLOW_LINES      64   // 1024 reads >= 64 lines = >= 4us per access
+#define NCR_REF_LINES_060   0x3A // 1024 ISTAT reads AFTER EA on a stock 060 card, A4000T motherboard
+                                 // path (2026-10-18: $8D before EA, $3A after; a run with EA already
+                                 // latched measured $68/$69 - expect run-to-run variance)
 
 // 1024 ISTAT reads, cost in raster lines (~64us each; wraps above 255).
 static uint32_t ncrTimeReads(void)
@@ -3421,27 +3425,25 @@ static int ncrFirstAccess(void)
     clearScreen();
     print("\002", CYAN); print(ncrName(), CYAN); print(" - first chip access\n\n", CYAN);
     uint32_t linesPre = ncrTimeReads();
-    print("Setting 53C710 DCNTL.EA (STERM-SLAC link) at $", WHITE);
+    print("Setting 53C710 DCNTL.EA (STERM-SLAC link) at ", WHITE);
     print(binHex((uint32_t)(uintptr_t)&NCR_BASE[NCR_DCNTL]), WHITE);
     print(" ...\nIf the machine FREEZES here: the first STERM-terminated 53C710 cycle\n"
           "never completed (CPU card / bus logic on the motherboard SCSI path).\n", YELLOW);
     NCR_BASE[NCR_DCNTL] = NCR_DCNTL_EA | NCR_DCNTL_COM;
     uint8_t istat = NCR_BASE[NCR_ISTAT];
-    print("DCNTL.EA write and first post-EA ISTAT read completed, ISTAT=$", GREEN);
-    print(binHex(istat), GREEN); print("\n", GREEN);
+    print("DCNTL.EA write and first post-EA ISTAT read completed, ISTAT=", GREEN);
+    print(binHexByte(istat), GREEN); print("\n\n", GREEN);
     uint32_t linesPost = ncrTimeReads();
-    print("1024 ISTAT reads before EA: $", WHITE); print(binHex(linesPre), WHITE);
-    print(" raster lines, after EA: $", WHITE); print(binHex(linesPost), WHITE);
-    print(" (64us per line; Zorro III reference 8-9)\n\n", WHITE);
-
-    if (linesPre < NCR_SLOW_LINES && linesPost < NCR_SLOW_LINES) {
-        print("53C710 register termination OK.\n", GREEN);
-        return 1;                       // normal machine: no pause
-    }
-    print("53C710 register cycles are SLOW on this machine (>= 4us each):\n"
-          "they are not being terminated by the chip's STERM/DSACK but by a\n"
-          "bus timeout. CPU card / bus logic does not honour the chip's\n"
-          "termination. SCSI stays usable, register access is just slow.\n", RED);
+    // Register-access timing, for the record: 1024 ISTAT reads in raster
+    // lines (64us each). 53C710 slave cycles on the A4000T motherboard path
+    // are slow by nature - a stock commercial 060 card measures $8D before
+    // and $3A after EA (3.6-9us per access) and works perfectly, so this is NOT a pass/fail
+    // verdict, just a number to compare CPU cards and firmwares against.
+    print("1024 ISTAT reads before EA: ", WHITE); print(binHex(linesPre), CYAN);
+    print(" raster lines, after EA: ", WHITE); print(binHex(linesPost), CYAN);
+    print("\n(64us per line. Reference after EA: stock 060 card on this path ", WHITE);
+    print(binHex(NCR_REF_LINES_060), CYAN);
+    print("-$69,\n Zorro III A4091 $8-$9. Slow is normal here; a FREEZE is the fault.)\n", WHITE);
     print("\nPress any key/button.\n", WHITE);
     WaitButton();
     return 1;
