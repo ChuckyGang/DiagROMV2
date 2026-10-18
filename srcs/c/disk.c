@@ -3261,17 +3261,26 @@ static int ncrChipReset(int fullSettle, int busReset)
 // anti-echo technique as the A3000 register test). Gayle machines must
 // never reach this (unterminated range) — every caller gates on
 // isGayleMachine() first.
+// berr.s vector-2 guards (SP-reload recovery): every access below may hit a
+// CPU card / bus path that answers a 53C710 cycle with a bus error instead
+// of data. Where the bus error is delivered the probe then simply says "no
+// chip" instead of taking DiagROM down with an exception screen.
+extern int acBerrProbeRead(volatile uint8_t *addr, uint8_t *out);
+extern int acBerrWriteByte(volatile uint8_t *addr, uint8_t val);
+
 static int ncr710PresentAt(volatile uint8_t *b)
 {
-    if (b[NCR_ISTAT] == 0xFF)   // open bus — nothing decodes here at all
+    uint8_t v;
+    if (acBerrProbeRead(&b[NCR_ISTAT], &v) || v == 0xFF)   // bus error / open bus
         return 0;
     static const uint8_t pats[2] = { 0xA5, 0x5A };
     for (int p = 0; p < 2; p++) {
         for (int i = 0; i < 4; i++)
-            b[NCR_SCRATCH + i] = (uint8_t)(pats[p] ^ i);
+            if (acBerrWriteByte(&b[NCR_SCRATCH + i], (uint8_t)(pats[p] ^ i)))
+                return 0;
         (void)*RAMSEY_VERSION_ADDR;    // scrub the data bus so a float can't echo the pattern
         for (int i = 0; i < 4; i++)
-            if (b[NCR_SCRATCH + i] != (uint8_t)(pats[p] ^ i))
+            if (acBerrProbeRead(&b[NCR_SCRATCH + i], &v) || v != (uint8_t)(pats[p] ^ i))
                 return 0;
     }
     return 1;
@@ -3282,6 +3291,62 @@ static int ncr710PresentAt(volatile uint8_t *b)
 static int ncr710Present(void)
 {
     return ncr710PresentAt(NCR_A4000T_BASE);
+}
+
+// What the bus actually returned when ncr710PresentAt() said "no chip": the
+// raw 64-byte register window and the SCRATCH write/readback. Shown on the
+// controller-select failure screen so a CPU card / bus path that does not
+// pass 53C710 slave cycles can be told apart from a machine without the
+// chip (open bus reads $FF everywhere; a half-driven bus reads $FD/$FE...).
+static void ncr710ProbeDump(volatile uint8_t *b)
+{
+    uint8_t v;
+    print("Raw register window at $", WHITE);
+    print(binHex((uint32_t)(uintptr_t)b), WHITE); print(" (byte reads, -- = bus error):\n", WHITE);
+    for (int row = 0; row < 64; row += 16) {
+        print("  +", CYAN); print(binHexByte((uint8_t)row), CYAN); print(":", CYAN);
+        for (int i = 0; i < 16; i++) {
+            print(" ", WHITE);
+            if (acBerrProbeRead(&b[row + i], &v)) print("--", RED);
+            else print(binHexByte(v), WHITE);
+        }
+        print("\n", WHITE);
+    }
+    // Fat Gary bus-timeout state around the write: $DE0000 bit7 = a timeout
+    // occurred (mode bit when written), $DE0001 bit7 = timeout enabled.
+    print("Gary $DE0000/$DE0001 before write: $", WHITE);
+    print(binHexByte(*(volatile uint8_t *)0x00DE0000UL), WHITE); print("/$", WHITE);
+    print(binHexByte(*(volatile uint8_t *)0x00DE0001UL), WHITE); print("\n", WHITE);
+    static const uint8_t pats[2] = { 0xA5, 0x5A };
+    for (int p = 0; p < 2; p++) {
+        print("SCRATCH write", YELLOW);
+        for (int i = 0; i < 4; i++) { print(" ", YELLOW); print(binHexByte((uint8_t)(pats[p] ^ i)), YELLOW); }
+        for (int i = 0; i < 4; i++) {
+            if (acBerrWriteByte(&b[NCR_SCRATCH + i], (uint8_t)(pats[p] ^ i))) {
+                print(" -> BUS ERROR on byte ", RED); print(binDec(i), RED);
+                print(" (write cycle not completed)\n", RED);
+                print("Gary $DE0000/$DE0001 after: $", WHITE);
+                print(binHexByte(*(volatile uint8_t *)0x00DE0000UL), WHITE); print("/$", WHITE);
+                print(binHexByte(*(volatile uint8_t *)0x00DE0001UL), WHITE);
+                print("  SCRATCH now:", WHITE);
+                for (int j = 0; j < 4; j++) {
+                    print(" ", WHITE);
+                    if (acBerrProbeRead(&b[NCR_SCRATCH + j], &v)) print("--", RED);
+                    else print(binHexByte(v), WHITE);
+                }
+                print("\n", WHITE);
+                return;
+            }
+        }
+        (void)*RAMSEY_VERSION_ADDR;
+        print(" -> read", YELLOW);
+        for (int i = 0; i < 4; i++) {
+            print(" ", YELLOW);
+            if (acBerrProbeRead(&b[NCR_SCRATCH + i], &v)) print("--", RED);
+            else print(binHexByte(v), YELLOW);
+        }
+        print("\n", YELLOW);
+    }
 }
 
 // Name of the active NCR controller for the shared scan/identify/DMA screens.
@@ -5960,6 +6025,9 @@ static int hddBlockedOnThisMachine(int idx)
         print("\nNot possible on this machine: no NCR 53C710 answers at $DD0040.\n", RED);
         print("On A3000-family machines (incl. AA3000+) that range is the SDMAC -\n", YELLOW);
         print("running A4000T SCSI ops on it wedges the machine's real SCSI.\n", YELLOW);
+        print("On an A4000T this means the CPU card / bus path does not complete\n", YELLOW);
+        print("53C710 register cycles (chip present but unreachable).\n\n", YELLOW);
+        ncr710ProbeDump(NCR_A4000T_BASE);
         return 1;
     }
     if (hddControllers[idx].gate == HDD_GATE_NOT_NCR && ncr710Present()) {
