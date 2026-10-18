@@ -3573,7 +3573,8 @@ typedef struct {
 // max 8 on the 710). A SCSI bus reset voids the agreement on the target
 // side, so `negotiated` is cleared whenever a command pulses RST.
 typedef struct {
-    uint8_t reqPeriod, reqOffset;  // our proposal (period in 4 ns units; offset 0 = never negotiate)
+    uint8_t reqPeriod, reqOffset;  // our proposal (period in 4 ns units; offset 0 = ask for async)
+    uint8_t reqDiv2;               // 1 = run the sync clock at SCLK/2 (the AmigaOS-driver setting)
     uint8_t period, offset;        // the agreement (offset 0 = asynchronous)
     uint8_t sxfer;                 // SXFER sync bits for the agreement (0 = async)
     uint8_t sbcl;                  // SBCL sync clock divider the sxfer value assumes
@@ -3596,7 +3597,7 @@ static void ncrSyncComputeSxfer(NcrSync *sy)
     if (sy->offset == 0 || sy->period == 0) { sy->offset = 0; return; }
     uint32_t ns = (uint32_t)sy->period * 4, rem;
     int32_t xferp = (int32_t)udiv32(ns + 19, 20, &rem) - 4;   // udiv32: no libgcc division here
-    if (xferp > 7) {
+    if (xferp > 7 || sy->reqDiv2) {
         sy->sbcl = NCR_SBCL_SSCF1 | NCR_SBCL_SSCF0;     // SCLK/2
         xferp = (int32_t)udiv32(ns + 39, 40, &rem) - 4;
         if (xferp > 7) { sy->offset = 0; return; }      // too slow for sync here
@@ -3746,6 +3747,8 @@ static int a4k_scsi_command_ex(uint8_t unit, const uint8_t *cdb, int cdbLen,
         // standard) is the agreement until the next RST - provided the
         // transaction itself ran to the end.
         sync->negotiated = reachedEnd ? 1 : 0;
+    } else if (sync && !reachedEnd) {
+        sync->negotiated = 0;   // bus state unknown now: next command re-negotiates with a RST
     }
     ncr_irq_disable();
 
@@ -3762,7 +3765,10 @@ static int a4k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
 // The chip-side failure forensics of one transaction, on one line.
 static void a4kPrintCmdDbg(const NcrCmdDbg *dbg)
 {
+    static const char * const sst0Names[8] = { "PAR", "RST", "UDC", "SGE", "SEL", "STO", "FCMP", "M/A" };
     print("      SSTAT0=", WHITE); print(binHexByte(dbg->sstat0), CYAN);
+    for (int b = 7; b >= 0; b--)
+        if (dbg->sstat0 & (1 << b)) { print(" ", WHITE); print((char *)sst0Names[b], YELLOW); }
     print(" DSTAT=", WHITE);  print(binHexByte(dbg->dstat), CYAN);
     print(" SSTAT1=", WHITE); print(binHexByte(dbg->sstat1), CYAN);
     print(" SBCL=", WHITE);   print(binHexByte(dbg->sbcl), CYAN);
@@ -5174,17 +5180,38 @@ static int a3kDmaTestRepeat(void)
 #define A4K_XFER_BLOCKS   64                       // 32 KB per read: library-sized
 #define A4K_XFER_BYTES    (A4K_XFER_BLOCKS * 512UL)
 #define A4K_XFER_LBA      0
-#define A4K_XFER_MAX_DIRS 4
+#define A4K_XFER_MAX_DIRS (2 + 2 * 5)
 #define A4K_XFERFAIL_CMD      1   // transaction did not complete (chip forensics)
 #define A4K_XFERFAIL_MISMATCH 2   // data delivered, compared bad
 #define A4K_XFERFAIL_NODATA   3   // command "completed", buffer untouched
 #define A4K_XFERFAIL_NOSYNC   4   // sync row: target would not go synchronous
+
+// The synchronous "methods" worth telling apart on a marginal bus: both
+// sync clock dividers, a fast and a slow period, a deep and a minimal
+// REQ/ACK offset. The target answers each request with what it can do, so
+// the agreed values are printed per profile.
+typedef struct {
+    const char *name;       // short tag used in row labels
+    uint8_t     period;     // SDTR period (4 ns units)
+    uint8_t     offset;
+    uint8_t     div2;       // sync clock SCLK/2 instead of SCLK/1
+} A4kSyncProfile;
+static const A4kSyncProfile a4kSyncProfiles[] = {
+    { "100ns o8 clk/1", 25, 8, 0 },   // 10 MB/s, the chip's fastest
+    { "160ns o8 clk/2", 40, 8, 1 },   // 6.25 MB/s on the SCLK/2 clock the OS driver programs
+    { "200ns o8 clk/1", 50, 8, 0 },   // 5 MB/s
+    { "100ns o4 clk/1", 25, 4, 0 },   // 10 MB/s, half the REQ/ACK offset
+    { "100ns o1 clk/1", 25, 1, 0 },   // 10 MB/s, one REQ ahead only (a target that
+                                      //   overruns the offset shows as SGE here)
+};
+#define A4K_SYNC_PROFILES 5
 
 typedef struct {
     const char *label;
     uint8_t    *buf;        // longword-aligned destination
     int         useSync;    // 1 = synchronous row
     const char *hint;       // extra line under a failure, or NULL
+    const A4kSyncProfile *prof;   // sync rows: the profile to run under
 } A4kXferDir;
 
 typedef struct {
@@ -5238,14 +5265,20 @@ static int a4kXferFindTarget(void)
 // target to go asynchronous explicitly: at least one target was seen to
 // keep its sync agreement across our RST pulse (2026-10-18), so the test
 // never relies on the bus reset alone to return to async.
-static int a4kSyncNegotiate(int target, NcrSync *sync, NcrCmdDbg *dbg, uint8_t offset)
+static int a4kSyncNegotiate(int target, NcrSync *sync, NcrCmdDbg *dbg,
+                            uint8_t period, uint8_t offset, uint8_t div2)
 {
     static const uint8_t tur[6] = { 0, 0, 0, 0, 0, 0 };
-    sync->reqPeriod = NCR_SYNC_REQ_PERIOD;
+    sync->reqPeriod = period;
     sync->reqOffset = offset;
-    sync->negotiated = 0;
-    (void)a4k_scsi_command_ex((uint8_t)target, tur, 6, NULL, 0, 1, 1, sync, dbg);
-    return sync->negotiated;
+    sync->reqDiv2   = div2;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        sync->negotiated = 0;
+        (void)a4k_scsi_command_ex((uint8_t)target, tur, 6, NULL, 0, 1, 1, sync, dbg);
+        if (sync->negotiated) return 1;
+        for (int i = 0; i < 1500; i++) waitShort();   // ~1 s: let a wedged target let go
+    }
+    return 0;
 }
 
 static void a4kXferPrintSync(const NcrSync *sync)
@@ -5284,14 +5317,17 @@ static int a4kXferRun(int target, const A4kXferDir *dir, const uint8_t *ref,
     // that agreement is what the data phase actually runs under.
     int ok;
     if (dir->useSync) {
-        if ((!sync->negotiated || sync->offset == 0) &&
-            !a4kSyncNegotiate(target, sync, &fail->cmd, NCR_SYNC_REQ_OFFSET)) {
+        const A4kSyncProfile *pf = dir->prof;
+        int live = sync->negotiated && sync->offset != 0 &&
+                   sync->reqPeriod == pf->period && sync->reqOffset == pf->offset &&
+                   sync->reqDiv2 == pf->div2;
+        if (!live && !a4kSyncNegotiate(target, sync, &fail->cmd, pf->period, pf->offset, pf->div2)) {
             fail->reason = A4K_XFERFAIL_CMD;        // the TUR itself failed
             return 0;
         }
         if (sync->offset == 0) { fail->reason = A4K_XFERFAIL_NOSYNC; return 0; }
     } else {
-        if (!a4kSyncNegotiate(target, sync, &fail->cmd, 0)) {
+        if (!a4kSyncNegotiate(target, sync, &fail->cmd, NCR_SYNC_REQ_PERIOD, 0, 0)) {
             fail->reason = A4K_XFERFAIL_CMD;
             return 0;
         }
@@ -5368,7 +5404,7 @@ static void a4kXferPrintFail(const A4kXferFail *fail)
 
 // Buffers, target, double async reference, sync agreement, row list.
 // Returns the target ID or -1 (message already printed).
-static int a4kXferSetup(A4kXferDir *dirs, int *nDirs, uint8_t **refOut, NcrSync *sync)
+static int a4kXferSetup(A4kXferDir *dirs, int *nDirs, uint8_t **refOut, NcrSync *sync, int compact)
 {
     if (NCR_BASE[NCR_ISTAT] == 0xFF) {
         print("  Bus float - controller not responding.\n", RED);
@@ -5391,18 +5427,20 @@ static int a4kXferSetup(A4kXferDir *dirs, int *nDirs, uint8_t **refOut, NcrSync 
         print("  Could not allocate test buffers.\n", RED);
         return -1;
     }
-    print("Buffers: chip ", WHITE); print(binHex((uint32_t)(uintptr_t)chip), CYAN);
-    if (fast) { print("  fast ", WHITE); print(binHex((uint32_t)(uintptr_t)fast), CYAN); }
-    else        print("  (no Fast RAM: fast rows skipped)", YELLOW);
-    print("\n", WHITE);
+    if (!compact) {
+        print("Buffers: chip ", WHITE); print(binHex((uint32_t)(uintptr_t)chip), CYAN);
+        if (fast) { print("  fast ", WHITE); print(binHex((uint32_t)(uintptr_t)fast), CYAN); }
+        else        print("  (no Fast RAM: fast rows skipped)", YELLOW);
+        print("\n", WHITE);
+    }
 
-    print("Searching for a SCSI target...\n", WHITE);
+    if (!compact) print("Searching for a SCSI target...\n", WHITE);
     int target = a4kXferFindTarget();
     if (target < 0) {
         print("  No responding target found - this test needs a readable disk.\n", RED);
         return -1;
     }
-    print("Target: SCSI ID ", WHITE); print(binDec(target), CYAN); print("\n", WHITE);
+    print("Target: SCSI ID ", WHITE); print(binDec(target), CYAN); print(compact ? "  " : "\n", WHITE);
 
     // Double async reference: two independent reads must agree before any
     // DMA row is judged against them.
@@ -5428,28 +5466,59 @@ static int a4kXferSetup(A4kXferDir *dirs, int *nDirs, uint8_t **refOut, NcrSync 
         a4kXferPrintFail(&fail);
         return -1;
     }
-    print("Async baseline: two independent reads match (", GREEN);
-    print(binDec((int32_t)A4K_XFER_BYTES), GREEN); print(" bytes).\n", GREEN);
+    if (compact) print("Async baseline OK. ", GREEN);
+    else {
+        print("Async baseline: two independent reads match (", GREEN);
+        print(binDec((int32_t)A4K_XFER_BYTES), GREEN); print(" bytes).\n", GREEN);
+    }
 
-    if (a4kSyncNegotiate(target, sync, &dbg, NCR_SYNC_REQ_OFFSET)) {
-        a4kXferPrintSync(sync);
-    } else {
-        print("Sync: negotiation transaction failed\n", RED);
-        a4kPrintCmdDbg(&dbg);
+    // Negotiate every profile once up front: the agreement line per profile
+    // is the test's record of what the target actually does, and a profile
+    // the target refuses gets no rows.
+    static const char * const chipLabels[A4K_SYNC_PROFILES] = {
+        "SYNC 100ns o8 clk/1 -> Chip", "SYNC 160ns o8 clk/2 -> Chip",
+        "SYNC 200ns o8 clk/1 -> Chip", "SYNC 100ns o4 clk/1 -> Chip",
+        "SYNC 100ns o1 clk/1 -> Chip" };
+    static const char * const fastLabels[A4K_SYNC_PROFILES] = {
+        "SYNC 100ns o8 clk/1 -> Fast", "SYNC 160ns o8 clk/2 -> Fast",
+        "SYNC 200ns o8 clk/1 -> Fast", "SYNC 100ns o4 clk/1 -> Fast",
+        "SYNC 100ns o1 clk/1 -> Fast" };
+    int n = 0, agreed = 0;
+    dirs[n].label = "ASYNC               -> Chip"; dirs[n].buf = chip; dirs[n].useSync = 0;
+    dirs[n].hint = NULL; dirs[n].prof = NULL; n++;
+    if (fast) {
+        dirs[n].label = "ASYNC               -> Fast"; dirs[n].buf = fast; dirs[n].useSync = 0;
+        dirs[n].hint = "  (an async Fast-only fail is the DMA path into that RAM, not sync timing)";
+        dirs[n].prof = NULL; n++;
+    }
+    if (compact) print("Sync agreed:", WHITE);
+    for (int pi = 0; pi < A4K_SYNC_PROFILES; pi++) {
+        const A4kSyncProfile *pf = &a4kSyncProfiles[pi];
+        int ok = a4kSyncNegotiate(target, sync, &dbg, pf->period, pf->offset, pf->div2);
+        if (compact) {
+            print(" ", WHITE); print((char *)pf->name, CYAN); print("=", WHITE);
+            if (!ok)                  print("ERR", RED);
+            else if (sync->offset)  { print(binDec((int32_t)sync->period * 4), GREEN);
+                                      print("/", GREEN); print(binDec(sync->offset), GREEN); }
+            else                      print("async", YELLOW);
+        } else {
+            print("Request ", WHITE); print((char *)pf->name, CYAN); print(": ", WHITE);
+            if (ok) a4kXferPrintSync(sync);
+            else { print("negotiation transaction failed\n", RED); a4kPrintCmdDbg(&dbg); }
+        }
+        if (!ok || sync->offset == 0) continue;
+        agreed++;
+        dirs[n].label = chipLabels[pi]; dirs[n].buf = chip; dirs[n].useSync = 1;
+        dirs[n].hint = NULL; dirs[n].prof = pf; n++;
+        if (fast) {
+            dirs[n].label = fastLabels[pi]; dirs[n].buf = fast; dirs[n].useSync = 1;
+            dirs[n].hint = (pi == 0) ? "  (this is the shape of SetPatch loading the CPU library)" : NULL;
+            dirs[n].prof = pf; n++;
+        }
     }
     print("\n", WHITE);
-
-    int n = 0;
-    dirs[n].label = "ASYNC -> Chip RAM (re-read)"; dirs[n].buf = chip; dirs[n].useSync = 0; dirs[n].hint = NULL; n++;
-    if (fast) {
-        dirs[n].label = "ASYNC -> Fast RAM          "; dirs[n].buf = fast; dirs[n].useSync = 0;
-        dirs[n].hint = "  (an async Fast-only fail is the DMA path into that RAM, not sync timing)"; n++;
-    }
-    dirs[n].label = "SYNC  -> Chip RAM          "; dirs[n].buf = chip; dirs[n].useSync = 1; dirs[n].hint = NULL; n++;
-    if (fast) {
-        dirs[n].label = "SYNC  -> Fast RAM          "; dirs[n].buf = fast; dirs[n].useSync = 1;
-        dirs[n].hint = "  (this is the shape of SetPatch loading the CPU library)"; n++;
-    }
+    if (!agreed) print("No synchronous agreement at all - only async rows will run.\n", YELLOW);
+    if (!compact) print("\n", WHITE);
     *nDirs  = n;
     *refOut = ref;
     return target;
@@ -5459,7 +5528,7 @@ static int a4kXferTest(void)
 {
     A4kXferDir dirs[A4K_XFER_MAX_DIRS];
     A4kXferFail fail;
-    NcrSync sync = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    NcrSync sync = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     uint8_t *ref;
     int nDirs = 0;
 
@@ -5467,7 +5536,7 @@ static int a4kXferTest(void)
     print(" - DMA Transfer Test (READ-ONLY, 64 blocks, async + SYNC)\n", WHITE);
     print("EXPERIMENTAL - please report results\n\n", YELLOW);
 
-    int target = a4kXferSetup(dirs, &nDirs, &ref, &sync);
+    int target = a4kXferSetup(dirs, &nDirs, &ref, &sync, 0);
     if (target < 0) return 0;
 
     uint32_t passed = 0, total = 0;
@@ -5499,16 +5568,15 @@ static int a4kXferTestRepeat(void)
 {
     A4kXferDir dirs[A4K_XFER_MAX_DIRS];
     A4kXferFail fail;
-    NcrSync sync = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    uint32_t dirFails[A4K_XFER_MAX_DIRS] = { 0, 0, 0, 0 };
+    NcrSync sync = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint32_t dirFails[A4K_XFER_MAX_DIRS] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     uint8_t *ref;
     int nDirs = 0;
 
     print("\002", WHITE); print(ncrName(), WHITE);
-    print(" - DMA Transfer Test (Repeat)\n", WHITE);
-    print("\002EXPERIMENTAL - please report results\n\n", YELLOW);
+    print(" - DMA Transfer Test (Repeat) - EXPERIMENTAL\n", WHITE);
     globals->HddEscLatch = 0;
-    int target = a4kXferSetup(dirs, &nDirs, &ref, &sync);
+    int target = a4kXferSetup(dirs, &nDirs, &ref, &sync, 1);
     if (target < 0) {
         print("\nPress any key/button to continue", WHITE);
         WaitButton();
@@ -5520,11 +5588,11 @@ static int a4kXferTestRepeat(void)
     uint32_t firstFailPass = 0, lastFailPass = 0;
     int lastFailDir = 0, lastReason = 0;
 
-    print("ESC or both buttons: stop\n\n", WHITE);
+    print("ESC or both buttons: stop\n", WHITE);
     uint32_t passRow   = *(volatile uint8_t *)&globals->Ypos;   // row lives in the MSB byte (see setPos)
-    uint32_t totalsRow = passRow + (uint32_t)nDirs + 2;
+    uint32_t totalsRow = passRow + (uint32_t)nDirs + 1;
     uint32_t failRow   = totalsRow + 1;
-    uint32_t lastRow   = failRow + 6;
+    uint32_t lastRow   = failRow + 5;
 
     while (!aborted) {
         setPos(0, passRow);
