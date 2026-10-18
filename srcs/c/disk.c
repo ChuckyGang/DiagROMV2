@@ -3099,8 +3099,12 @@ __interrupt void Ncr710PortsIRQ(VARS)
     if (irq & SCSI_PORTS_BIT) {
         uint8_t istat = NCR_BASE[NCR_ISTAT];
         if (istat != 0xFF && (istat & (NCR_ISTAT_SIP | NCR_ISTAT_DIP))) {
-            globals->ScsiIrqStatus = NCR_BASE[NCR_SSTAT0];
-            (void)NCR_BASE[NCR_DSTAT];   // reading this clears DIP
+            uint8_t sstat0 = NCR_BASE[NCR_SSTAT0];   // reading clears SIP
+            uint8_t dstat  = NCR_BASE[NCR_DSTAT];    // reading clears DIP
+            if (!globals->ScsiIrqPending) {   // keep what STOPPED the script, not a late follow-up
+                globals->ScsiIrqStatus = sstat0;
+                globals->ScsiIrqDstat  = dstat;
+            }
             globals->ScsiIrqPending = 1;
             globals->ScsiIrqCount++;
         }
@@ -3166,7 +3170,13 @@ static void ncr_irq_disable(void)
 // General "JUMP addr, IF <phase>" form: class=10 (Transfer Control),
 // opcode=000 (Jump), bit19=1 (this compare's polarity), bit17=1 (phase
 // compare enabled, no carry/data compare), phase value in bits 26:24.
-#define NCR_SCRIPT_JUMP_IF(phase) (0x800A0000UL | (((uint32_t)(phase)) << 24))
+// Bit 16 = "wait for valid phase" (SCRIPTS "WHEN", not "IF"): without it the
+// chip compares the phase lines the instant selection completes, before a
+// real drive has driven them - on the A4000T/030 a drive at ID 0 answered
+// selection and sat in MSG_OUT with REQ up while the IF jump fell through
+// to the fallback INT (2026-10-18). Emulators/SCSI2SD settle instantly,
+// which is why the IF form ever looked right.
+#define NCR_SCRIPT_JUMP_IF(phase) (0x800B0000UL | (((uint32_t)(phase)) << 24))
 #define NCR_SCRIPT_MOVE(phase, count) \
     (NCR_MOVE_OPCODE_BIT | (((uint32_t)(phase)) << 24) | ((uint32_t)(count) & 0xFFFFFFUL))
 
@@ -3521,8 +3531,17 @@ int detectA4091SCSI(void)
 // pass 1 for INQUIRY/READ CAPACITY/the production scanner, 0 only for
 // repeated commands to a unit already proven present moments earlier in the
 // same identify session (see a4k_scsi_read_block()).
+// Why a transaction failed, for the scan's NOT FOUND line: the first
+// SSTAT0/DSTAT the handler saw, where the script stopped (longword index
+// into script[], 0xFFFF = no IRQ at all), bus state afterwards.
+typedef struct {
+    uint8_t  sstat0, dstat, sstat1, sbcl, status, msg;
+    uint16_t irqs, stopIdx;
+} NcrCmdDbg;
+
 static int a4k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
-                             uint8_t *dataBuf, int dataLen, int fullSettle)
+                             uint8_t *dataBuf, int dataLen, int fullSettle,
+                             NcrCmdDbg *dbg)
 {
     volatile struct GlobalVars *globals = a3k_globals();
 
@@ -3584,10 +3603,21 @@ static int a4k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
     // instruction pair BEFORE dispatching, not after) - see
     // [[project_diagrom_a4000t_scsi]] memory for the gdb-verified proof.
     int reachedEnd = 0;
+    if (dbg) dbg->stopIdx = 0xFFFF;
     if (globals->ScsiIrqPending) {
         globals->ScsiIrqPending = 0;
         uint32_t dsp = ncr_lread(NCR_DSP);
         reachedEnd = (dsp == (uint32_t)(uintptr_t)&script[34]);
+        if (dbg) dbg->stopIdx = (uint16_t)((dsp - (uint32_t)(uintptr_t)&script[0]) >> 2);
+    }
+    if (dbg) {
+        dbg->sstat0 = globals->ScsiIrqStatus;
+        dbg->dstat  = globals->ScsiIrqDstat;
+        dbg->sstat1 = NCR_BASE[NCR_SSTAT1];
+        dbg->sbcl   = NCR_BASE[NCR_SBCL];
+        dbg->status = statusByte;
+        dbg->msg    = msgByte;
+        dbg->irqs   = globals->ScsiIrqCount;
     }
     // Caller reads globals->ScsiIrqCount immediately after this call
     // returns if it wants to accumulate an events-serviced total (see
@@ -3623,11 +3653,32 @@ int scanA4000TSCSI(void)
         print(": ", WHITE);
 
         uint8_t buf[SCSI_INQUIRY_LEN];
-        int ok = a4k_scsi_command((uint8_t)id, inquiryCdb, 6, buf, SCSI_INQUIRY_LEN, 1);
+        NcrCmdDbg dbg;
+        int ok = a4k_scsi_command((uint8_t)id, inquiryCdb, 6, buf, SCSI_INQUIRY_LEN, 1, &dbg);
         totalIrqEvents += globals->ScsiIrqCount;
 
         if (!ok) {
-            print("NOT FOUND\n", RED);
+            // Decode: STO = nobody answered selection (really empty, or the
+            // drive is still recovering from our bus reset); anything else
+            // means a device DID respond and the transaction broke later.
+            print("NOT FOUND", RED);
+            if (dbg.stopIdx != 0xFFFF && (dbg.sstat0 & NCR_SSTAT0_STO)) {
+                print("\n", WHITE);        // plain selection timeout: nothing there
+                waitShort();
+                continue;
+            }
+            if (dbg.stopIdx == 0xFFFF) print("  no IRQ", YELLOW);
+            else {                     // a device answered, the script stopped at an INT
+                print("  answered, stop@", YELLOW); print(binDec(dbg.stopIdx), YELLOW);
+            }
+            print("\n      SSTAT0=", WHITE); print(binHexByte(dbg.sstat0), CYAN);
+            print(" DSTAT=", WHITE);  print(binHexByte(dbg.dstat), CYAN);
+            print(" SSTAT1=", WHITE); print(binHexByte(dbg.sstat1), CYAN);
+            print(" SBCL=", WHITE);   print(binHexByte(dbg.sbcl), CYAN);
+            print(" st=", WHITE);     print(binHexByte(dbg.status), CYAN);
+            print(" msg=", WHITE);    print(binHexByte(dbg.msg), CYAN);
+            print(" irq=", WHITE);    print(binDec(dbg.irqs), CYAN);
+            print("\n", WHITE);
             waitShort();   // let the host redraw before moving to the next ID
             continue;
         }
@@ -3677,7 +3728,7 @@ static int a4k_scsi_read_block(uint8_t unit, uint32_t lba, uint8_t *buf)
         (uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
         0, 0, 1, 0   // transfer length = 1 block
     };
-    return a4k_scsi_command(unit, cdb, 10, buf, 512, 0);
+    return a4k_scsi_command(unit, cdb, 10, buf, 512, 0, NULL);
 }
 
 // Read and print everything available about one SCSI ID: INQUIRY, READ
@@ -3694,7 +3745,7 @@ static void a4k_identify_unit(uint8_t unit)
     static const uint8_t inquiryCdb[6]  = { SCSI_INQUIRY, 0, 0, 0, SCSI_INQUIRY_LEN, 0 };
     static const uint8_t readCapCdb[10] = { SCSI_READ_CAPACITY, 0,0,0,0,0,0,0,0, 0 };
 
-    if (!a4k_scsi_command(unit, inquiryCdb, 6, inqBuf, SCSI_INQUIRY_LEN, 1)) {
+    if (!a4k_scsi_command(unit, inquiryCdb, 6, inqBuf, SCSI_INQUIRY_LEN, 1, NULL)) {
         print("  No device at this ID.\n", RED);
         return;
     }
@@ -3713,7 +3764,7 @@ static void a4k_identify_unit(uint8_t unit)
     if (revision[0]) { print(" ", WHITE); print(revision, CYAN); }
     print("\n", WHITE);
 
-    if (a4k_scsi_command(unit, readCapCdb, 10, capBuf, SCSI_READ_CAPACITY_LEN, 1)) {
+    if (a4k_scsi_command(unit, readCapCdb, 10, capBuf, SCSI_READ_CAPACITY_LEN, 1, NULL)) {
         print("  Capacity: ", WHITE);
         a3k_print_capacity(capBuf);
         print("\n", WHITE);
@@ -3794,13 +3845,13 @@ static int a4k_smart_unit(uint8_t unit)
     static const uint8_t ieCdb[10]   = { SCSI_LOG_SENSE, 0, (1<<6)|SCSI_LOGPAGE_IE,   0,0,0,0,0, 0, SCSI_LOGSENSE_LEN };
     static const uint8_t tempCdb[10] = { SCSI_LOG_SENSE, 0, (1<<6)|SCSI_LOGPAGE_TEMP, 0,0,0,0,0, 0, SCSI_LOGSENSE_LEN };
 
-    if (!a4k_scsi_command(unit, ieCdb, 10, buf, SCSI_LOGSENSE_LEN, 1)) {
+    if (!a4k_scsi_command(unit, ieCdb, 10, buf, SCSI_LOGSENSE_LEN, 1, NULL)) {
         print("  SMART/Log Sense not supported by this device.\n", YELLOW);
         return 0;
     }
     a3k_print_smart_ie(buf, SCSI_LOGSENSE_LEN);
 
-    if (a4k_scsi_command(unit, tempCdb, 10, buf, SCSI_LOGSENSE_LEN, 0))
+    if (a4k_scsi_command(unit, tempCdb, 10, buf, SCSI_LOGSENSE_LEN, 0, NULL))
         a3k_print_smart_temp(buf, SCSI_LOGSENSE_LEN);
 
     return 1;

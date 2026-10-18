@@ -396,7 +396,7 @@ typedef struct GlobalVars
 	uint8_t	ScsiIrqStatus;		// SCSI_STATUS byte read by ScsiPortsIRQ
 	uint16_t	ScsiIrqCount;		// Total times ScsiPortsIRQ has actually run, for on-screen confirmation
 	uint8_t	HddEscLatch;		// ESC/both-buttons seen by hddInputService() inside a long HDD wait loop; consumed by a4kDmaAbortRequested()
-	uint8_t	HddPad0;		// keep EndVar word-aligned
+	uint8_t	ScsiIrqDstat;		// 53C710 DSTAT read by Ncr710PortsIRQ on the FIRST serviced IRQ of a transaction (was pad)
 	uint32_t	A3kPumpMoved;		// bytes a3k_wd_pump() moved in the current phase (PIO forensics)
 	uint8_t	SerNoEcho;		// nonzero = rs232_out() drops output (upload.c keeps the wire clear while receiving)
 	uint8_t	SerPad1;		// keep the following pointers word-aligned
