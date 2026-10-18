@@ -5180,7 +5180,7 @@ static int a3kDmaTestRepeat(void)
 #define A4K_XFER_BLOCKS   64                       // 32 KB per read: library-sized
 #define A4K_XFER_BYTES    (A4K_XFER_BLOCKS * 512UL)
 #define A4K_XFER_LBA      0
-#define A4K_XFER_MAX_DIRS (2 + 2 * 5)
+#define A4K_XFER_MAX_DIRS (2 + 2 * 4)
 #define A4K_XFERFAIL_CMD      1   // transaction did not complete (chip forensics)
 #define A4K_XFERFAIL_MISMATCH 2   // data delivered, compared bad
 #define A4K_XFERFAIL_NODATA   3   // command "completed", buffer untouched
@@ -5201,10 +5201,13 @@ static const A4kSyncProfile a4kSyncProfiles[] = {
     { "160ns o8 clk/2", 40, 8, 1 },   // 6.25 MB/s on the SCLK/2 clock the OS driver programs
     { "200ns o8 clk/1", 50, 8, 0 },   // 5 MB/s
     { "100ns o4 clk/1", 25, 4, 0 },   // 10 MB/s, half the REQ/ACK offset
-    { "100ns o1 clk/1", 25, 1, 0 },   // 10 MB/s, one REQ ahead only (a target that
-                                      //   overruns the offset shows as SGE here)
+    // No offset-1 profile: it is the tightest legal agreement and some
+    // targets (SD-card emulators with a 2-deep REQ pipeline) agree to it
+    // and then overrun it - the chip reports SGE and the row says nothing
+    // about the host. Dropped 2026-10-18 after seeing identical SGE on two
+    // CPU cards with such a target. The code path still handles any offset.
 };
-#define A4K_SYNC_PROFILES 5
+#define A4K_SYNC_PROFILES 4
 
 typedef struct {
     const char *label;
@@ -5504,12 +5507,10 @@ static int a4kXferSetup(A4kXferDir *dirs, int *nDirs, uint8_t **refOut, NcrSync 
     // the target refuses gets no rows.
     static const char * const chipLabels[A4K_SYNC_PROFILES] = {
         "SYNC 100ns o8 clk/1 -> Chip", "SYNC 160ns o8 clk/2 -> Chip",
-        "SYNC 200ns o8 clk/1 -> Chip", "SYNC 100ns o4 clk/1 -> Chip",
-        "SYNC 100ns o1 clk/1 -> Chip" };
+        "SYNC 200ns o8 clk/1 -> Chip", "SYNC 100ns o4 clk/1 -> Chip" };
     static const char * const fastLabels[A4K_SYNC_PROFILES] = {
         "SYNC 100ns o8 clk/1 -> Fast", "SYNC 160ns o8 clk/2 -> Fast",
-        "SYNC 200ns o8 clk/1 -> Fast", "SYNC 100ns o4 clk/1 -> Fast",
-        "SYNC 100ns o1 clk/1 -> Fast" };
+        "SYNC 200ns o8 clk/1 -> Fast", "SYNC 100ns o4 clk/1 -> Fast" };
     int n = 0, agreed = 0;
     dirs[n].label = "ASYNC               -> Chip"; dirs[n].buf = chip; dirs[n].useSync = 0;
     dirs[n].hint = NULL; dirs[n].prof = NULL; n++;
@@ -5603,7 +5604,7 @@ static int a4kXferTestRepeat(void)
     A4kXferDir dirs[A4K_XFER_MAX_DIRS];
     A4kXferFail fail;
     NcrSync sync = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    uint32_t dirFails[A4K_XFER_MAX_DIRS] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint32_t dirFails[A4K_XFER_MAX_DIRS] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     uint8_t *ref;
     int nDirs = 0;
 
