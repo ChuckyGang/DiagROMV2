@@ -5222,6 +5222,27 @@ typedef struct {
     uint8_t   expect, got, exp16[16], got16[16];
 } A4kXferFail;
 
+// A LONG SCSI bus reset (~25 ms RST, ~2 s settle) for a target left hanging
+// by an abandoned transaction: a ZuluSCSI that ran into a gross error during
+// a synchronous data phase ignored the normal ~640 us RST pulse and every
+// command after it timed out (2026-10-18, seen on two CPU cards).
+static void a4kBusResetLong(void)
+{
+    if (NCR_BASE[NCR_ISTAT] == 0xFF) return;
+    NCR_BASE[NCR_ISTAT]  = NCR_ISTATF_ABRT;
+    waitShort();
+    NCR_BASE[NCR_ISTAT]  = NCR_ISTATF_RST;
+    NCR_BASE[NCR_ISTAT]  = 0x00;
+    waitShort();
+    NCR_BASE[NCR_DCNTL]  = NCR_DCNTL_EA | NCR_DCNTL_COM;
+    NCR_BASE[NCR_SCNTL1] = NCR_SCNTL1_RST;
+    for (int i = 0; i < 40; i++) waitShort();      // ~25 ms of RST
+    NCR_BASE[NCR_SCNTL1] = 0x00;
+    for (int i = 0; i < 3000; i++) waitShort();    // ~2 s settle
+    (void)NCR_BASE[NCR_SSTAT0];
+    (void)NCR_BASE[NCR_DSTAT];
+}
+
 // READ(10), A4K_XFER_BLOCKS blocks from A4K_XFER_LBA. One retry on CHECK
 // CONDITION: the first command after a bus reset may carry a UNIT ATTENTION
 // on a standards-minded target, and reporting it clears it.
@@ -5276,7 +5297,7 @@ static int a4kSyncNegotiate(int target, NcrSync *sync, NcrCmdDbg *dbg,
         sync->negotiated = 0;
         (void)a4k_scsi_command_ex((uint8_t)target, tur, 6, NULL, 0, 1, 1, sync, dbg);
         if (sync->negotiated) return 1;
-        for (int i = 0; i < 1500; i++) waitShort();   // ~1 s: let a wedged target let go
+        a4kBusResetLong();                            // a wedged target needs more than the usual pulse
     }
     return 0;
 }
@@ -5333,7 +5354,12 @@ static int a4kXferRun(int target, const A4kXferDir *dir, const uint8_t *ref,
         }
     }
     ok = a4kXferRead(target, dir->buf, 0, sync, &fail->cmd, &fail->retried);
-    if (!ok) { fail->reason = A4K_XFERFAIL_CMD; return 0; }
+    if (!ok) {
+        fail->reason = A4K_XFERFAIL_CMD;
+        a4kBusResetLong();      // leave a clean bus for the next row
+        sync->negotiated = 0;
+        return 0;
+    }
 
     uint32_t bad = 0, untouched = 0, first = 0;
     int haveFirst = 0;
@@ -5435,6 +5461,7 @@ static int a4kXferSetup(A4kXferDir *dirs, int *nDirs, uint8_t **refOut, NcrSync 
     }
 
     if (!compact) print("Searching for a SCSI target...\n", WHITE);
+    a4kBusResetLong();
     int target = a4kXferFindTarget();
     if (target < 0) {
         print("  No responding target found - this test needs a readable disk.\n", RED);
