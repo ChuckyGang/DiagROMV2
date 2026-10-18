@@ -3046,6 +3046,16 @@ static int identifyA3000SCSI(void)
 // to the plain offset (same address reads use).
 #define NCR_DSP      0x2C   // DMA SCRIPTS pointer — writing this starts execution
 
+// SCRIPTS buffers must sit on a longword boundary: the 53C710 fetches
+// instructions with A1:A0 forced low, while m68k gcc aligns a uint32_t
+// stack array to only 2 bytes. A 2-byte-misaligned script made the chip
+// fetch "$E7CEC000 $1000001E" for "$C0001000 $001E7CB8" (2026-10-18, 030
+// card) - every DMA move failed with DSTAT.IID. Whether a given build
+// hits it depends purely on the stack layout of the calling function.
+#define NCR_SCRIPT_BUF(name, n) \
+    uint32_t name##Raw[(n) + 1]; \
+    uint32_t *name = (uint32_t *)(((uintptr_t)name##Raw + 3) & ~(uintptr_t)3)
+
 // FIXED 2026-07-15 (see [[project_diagrom_a4000t_scsi]] memory for the full
 // gdb-verified derivation): a naive 32-bit store here is genuinely wrong
 // under Amiberry, not just an '040-cache nicety. Amiberry's A4000T register
@@ -3272,6 +3282,14 @@ static int ncr710PresentAt(volatile uint8_t *b)
 {
     uint8_t v;
     if (acBerrProbeRead(&b[NCR_ISTAT], &v) || v == 0xFF)   // bus error / open bus
+        return 0;
+    // FIRST WRITE = DCNTL.EA, exactly like the AmigaOS driver: with EA clear
+    // the chip ends its slave cycles through the board's SLAC path, which on
+    // an A4000T motherboard may never terminate the CPU's cycle (seen 2026-10:
+    // an 030 card gets a bus error, an 060 card runs into Gary's timeout).
+    // Once EA is latched the 53C710 terminates with STERM itself, and every
+    // access after this one - the SCRATCH probe included - completes.
+    if (acBerrWriteByte(&b[NCR_DCNTL], NCR_DCNTL_EA | NCR_DCNTL_COM))
         return 0;
     static const uint8_t pats[2] = { 0xA5, 0x5A };
     for (int p = 0; p < 2; p++) {
@@ -3514,7 +3532,7 @@ static int a4k_scsi_command(uint8_t unit, const uint8_t *cdb, int cdbLen,
     uint8_t identify = 0x80;   // IDENTIFY, LUN 0, no DiscPriv
     uint8_t statusByte = 0xFF, msgByte = 0xFF;
 
-    uint32_t script[36];
+    NCR_SCRIPT_BUF(script, 36);
     script[0]  = NCR_SCRIPT_SELECT_ATN | ((1UL << unit) << 16);
     script[1]  = (uint32_t)(uintptr_t)&script[34];   // reselect fallback
     script[2]  = NCR_SCRIPT_JUMP_IF(NCR_PHASE_MSG_OUT);
@@ -3895,6 +3913,9 @@ typedef struct {
     uint32_t laneCnt[4]; // MISMATCH: differing bytes per byte lane (i&3) —
                          //   "0/0/1024/1024" = every longword's LOW word bad
                          //   (a lane/sizing fault), vs a few scattered beats
+    uint32_t dcmd, dnad, dsps;  // TIMEOUT/BADSTOP: what the chip actually
+                                //   FETCHED (DCMD/DBC, DNAD, DSPS) ...
+    uint32_t s0, s1, s2;        //   ... vs the script words as the CPU sees them
 } DmaFailInfo;
 
 // One src->dst pairing over the RAM regions this system actually has; the
@@ -3988,7 +4009,7 @@ static int a4kDmaEngineInit(void)
 static int a4k_dma_move(uint8_t *src, uint8_t *dst, uint32_t size, DmaFailInfo *fail)
 {
     volatile struct GlobalVars *globals = a3k_globals();
-    uint32_t script[6];
+    NCR_SCRIPT_BUF(script, 6);
 
     script[0] = NCR_DMA_MOVE_OPCODE | (size & 0xFFFFFFUL);
     script[1] = (uint32_t)(uintptr_t)src;
@@ -4023,6 +4044,12 @@ static int a4k_dma_move(uint8_t *src, uint8_t *dst, uint32_t size, DmaFailInfo *
     }
     fail->istat = NCR_BASE[NCR_ISTAT];
     fail->dstat = NCR_BASE[NCR_DSTAT];   // reading clears DIP; engine is re-init'd below anyway
+    fail->dcmd  = ncr_lread(0x24);       // DCMD/DBC: the opcode+count the chip fetched
+    fail->dnad  = ncr_lread(0x28);       // DNAD: its address operand
+    fail->dsps  = ncr_lread(0x30);       // DSPS: second operand
+    fail->s0 = ((volatile uint32_t *)script)[0];
+    fail->s1 = ((volatile uint32_t *)script)[1];
+    fail->s2 = ((volatile uint32_t *)script)[2];
 
     a4kDmaEngineInit();
     return 0;
@@ -4104,6 +4131,15 @@ static void a4kDmaPrintFail(const DmaFailInfo *fail)
     print(" ISTAT=", RED); print(binHexByte(fail->istat), RED);
     print(" DSTAT=", RED); print(binHexByte(fail->dstat), RED);
     print(")\n", RED);
+    print("      chip fetched DCMD/DBC=", YELLOW); print(binHex(fail->dcmd), YELLOW);
+    print(" DNAD=", YELLOW); print(binHex(fail->dnad), YELLOW);
+    print(" DSPS=", YELLOW); print(binHex(fail->dsps), YELLOW);
+    print("\n      CPU sees script ", YELLOW); print(binHex(fail->s0), YELLOW);
+    print(" ", YELLOW); print(binHex(fail->s1), YELLOW);
+    print(" ", YELLOW); print(binHex(fail->s2), YELLOW); print("\n", YELLOW);
+    if (fail->dstat & 0x01)   // DSTAT.IID
+        print("      DSTAT.IID: the chip fetched an illegal instruction - compare\n"
+              "      the two lines above (misaligned/garbled script fetch)\n", YELLOW);
 }
 
 // Blank one display row. The repeat/soak tests draw their frame once and
