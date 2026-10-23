@@ -29,11 +29,20 @@ jobs:
         run: apt-get update && apt-get install -y python3 python3-pip zip make gcc curl && pip3 install libclang==16.0.6
 
       - name: Update vasm
+        # vasm 2.0b to match the local toolchain.  The official site goes down
+        # now and then (2026-10-23: connection refused -> whole build red), so
+        # fall back to the GitHub mirror pinned at the 2.0b commit.
         run: |
-          curl -sO http://sun.hasenbraten.de/vasm/release/vasm.tar.gz
-          tar xzf vasm.tar.gz
+          if curl -sSf --retry 3 --max-time 60 -o vasm.tar.gz http://sun.hasenbraten.de/vasm/release/vasm.tar.gz; then
+            tar xzf vasm.tar.gz
+          else
+            echo "::warning::sun.hasenbraten.de unreachable, using GitHub mirror mheyer32/vasm @ 2.0b"
+            git clone -q https://github.com/mheyer32/vasm vasm
+            git -C vasm checkout -q bb048d9d3cf54d5e38c643182a0ff55b552f65be
+          fi
           make -C vasm CPU=m68k SYNTAX=mot
           cp vasm/vasmm68k_mot /opt/amiga/bin/vasmm68k_mot
+          /opt/amiga/bin/vasmm68k_mot 2>&1 | head -2
 
       - name: Build
         run: make CFLAGS="-DDEBUG=0 -DROM_BASE=0xF80000 -mcpu=68000 -O0 -ffixed-a6 -fomit-frame-pointer -I./ndk/Include_H -I. -Isrcs"
