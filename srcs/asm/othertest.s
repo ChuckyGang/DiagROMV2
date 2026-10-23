@@ -12,6 +12,7 @@
 	xref	_mainMenu
         xref    _setupMenu            ; C: Setup submenu (custom screen, flashmenu.c)
         xref    _kickCheck
+	xref	DetectMMU
 
 
 OtherTest:
@@ -655,6 +656,7 @@ SystemInfoTest:
        lea	.CpuDone,a5
        jsr	DetectCPU
 .CpuDone:
+       jsr	DetectMMU		; system-info only for now: refines MMU(a6) + EC/LC model string
        jsr	_PrintCPU
 
        clr.l	d0

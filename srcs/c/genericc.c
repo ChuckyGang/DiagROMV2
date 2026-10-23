@@ -439,10 +439,11 @@ void PrintCPU(void)
     print(" FPU: ", GREEN);
     print((char *)globals->FPUPointer, GREEN);
     print(" MMU: ", GREEN);
-    if (globals->MMU != 0)
-        print("NOT CHECKED", GREEN);
-    else
-        print("NO ", GREEN);
+    switch (globals->MMU) {         // 0 = none, 1 = present, 4 = not probed (boot path)
+    case 0:  print("NO ", GREEN);         break;
+    case 1:  print("YES", GREEN);         break;
+    default: print("NOT CHECKED", GREEN); break;
+    }
 }
 
 extern char BuiltdateTxt[];     // incbin in data.s, cannot be a C literal

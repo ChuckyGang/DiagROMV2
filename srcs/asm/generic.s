@@ -28,6 +28,7 @@
 	xdef	GetPos
 	xdef	RomChecksum
 	xdef	DetectCPU
+	xdef	DetectMMU
 	xdef 	EnglishKey
 	xdef	EnglishKeyShifted
 	xdef	_ClearInput
@@ -770,83 +771,16 @@ DetectCPU:					; Detects CPU, FPU etc.
 	move.l	#IllegalError,$10
 	move.l	#UnimplInst,$2c
 .mmutest:
-	move.b	#4,MMU(a6)			; Lets set a fake value of "MMU Detected"
-						; Lets skipthat MMU detection,  it is buggy (now even removed!)
+	move.b	#4,MMU(a6)			; 4 = "not checked".  The boot path does not probe the MMU
+						; (the old detection was buggy and was removed).  The
+						; system-info screen calls DetectMMU afterwards, which
+						; refines this to 0/1 and re-derives the model string.
+						; Move it in here once it has proven itself on real hw.
 	move.l	#BusError,$8			; This time to a routine that can present more data.
 	move.l	#IllegalError,$10
 	move.l	#UnimplInst,$2c
 	move.l	#Trap,$80			; Restored all exceptions etc touched here
-	clr.l	d1
-	move.b	CPUGen(a6),d1			; Get CPU Gen from memory, lets find out the real string
-	cmp.b	#1,d1				; Check if we had 010
-	ble	.cpudone			; if equal or lover than. skip the rest
-	cmp.b	#2,d1				; Check if we have a 020
-	bne	.no020	
-	cmp.b	#0,ADR24BIT(a6)		; check if we have 24bit adr mode
-	beq	.full020
-	move.b	#2,d1				; Set 68EC20
-	bra	.cpudone
-.full020:
-	move.b	#3,d1				; Set 68020
-	bra	.cpudone
-.no020:
-	cmp.b	#3,d1				; Check if we have a 030
-	bne	.no030
-	cmp.b	#0,MMU(a6)			; Check if we have a MMU
-	bne	.full030
-	move.b	#4,d1				; Set 68EC30
-	bra	.cpudone	
-.full030:
-	move.b	#5,d1				; Set 68030
-	bra	.cpudone
-.no030:
-	cmp.b	#4,d1				; Check if we have a 040
-	bne	.no040
-	cmp.b	#0,MMU(a6)			; Check if we have a MMU
-	bne	.mmu040
-	move.b	#6,d1				; no mmu, so no FPu so set 68EC40
-	bra	.cpudone
-.mmu040:
-	cmp.b	#0,FPU(a6)			; Check if we have a FPU
-	bne	.full040
-	move.b	#7,d1				; Set 68LC40
-	bra	.cpudone
-.full040:
-	move.b	#8,d1				; Set 68040
-	bra	.cpudone
-.no040:
-	cmp.b	#5,d1				; Check if we have a 060
-	bne	.no060
-	cmp.b	#0,MMU(a6)
-	bne	.mmu060yes
-	move.b	#9,d1				; no mmu no fpu so set 68EC60
-	bra	.cpudone
-.mmu060yes:
-	cmp.b	#0,FPU(a6)
-	bne	.full060
-	move.b	#10,d1				; Set 68LC60
-	cmp.b	#3,CPU060Rev(a6)		; Check if we had rev 3.
-	bne.s	.noEC
-	move.b	#9,d1				; set 68EC60
-.noEC
-	bra	.cpudone
-.full060:
-	move.b	#11,d1				; set 68060
-	bra	.cpudone
-.no060:					;DQFUQ?  ok something went nuts we did not have ANY CPU?
-	cmp.b	#6,d1
-	bne	.novampcrap
-	move.b	#12,d1
-	bra	.cpudone
-.novampcrap:
-	move.b	#13,d1				;So set 68???
-.cpudone:
-	;	move.l	#0,d1
-	move.b	d1,CPU(a6)			; Store CPU model
-	lea	CPUString,a0
-	mulu	#7,d1				; Multiply with 7 to point at correct part of string
-	add.l	d1,a0
-	move.l	a0,CPUPointer(a6)
+	bsr	ComputeCPUName			; CPUGen/FPU/MMU/ADR24BIT -> CPU(a6) + CPUPointer(a6)
 	jmp	(a5)
 .cpu3:
 	cmp.b	#2,d1
@@ -859,8 +793,192 @@ DetectCPU:					; Detects CPU, FPU etc.
 	move.b	#0,MMU(a6)
 	move.b	#0,CPUGen(a6)
 	clr.l	d1
-	move.b	#13,d1				; set 68060
-	bra	.cpudone
+	move.b	#13,d1				; set 68????
+	bsr	StoreCPUName
+	jmp	(a5)
+;------------------------------------------------------------------------------------------
+; ComputeCPUName - derive the CPU model (CPU(a6) + CPUPointer(a6)) from
+; CPUGen / ADR24BIT / MMU / FPU / CPU060Rev.  Plain subroutine (rts) so it can
+; be re-run after DetectMMU has refined the MMU flag.
+; MMU(a6): 0 = none -> EC variants.  Anything else (1 = present, 4 = not
+; checked) counts as "has MMU", so the boot path keeps naming the full part.
+; Trashes d1/a0.
+;------------------------------------------------------------------------------------------
+ComputeCPUName:
+	clr.l	d1
+	move.b	CPUGen(a6),d1			; Get CPU Gen from memory, lets find out the real string
+	cmp.b	#1,d1				; Check if we had 010
+	ble	StoreCPUName			; if equal or lover than. skip the rest
+	cmp.b	#2,d1				; Check if we have a 020
+	bne	.no020	
+	cmp.b	#0,ADR24BIT(a6)		; check if we have 24bit adr mode
+	beq	.full020
+	move.b	#2,d1				; Set 68EC20
+	bra	StoreCPUName
+.full020:
+	move.b	#3,d1				; Set 68020
+	bra	StoreCPUName
+.no020:
+	cmp.b	#3,d1				; Check if we have a 030
+	bne	.no030
+	cmp.b	#0,MMU(a6)			; Check if we have a MMU
+	bne	.full030
+	move.b	#4,d1				; Set 68EC30
+	bra	StoreCPUName	
+.full030:
+	move.b	#5,d1				; Set 68030
+	bra	StoreCPUName
+.no030:
+	cmp.b	#4,d1				; Check if we have a 040
+	bne	.no040
+	cmp.b	#0,MMU(a6)			; Check if we have a MMU
+	bne	.mmu040
+	move.b	#6,d1				; no mmu, so no FPu so set 68EC40
+	bra	StoreCPUName
+.mmu040:
+	cmp.b	#0,FPU(a6)			; Check if we have a FPU
+	bne	.full040
+	move.b	#7,d1				; Set 68LC40
+	bra	StoreCPUName
+.full040:
+	move.b	#8,d1				; Set 68040
+	bra	StoreCPUName
+.no040:
+	cmp.b	#5,d1				; Check if we have a 060
+	bne	.no060
+	cmp.b	#0,MMU(a6)
+	bne	.mmu060yes
+	move.b	#9,d1				; no mmu no fpu so set 68EC60
+	bra	StoreCPUName
+.mmu060yes:
+	cmp.b	#0,FPU(a6)
+	bne	.full060
+	move.b	#10,d1				; Set 68LC60
+	cmp.b	#3,CPU060Rev(a6)		; Check if we had rev 3.
+	bne.s	.noEC
+	move.b	#9,d1				; set 68EC60
+.noEC
+	bra	StoreCPUName
+.full060:
+	move.b	#11,d1				; set 68060
+	bra	StoreCPUName
+.no060:					;DQFUQ?  ok something went nuts we did not have ANY CPU?
+	cmp.b	#6,d1
+	bne	.novampcrap
+	move.b	#12,d1
+	bra	StoreCPUName
+.novampcrap:
+	move.b	#13,d1				;So set 68???
+; StoreCPUName - d1 = CPU model index into CPUString
+StoreCPUName:
+	move.b	d1,CPU(a6)			; Store CPU model
+	lea	CPUString,a0
+	mulu	#7,d1				; Multiply with 7 to point at correct part of string
+	add.l	d1,a0
+	move.l	a0,CPUPointer(a6)
+	rts
+;------------------------------------------------------------------------------------------
+; DetectMMU - probe for a working MMU/PMMU and refine the CPU model string.
+;
+; Called from the system-info screen ONLY for now (not from the boot path):
+; DetectCPU still stores 4 = "not checked".  Once this has proven itself on
+; real hardware it can be moved into DetectCPU.
+;
+; Requires DetectCPU to have run first (CPUGen/FPU valid).  Result in MMU(a6):
+;    0 = no MMU    1 = MMU present    4 = not checked (080 / unknown gen)
+;
+; Method: a non-destructive round trip through the translation control
+; register with the Enable bit CLEAR, so address translation is never turned
+; on.  The original TC is saved and written back afterwards.
+;   020:      PMOVE TC  - a 68851 answers; without one the coprocessor access
+;                         ends in an F-line exception (same mechanism the FPU
+;                         probe above relies on).
+;   030:      PMOVE TC  - a 68EC030 has no TC: either F-line (EmuTOS relies on
+;                         this) or the value does not stick (Motorola calls
+;                         030 MMU-instruction behaviour on the EC030 undefined,
+;                         so BOTH outcomes are treated as "no MMU").
+;   040/060:  MOVEC TC  - EC040/EC060 accept the MOVEC but have no TC storage,
+;                         so a toggled P bit does not read back.
+; Exceptions caught: illegal ($10), F-line ($2C), MMU configuration ($E0).
+; All of them land in .nommu, which rewinds SP past any exception frame.
+;------------------------------------------------------------------------------------------
+DetectMMU:
+	movem.l	d0-d3/a0-a3,-(sp)
+	move.b	#4,MMU(a6)			; default: not checked
+	moveq	#0,d0
+	move.b	CPUGen(a6),d0
+	cmp.b	#2,d0
+	blt	.none				; 68000/68010: nothing to probe
+	cmp.b	#5,d0
+	bgt	.done				; 68080 or unknown: leave "not checked"
+
+	machine	68060
+	movec	VBR,d1
+	machine	68000
+	move.l	d1,a0				; a0 = vector base
+	move.l	$10(a0),-(sp)			; save the three vectors we hijack
+	move.l	$2c(a0),-(sp)
+	move.l	$e0(a0),-(sp)
+	move.l	sp,a3				; a3 = SP to rewind to on a fault
+	lea	.nommu,a1
+	move.l	a1,$10(a0)
+	move.l	a1,$2c(a0)
+	move.l	a1,$e0(a0)
+	nop
+
+	cmp.b	#3,d0
+	bgt	.probe040
+	; --- 68020 (+68851) / 68030: PMOVE round trip with E=0 ---
+	subq.l	#8,sp				; (sp) = scratch, 4(sp) = original TC
+	machine	68030
+	pmove	tc,4(sp)			; faults here if there is no (P)MMU
+	move.l	#$00C08888,(sp)		; E=0, PS=4K, IS=0, TIA..TID=8: valid, translation OFF
+	pmove	(sp),tc
+	clr.l	(sp)
+	pmove	tc,(sp)			; read it back
+	move.l	(sp),d2
+	pmove	4(sp),tc			; restore original TC
+	machine	68000
+	addq.l	#8,sp
+	cmp.l	#$00C08888,d2
+	bne	.nommu
+	bra	.yesmmu
+
+.probe040:
+	; --- 68040 / 68060: MOVEC round trip, E cleared, P toggled ---
+	machine	68060
+	movec	tc,d3				; original TC
+	move.l	d3,d2
+	bclr	#15,d2				; E stays/goes 0: never enable translation
+	bchg	#14,d2				; toggle P (page size) as the probe bit
+	movec	d2,tc
+	movec	tc,d1				; read it back
+	movec	d3,tc				; restore original TC
+	machine	68000
+	eor.l	d2,d1				; bit 14 set = P did not stick
+	btst	#14,d1
+	bne	.nommu
+
+.yesmmu:
+	move.l	a3,sp
+	move.b	#1,MMU(a6)
+	bra	.restore
+.nommu:
+	move.l	a3,sp				; also drops any exception frame
+	clr.b	MMU(a6)
+.restore:
+	move.l	(sp)+,$e0(a0)			; put the vectors back
+	move.l	(sp)+,$2c(a0)
+	move.l	(sp)+,$10(a0)
+	nop
+	bsr	ComputeCPUName			; re-derive EC/LC/full model string
+	bra	.done
+.none:
+	clr.b	MMU(a6)
+	bsr	ComputeCPUName
+.done:
+	movem.l	(sp)+,d0-d3/a0-a3
+	rts
 ;------------------------------------------------------------------------------------------
 
 	

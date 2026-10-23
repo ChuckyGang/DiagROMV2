@@ -254,7 +254,7 @@ typedef struct GlobalVars
 	uint8_t	Inverted;			// if 0, former what was not inverted
 	uint8_t	NoChar;			// if 0 print a char. if not.  just do not print
 	uint8_t	CPU060Rev;			// Rev of 060 CPU
-	uint8_t	MMU;				// If 0, there is no MMU
+	uint8_t	MMU;				// 0 = no MMU, 1 = MMU present (DetectMMU), 4 = not checked (boot path)
 	uint8_t	ADR24BIT;			// If 0, no 24 bit address CPU
 	uint8_t	MOUSE;				// if not 0 mouse is moved
 	uint8_t	MBUTTON;			// if not 0 a mousebutton is pressed
