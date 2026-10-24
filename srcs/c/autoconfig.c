@@ -38,8 +38,17 @@
 // yellow-screen Kickstart on a big box (A3000 missing-daughterboard /DTACK
 // float at $E80000, Buster faults at $FF000000) become printed verdicts,
 // with Gary's timed-out flag distinguishing "nothing answered" from
-// "BERR actively asserted". BERR paths need real-hardware calibration
-// (pull the AA3000+ daughterboard); emulators don't raise these.
+// "BERR actively asserted". Real-hardware calibration (user report,
+// Ramsey-04 big box, 2026-10-24): with no unconfigured Zorro III board the
+// $FF000000 first touch ALWAYS ends in a Gary-timeout BERR while $E80000
+// reads $FF - that is the normal end-of-chain on every cardless A3000/
+// A4000, not a Buster fault. Buster auto-terminates Zorro II cycles but
+// never an unanswered Zorro III cycle (Fat Buster II spec 2.5.9/2.6.8:
+// BERR only on PIC collision or BINT), so Gary's 250ms timer is the only
+// thing that ends it - which is exactly why Kickstart arms it and swallows
+// that bus error as "no board". The Z3 verdict is therefore keyed on the
+// timed-out flag: timeout = expected, no timeout = actively asserted =
+// fault. The $E80000 BERR case is still uncalibrated on real hardware.
 
 #include "generic.h"
 
@@ -777,26 +786,44 @@ static void acPrintNonBoard(const uint8_t *rom)
 }
 
 // A caught bus error on a config-space probe is not a malfunction of the
-// test - it IS the diagnosis: this exact event is what yellow-screens
-// Kickstart at boot on a big box. Report it with the machine-level meaning
-// per space (hint), plus Fat Gary's timed-out flag when we armed it, which
-// separates "nothing terminated the cycle" (Gary timeout -> dead/missing
-// logic, e.g. no daughterboard pulling /DTACK) from "something actively
-// asserted BERR" (e.g. Buster itself). Flag-clear behavior is undocumented
-// in the sources we have; re-writing the mode byte re-arms it - calibrate
-// on real hardware.
-static void acPrintBerr(int garyArmed, const char *hint)
+// test - it is data. Fat Gary's timed-out flag (when we armed it) separates
+// "nothing terminated the cycle" (Gary's 250ms timeout fired) from
+// "something actively asserted BERR" (Buster PIC collision/BINT, a card).
+// Which of those is a fault depends on the space:
+//   $FF000000: Buster NEVER terminates an unanswered Zorro III cycle, so
+//              with no unconfigured Z3 board the probe always ends in the
+//              Gary timeout - Kickstart arms Gary and swallows this same
+//              bus error as "no board" on every cardless big box (real-hw
+//              calibrated 2026-10-24). Timeout = expected; an actively
+//              asserted BERR is the anomaly.
+//   $E80000:   Buster auto-generates Zorro II DTACK, so ANY bus error here
+//              is wrong - on an A3000 the missing-daughterboard /DTACK
+//              signature, otherwise Buster/bus fault.
+// timeoutIsNormal selects the first interpretation. Flag-clear behavior is
+// undocumented in the sources we have; re-writing the mode byte re-arms it.
+static void acPrintBerr(int garyArmed, int timeoutIsNormal,
+                        const char *faultHint)
 {
+    int timedOut = 0;
+    if (garyArmed) {
+        timedOut = (*GARY_TIMEOUT_MODE & 0x80) ? 1 : 0;
+        *GARY_TIMEOUT_MODE = 0x80;   // re-arm BERR mode / clear attempt
+    }
+    if (garyArmed && timedOut && timeoutIsNormal) {
+        print("no slave answered - Gary timeout bus error after 250ms\n", GREEN);
+        print("     -> expected: no unconfigured Zorro III board. Buster never ends an\n"
+              "        unanswered Zorro III cycle; Kickstart swallows this same bus error.\n", YELLOW);
+        return;
+    }
     print("BUS ERROR caught on probe", RED);
     if (garyArmed) {
-        if (*GARY_TIMEOUT_MODE & 0x80)
+        if (timedOut)
             print(" (Gary timeout: nothing terminated the cycle)", RED);
         else
             print(" (no Gary timeout: BERR actively asserted)", RED);
-        *GARY_TIMEOUT_MODE = 0x80;   // re-arm BERR mode / clear attempt
     }
     print("\n", WHITE);
-    print((char *)hint, YELLOW);
+    print((char *)faultHint, YELLOW);
 }
 
 // ---------------------------------------------------------------------------
@@ -878,19 +905,22 @@ static void acRunAutoconfig(int detailed, int quiet)
                 if (z3Probe) {
                     print("  $FF000000: ", WHITE);
                     if (firstBerr)
-                        acPrintBerr(1, "     -> Z3 config space not decoded: SuperBuster fault/absent?\n");
+                        acPrintBerr(1, 1, "     -> BERR asserted on a Z3 config cycle without a Gary timeout:\n"
+                                          "        Buster PIC collision/BINT or a card fault - not the normal\n"
+                                          "        no-board timeout. SuperBuster/card suspect.\n");
                     else
                         acPrintNonBoard(firstRom);
                     print("  $E80000:   ", WHITE);
                     if (e8Berr)
-                        acPrintBerr(1, "     -> Z2 config space dead: on an A3000 this is the missing-\n"
-                                       "        daughterboard /DTACK signature; otherwise Buster/bus fault.\n");
+                        acPrintBerr(1, 0, "     -> Z2 config space dead (Buster should terminate Zorro II cycles\n"
+                                          "        itself): on an A3000 this is the missing-daughterboard /DTACK\n"
+                                          "        signature; otherwise Buster/bus fault.\n");
                     else
                         acPrintNonBoard(rom);
                 } else {
                     print("  $E80000:   ", WHITE);
                     if (firstBerr)
-                        acPrintBerr(0, "     -> bus error probing the Z2 config space.\n");
+                        acPrintBerr(0, 0, "     -> bus error probing the Z2 config space.\n");
                     else
                         acPrintNonBoard(firstRom);
                 }

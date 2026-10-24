@@ -1,6 +1,6 @@
 ; DiagROM's first bus-error guard (vector 2) — C-callable probe-read helpers
 ; for autoconfig.c's expansion-space probes: catch the exact condition that
-; yellow-screens Kickstart on a big box (bad/absent Buster Z3 decode, A3000
+; yellow-screens Kickstart on a big box (actively asserted BERR on the bus, A3000
 ; daughterboard missing so /DTACK floats) and REPORT it instead of crashing.
 ;
 ; CPU-agnostic recovery pattern (design agreed 2026-08-07): the handler never
