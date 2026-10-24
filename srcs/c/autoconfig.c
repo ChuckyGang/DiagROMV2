@@ -1114,6 +1114,18 @@ static void acRunAutoconfig(int detailed, int quiet)
     if (boardNo > AC_MAX_BOARDS)
         print("\n32-board cap reached - a board may be ignoring its config writes.\n", RED);
 
+    // Hand Fat Gary back in its power-up mode. Nothing else in DiagROM has
+    // a bus-error guard: the old asm autoconfig probes $FF000000 blind and
+    // only survives because an unanswered cycle gets a fake DSACK ($FF
+    // data) in that mode - leaving BERR mode armed here crashed it on a
+    // 68060 big box right after this test (user report 2026-10-24). The
+    // mode bit is write-only (reads give the timed-out flag), so "restore"
+    // means the documented reset default rather than a saved value.
+    if (z3Probe) {
+        *GARY_TIMEOUT_MODE = 0x00;
+        print("\nFat Gary timeout back to power-up mode (fake DSACK, no BERR).\n", YELLOW);
+    }
+
     print("\nSummary: ", WHITE);
     print(binDec(assigned), assigned ? GREEN : WHITE);
     print(" assigned, ", WHITE);
