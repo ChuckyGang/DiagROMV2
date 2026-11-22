@@ -45,8 +45,14 @@
 // A4000, not a Buster fault. Buster auto-terminates Zorro II cycles but
 // never an unanswered Zorro III cycle (Fat Buster II spec 2.5.9/2.6.8:
 // BERR only on PIC collision or BINT), so Gary's 250ms timer is the only
-// thing that ends it - which is exactly why Kickstart arms it and swallows
-// that bus error as "no board". The Z3 verdict is therefore keyed on the
+// thing that ends it. CORRECTION 2026-11-21 (V40 exec/coldstart.asm +
+// expansion/config.asm read in order): Kickstart does NOT probe in this
+// mode. ColdStart writes mode $00 (fake DSACK after 9us), ConfigChain and
+// the A3000 RAM sizing run like that, and expansion sets $80 only AFTER
+// them - all on exec's coldExcept vectors, so a bus error during Kickstart's
+// own config probe IS a yellow screen, nothing swallows it. Arming BERR
+// first is this test's choice (a dead probe becomes a caught event), not
+// Kickstart's; kickboot.c replays the real order. The Z3 verdict is keyed on the
 // timed-out flag: timeout = expected, no timeout = actively asserted =
 // fault. The $E80000 BERR case is still uncalibrated on real hardware.
 
@@ -103,9 +109,9 @@ extern int isGayleMachine(void);
 //           after 9us (reset default — dead probes "succeed" with garbage!)
 //           read:  bit 7 = a cycle timed out
 //   $DE0001 write: bit 7 = 0 enables the timeout machinery
-// Kickstart's big-box builds set $80/$00 before configuring (config.asm
-// "Set BERR (250 mSecs)") — we do the same, or a dead expansion bus would
-// hang or lie instead of raising a catchable bus error.
+// Kickstart's big-box builds set $80 (config.asm "Set BERR (250 mSecs)")
+// only after ConfigChain + RAM sizing; this test arms it BEFORE probing so
+// a dead expansion bus raises a catchable bus error instead of lying.
 #define GARY_TIMEOUT_MODE   ((volatile uint8_t *)0x00DE0000UL)
 #define GARY_TIMEOUT_ENABLE ((volatile uint8_t *)0x00DE0001UL)
 
@@ -792,10 +798,10 @@ static void acPrintNonBoard(const uint8_t *rom)
 // Which of those is a fault depends on the space:
 //   $FF000000: Buster NEVER terminates an unanswered Zorro III cycle, so
 //              with no unconfigured Z3 board the probe always ends in the
-//              Gary timeout - Kickstart arms Gary and swallows this same
-//              bus error as "no board" on every cardless big box (real-hw
-//              calibrated 2026-10-24). Timeout = expected; an actively
-//              asserted BERR is the anomaly.
+//              Gary timeout once WE arm it (real-hw calibrated
+//              2026-10-24; Kickstart itself probes in fake-DSACK mode,
+//              see the correction in the file header). Timeout = expected;
+//              an actively asserted BERR is the anomaly.
 //   $E80000:   Buster auto-generates Zorro II DTACK, so ANY bus error here
 //              is wrong - on an A3000 the missing-daughterboard /DTACK
 //              signature, otherwise Buster/bus fault.
@@ -810,9 +816,9 @@ static void acPrintBerr(int garyArmed, int timeoutIsNormal,
         *GARY_TIMEOUT_MODE = 0x80;   // re-arm BERR mode / clear attempt
     }
     if (garyArmed && timedOut && timeoutIsNormal) {
-        print("no slave answered - Gary timeout bus error after 250ms\n", GREEN);
-        print("     -> expected: no unconfigured Zorro III board. Buster never ends an\n"
-              "        unanswered Zorro III cycle; Kickstart swallows this same bus error.\n", YELLOW);
+        print("OK - empty, no board answered (Gary 250ms timeout)\n", GREEN);
+        print("     -> No unconfigured Zorro III board. Buster never ends an unanswered\n"
+              "        Zorro III cycle, so the Gary timeout armed above ends it.\n", YELLOW);
         return;
     }
     print("BUS ERROR caught on probe", RED);
@@ -860,7 +866,7 @@ static void acRunAutoconfig(int detailed, int quiet)
         // becomes a caught, reportable event below.
         *GARY_TIMEOUT_MODE   = 0x80;
         *GARY_TIMEOUT_ENABLE = 0x00;
-        print("Fat Gary timeout armed: BERR after 250ms (as Kickstart, $80/$00).\n", YELLOW);
+        print("Fat Gary timeout armed: BERR after 250ms, so a dead probe is caught.\n", YELLOW);
     }
     if (detailed)
         print("Per board: Y/LMB = assign   N/RMB = shut up   ESC = stop scan\n", YELLOW);

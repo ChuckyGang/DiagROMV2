@@ -401,6 +401,8 @@ typedef struct GlobalVars
 	uint8_t	SerNoEcho;		// nonzero = rs232_out() drops output (upload.c keeps the wire clear while receiving)
 	uint8_t	SerPad1;		// keep the following pointers word-aligned
 	void*		NcrBase;		// 53C710 register base of the ACTIVE NCR controller: $DD0040 (A4000T) or A4091 board base+$800000; set by that controller's detect()
+	void*		KsGuardSP;		// kickboot.s ksGuard: recovery stack pointer while a guarded step runs
+	void*		KsGuardRec;		// kickboot.s ksGuard: KsFault record the catch-all handler fills in
 	void*		EndVar;			// End of variables
 } GlobalVars;
 

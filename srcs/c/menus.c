@@ -61,6 +61,7 @@ extern void HDDTestC(void);
 extern void CD32TestC(void);
 extern void AutoConfigDetailC(void);   // autoconfig.c — C rewrite (in progress)
 extern void AutoConfigAutoC(void);
+extern void KickBootCheckC(void);      // kickboot.c — Kickstart early-boot replay
 
 // C functions defined in mainmenu.c
 void mainMenu(void);
@@ -248,21 +249,22 @@ static const char otherMenuK[] = "5 - Kickstart ROM check (DeMoN only)";
 static const char otherMenuAC1[] = "6 - Autoconfig - NEW - Detailed";
 static const char otherMenuAC2[] = "7 - Autoconfig - NEW - Automatic";
 static const char otherMenu5[] = "8 - TF360/TF1260 Diag";
+static const char otherMenuKB[] = "K - Kickstart boot check (yellow screen)";
 static const char otherMenu6[] = "9 - Mainmenu";
 
 static const char *otherMenuItems[] = {
     otherText,
     otherMenu1, otherMenu2, otherMenu3, otherMenu4, otherMenuK,
     otherMenuAC1, otherMenuAC2,
-    otherMenu5, otherMenu6,
+    otherMenu5, otherMenuKB, otherMenu6,
     NULL
 };
 static MenuHandler otherMenuCode[] = {
     RTCTest, AutoConfigDetail, ShowMemAddress, RTCTestC, kickCheck,
     AutoConfigDetailC, AutoConfigAutoC,
-    TF1260, mainMenu
+    TF1260, KickBootCheckC, mainMenu
 };
-static uint8_t otherMenuKey[] = { '1','2','3','4','5','6','7','8','9',0 };
+static uint8_t otherMenuKey[] = { '1','2','3','4','5','6','7','8','k','9',0 };
 
 // ---------------------------------------------------------------------------
 // Disk Test Menu  (MenuNumber 8)
