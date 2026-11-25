@@ -419,7 +419,7 @@ void KickBootCheckC(void)
         } else {
             origCacr = out[1];
             haveCacr = 1;
-            print("OK, reads back $", GREEN);
+            print("OK, reads back ", GREEN);
             print(binHexWord(out[2]), GREEN);
             print("\n", WHITE);
         }

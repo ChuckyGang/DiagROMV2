@@ -2086,7 +2086,88 @@ static int a3kPrintWdChip(void)
     uint8_t rst = a3k_wd_wait_int();
     print("WD33C93: ", WHITE);
     if (rst != WDSTS_RESET && rst != WDSTS_RESET_AF) {
+        // Say what the chip DID answer: "nothing at all" (aux $FF), "answers
+        // but never raises the reset interrupt" and "wrong reset status" are
+        // three different faults (A3000 real-hw report 2026-11-25).
+        uint8_t aux = a3k_wd_aux();
         print("not responding\n", RED);
+        print("  Aux status $", WHITE);
+        print(binHexByte(aux), CYAN);
+        if (rst == 0xFF && !(aux & WD_ASR_INT)) {
+            print(" - no interrupt after RESET (timeout)\n", YELLOW);
+        } else {
+            print(" - RESET gave status $", YELLOW);
+            print(binHexByte(rst), YELLOW);
+            print(", expected $00/$01\n", YELLOW);
+        }
+        // Two cheap probes that split "chip not running" from "register
+        // access path broken": the aux status must not change between plain
+        // reads (if it walks, A0 is stuck high and these are auto-incrementing
+        // DATA reads), and a fully r/w register must hold two complementary
+        // patterns (every data bit seen as both 0 and 1). The verdict below
+        // names what it COULD be - a hint for the bench, not a certainty
+        // (user request 2026-11-25, after a real board with D2 open between
+        // SDMAC and WD33C93 read reset status $04 / aux $84).
+        print("  Aux status x8:", WHITE);
+        uint8_t aux0 = a3k_wd_aux();
+        int auxWalks = 0;
+        for (int i = 0; i < 8; i++) {
+            uint8_t v = i ? a3k_wd_aux() : aux0;
+            if (v != aux0) auxWalks = 1;
+            print(" $", WHITE);
+            print(binHexByte(v), CYAN);
+        }
+        print("\n  Register $0A write/read: ", WHITE);
+        static const uint8_t pat[2] = { 0xA5, 0x5A };
+        uint8_t hi = 0, lo = 0;
+        int allFF = (aux0 == 0xFF);
+        for (int i = 0; i < 2; i++) {
+            a3k_wd_write(WD_CDB8_LADDR0, pat[i]);
+            (void)*RAMSEY_VERSION_ADDR;         // scrub the bus (anti-echo rule)
+            uint8_t rb = a3k_wd_read(WD_CDB8_LADDR0);
+            hi |= (uint8_t)(rb & ~pat[i]);
+            lo |= (uint8_t)(pat[i] & ~rb);
+            if (rb != 0xFF) allFF = 0;
+            print("$", WHITE);
+            print(binHexByte(pat[i]), WHITE);
+            print("->$", WHITE);
+            print(binHexByte(rb), rb == pat[i] ? GREEN : RED);
+            print("  ", WHITE);
+        }
+        print("\n", WHITE);
+
+        int nBad = 0;
+        for (int bit = 0; bit < 8; bit++)
+            if ((hi | lo) & (1 << bit)) nBad++;
+
+        print("  Could be:\n", YELLOW);
+        if (allFF) {
+            print("   - Nothing drives the data lines: WD33C93 missing or not seated,\n"
+                  "     or its chip select / read strobe from the SDMAC is not arriving.\n", YELLOW);
+        } else if (auxWalks) {
+            print("   - Aux status changes between reads: the register-select line (A0)\n"
+                  "     to the WD33C93 is stuck or open, so status reads hit data registers.\n", YELLOW);
+        } else if (nBad == 0) {
+            print("   - Register access works but RESET never completes: WD33C93 clock\n"
+                  "     missing, its reset pin held active, or the chip itself is bad.\n", YELLOW);
+        } else if (nBad <= 2) {
+            for (int bit = 0; bit < 8; bit++) {
+                if (!((hi | lo) & (1 << bit))) continue;
+                char d[2] = { (char)('0' + bit), 0 };
+                print("   - Data bit ", YELLOW);
+                print(d, CYAN);
+                print((hi & (1 << bit)) ? " stuck HIGH" : " stuck LOW", RED);
+                print(" between the SDMAC and the WD33C93.\n", YELLOW);
+            }
+            print("     Check that line socket to socket: open trace or unsoldered pin\n"
+                  "     (an open line reads high), solder bridge, or short to +5V/GND.\n", YELLOW);
+            uint8_t fixed = (uint8_t)(rst & ~hi);
+            if (!lo && (fixed == WDSTS_RESET || fixed == WDSTS_RESET_AF))
+                print("     Ignoring that bit the reset status is valid: the chip looks OK.\n", GREEN);
+        } else {
+            print("   - Several data bits wrong: WD33C93 not seated, bad chip, or a\n"
+                  "     read/write strobe or chip select fault between it and the SDMAC.\n", YELLOW);
+        }
         return 0;
     }
 
@@ -3355,7 +3436,7 @@ static int ncr710Present(void)
 static void ncr710ProbeDump(volatile uint8_t *b)
 {
     uint8_t v;
-    print("Raw register window at $", WHITE);
+    print("Raw register window at ", WHITE);
     print(binHex((uint32_t)(uintptr_t)b), WHITE); print(" (byte reads, -- = bus error):\n", WHITE);
     for (int row = 0; row < 64; row += 16) {
         print("  +", CYAN); print(binHexByte((uint8_t)row), CYAN); print(":", CYAN);
@@ -4907,9 +4988,9 @@ static int a3kBuildRegChecks(A3kRegCheck *checks, int sdmacVer, int wdcOk)
 // lane? one byte? everything?) is the diagnosis on a real board.
 static void a3kRegPrintFail(const A3kRegFail *fail, int errs)
 {
-    print("FAILED (wrote $", RED);
+    print("FAILED (wrote ", RED);
     print(binHex(fail->wrote), RED);
-    print(" read $", RED);
+    print(" read ", RED);
     print(binHex(fail->read), RED);
     if (fail->note) {
         print(", ", RED);

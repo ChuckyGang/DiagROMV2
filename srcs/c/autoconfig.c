@@ -781,7 +781,7 @@ static void acPrintNonBoard(const uint8_t *rom)
     for (int i = 1; i < ER_SIZEOF && allZero; i++)
         if (rom[i] != 0xFF) allZero = 0;
     if (allFF) {
-        print("bus reads $FF everywhere (open bus)\n", YELLOW);
+        print("OK - empty, no board answered (bus reads $FF)\n", GREEN);
     } else if (allZero) {
         print("bus reads $00 everywhere\n", YELLOW);
     } else {
